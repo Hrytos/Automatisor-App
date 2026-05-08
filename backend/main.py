@@ -535,7 +535,7 @@ async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, sit
         "GET",
         "/rest/v1/automatisor_customer_sites",
         params={
-            "select": "customer_site_id,metadata,report_metadata,is_report_ready",
+            "select": "customer_site_id,metadata,notes,report_metadata,is_report_ready",
             "customer_id": f"eq.{customer_id}",
             "account_id": f"eq.{account_id}",
             "site_id": f"eq.{site_id}",
@@ -562,6 +562,7 @@ async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, sit
     if assignment:
         row["customer_site_id"] = assignment.get("customer_site_id")
         row["customer_site_metadata"] = assignment.get("metadata") or {}
+        row["notes"] = assignment.get("notes") or ""
         row["report_metadata"] = assignment.get("report_metadata") or {}
         row["is_report_ready"] = bool(assignment.get("is_report_ready"))
     return row
@@ -574,7 +575,7 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
         "GET",
         "/rest/v1/automatisor_customer_sites",
         params={
-            "select": "customer_site_id,site_id,account_id,metadata,report_metadata,is_report_ready,created_at",
+            "select": "customer_site_id,site_id,account_id,metadata,notes,report_metadata,is_report_ready,created_at",
             "customer_id": f"eq.{customer_id}",
             "order": "created_at.desc",
         },
@@ -607,6 +608,7 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
                 **row,
                 "customer_site_id": assignment.get("customer_site_id"),
                 "customer_site_metadata": assignment.get("metadata") or {},
+                "notes": assignment.get("notes") or "",
                 "report_metadata": assignment.get("report_metadata") or {},
                 "is_report_ready": bool(assignment.get("is_report_ready")),
             }
@@ -1368,6 +1370,51 @@ async def workspace_state(body: dict[str, Any] = Body(default={})) -> dict[str, 
         db = get_admin_db()
         requested_account_id = clean_optional(body.get("active_account_id"))
         return await build_workspace_payload(db, email, requested_account_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/customer-sites/notes")
+async def save_customer_site_notes(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        account_id = clean_required(body.get("account_id"), "Account")
+        site_id = clean_required(body.get("site_id"), "Site")
+        notes = str(body.get("notes") or "")
+        db = get_admin_db()
+        customer = await find_customer_by_email(db, email)
+        if not customer:
+            raise HTTPException(status_code=422, detail="Customer not found")
+        assignment_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_customer_sites",
+            params={
+                "select": "customer_site_id",
+                "customer_id": f"eq.{customer['customer_id']}",
+                "account_id": f"eq.{account_id}",
+                "site_id": f"eq.{site_id}",
+                "limit": 1,
+            },
+        )
+        assignment = assignment_rows[0] if assignment_rows else None
+        if not assignment:
+            raise HTTPException(status_code=422, detail="Selected site was not found for this customer")
+        await db.request(
+            "PATCH",
+            "/rest/v1/automatisor_customer_sites",
+            params={"customer_site_id": f"eq.{assignment['customer_site_id']}"},
+            json_body={
+                "notes": notes,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            headers={"Prefer": "return=minimal"},
+        )
+        return {
+            "status": "saved",
+            "account_id": account_id,
+            "site_id": site_id,
+            "notes": notes,
+        }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

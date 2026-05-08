@@ -846,7 +846,6 @@ function SiteRow({ site }) {
   const title = site.company_name || site.metadata?.site_name || "Saved site";
   const routeState = buildPreAssessmentRouteState(site);
   const reportReady = Boolean(site.is_report_ready);
-  const reportPendingMessage = "Your report is being generated. We'll email you when it's ready.";
   return (
     <article className="site-bar-item">
       <div className="site-bar-copy">
@@ -854,27 +853,14 @@ function SiteRow({ site }) {
         <p className="site-bar-address">{site.full_address || ""}</p>
       </div>
       <div className="site-bar-actions">
-        {reportReady ? (
-          <Link
-            className="site-bar-link site-bar-link-primary"
-            to={buildWorkspaceReportPath(routeState)}
-            state={routeState}
-            onClick={() => saveReportContext(routeState)}
-          >
-            View Report
-          </Link>
-        ) : (
-          <div className="site-bar-disabled-wrap" data-tooltip={reportPendingMessage}>
-            <button
-              type="button"
-              className="site-bar-link site-bar-link-disabled"
-              disabled
-              aria-describedby={`report-status-${site.customer_site_id || site.site_id}`}
-            >
-              Report pending
-            </button>
-          </div>
-        )}
+        <Link
+          className="site-bar-link site-bar-link-primary"
+          to={buildWorkspaceReportPath(routeState)}
+          state={routeState}
+          onClick={() => saveReportContext(routeState)}
+        >
+          View Report
+        </Link>
         <p className="site-bar-meta">
           {reportReady
             ? "Report available"
@@ -882,11 +868,6 @@ function SiteRow({ site }) {
               ? `Requested ${formatDateTime(site.customer_site_metadata.last_pre_assessment_requested_at)}`
               : "Job not started yet"}
         </p>
-        {!reportReady ? (
-          <p id={`report-status-${site.customer_site_id || site.site_id}`} className="site-bar-mobile-help">
-            {reportPendingMessage}
-          </p>
-        ) : null}
       </div>
     </article>
   );
@@ -2069,8 +2050,13 @@ function ReportPage() {
   const [searchParams] = useSearchParams();
   const [session, setSession] = useRequireSession();
   const [error, setError] = useState("");
-  const [workspace, setWorkspace] = useState(null);
+  const [workspace, setWorkspace] = useState(() => session || loadSession());
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+  const [activeReportTab, setActiveReportTab] = useState("preAssessment");
+  const [notesDraft, setNotesDraft] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesMessage, setNotesMessage] = useState("");
+  const [notesIsError, setNotesIsError] = useState(false);
   const queryRouteState = {
     accountId: searchParams.get("account_id") || "",
     siteId: searchParams.get("site_id") || "",
@@ -2113,33 +2099,68 @@ function ReportPage() {
       .finally(() => setLoadingWorkspace(false));
   }, [session?.email, accountId]);
 
-  if (!session?.email) return null;
-
   const selectedSite = (workspace?.sites || []).find((site) => site.site_id === siteId) || null;
   const reportMetadata = selectedSite?.report_metadata || {};
   const reportReady = hasReportMetadata(reportMetadata);
   const requestedAt = selectedSite?.customer_site_metadata?.last_pre_assessment_requested_at || "";
   const reportEntries = Object.entries(reportMetadata || {});
 
+  useEffect(() => {
+    setNotesDraft(selectedSite?.notes || "");
+    setNotesMessage("");
+    setNotesIsError(false);
+  }, [selectedSite?.customer_site_id, selectedSite?.site_id]);
+
+  async function saveNotes(event) {
+    event.preventDefault();
+    if (!selectedSite || !session?.email) return;
+    setSavingNotes(true);
+    setNotesMessage("");
+    setNotesIsError(false);
+    try {
+      const payload = await fetchJson("/api/customer-sites/notes", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          account_id: selectedSite.account_id || accountId,
+          site_id: selectedSite.site_id || siteId,
+          notes: notesDraft,
+        }),
+      });
+      const savedNotes = payload.notes || "";
+      const updateSites = (state) => {
+        if (!state || !Array.isArray(state.sites)) return state;
+        return {
+          ...state,
+          sites: state.sites.map((site) =>
+            site.site_id === selectedSite.site_id ? { ...site, notes: savedNotes } : site,
+          ),
+        };
+      };
+      setNotesDraft(savedNotes);
+      setWorkspace((current) => updateSites(current));
+      const nextSession = updateSites(session);
+      setSession(nextSession);
+      saveSession(nextSession);
+      setNotesMessage("Notes saved.");
+    } catch (nextError) {
+      setNotesIsError(true);
+      setNotesMessage(nextError.message || "Could not save notes.");
+    } finally {
+      setSavingNotes(false);
+    }
+  }
+
+  if (!session?.email) return null;
+
   return (
     <main className="workspace-page-shell signup-body workspace-body">
       <section className="workspace-page workspace-form-page report-page">
-        <header className="workspace-subpage-head">
-          <div className="workspace-subpage-bar">
-            <div>
-              <p className="workspace-eyebrow">Workspace</p>
-              <h1 className="workspace-page-title">{reportReady ? "Site report" : "Report status"}</h1>
-              <p className="workspace-page-copy">
-                {reportReady
-                  ? "Review the latest report data saved for this site."
-                  : "The job is still running for this site. We’ll email you when the report is finished."}
-              </p>
-            </div>
-            <Link to="/workspace" className="btn-primary">
-              Back to workspace
-            </Link>
-          </div>
-        </header>
+        <div className="report-page-actions">
+          <Link to="/workspace" className="btn-primary">
+            Back to workspace
+          </Link>
+        </div>
 
         <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
 
@@ -2147,21 +2168,6 @@ function ReportPage() {
           <section className="workspace-card workspace-card-modern workspace-card-wide thank-you-state">
             <div className="workspace-loading-state">
               <p>Loading report state...</p>
-            </div>
-          </section>
-        ) : null}
-
-        {selectedSite ? (
-          <section className="workspace-card workspace-card-modern workspace-card-wide pre-assessment-selection-card report-status-card">
-            <div className="pre-assessment-summary-grid">
-              <div className="workspace-summary-chip">
-                <span className="workspace-summary-label">Company</span>
-                <span className="workspace-summary-value">{selectedSite.company_name || "-"}</span>
-              </div>
-              <div className="workspace-summary-chip">
-                <span className="workspace-summary-label">Site address</span>
-                <span className="workspace-summary-value">{selectedSite.full_address || "-"}</span>
-              </div>
             </div>
           </section>
         ) : null}
@@ -2183,63 +2189,106 @@ function ReportPage() {
           </section>
         ) : null}
 
-        {selectedSite && !reportReady ? (
-          <section className="workspace-card workspace-card-modern workspace-card-wide thank-you-state">
-            <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
-              …
-            </div>
-            <p className="workspace-eyebrow">Job running</p>
-            <h1 className="workspace-page-title">Your report is still running</h1>
-            <p className="workspace-page-copy">
-              We’re still generating the pre-assessment report for this site. You’ll receive an email when it
-              is complete.
-            </p>
-            <div className="pre-assessment-summary-grid">
-              <div className="workspace-summary-chip">
-                <span className="workspace-summary-label">Requested</span>
-                <span className="workspace-summary-value">
-                  {requestedAt ? formatDateTime(requestedAt) : "Waiting for the first request"}
-                </span>
-              </div>
-              <div className="workspace-summary-chip">
-                <span className="workspace-summary-label">Status</span>
-                <span className="workspace-summary-value">In progress</span>
-              </div>
-            </div>
-            <div className="auth-primary-action">
-              <Link to="/workspace" className="btn-primary">
-                Back to workspace
-              </Link>
-            </div>
-          </section>
-        ) : null}
-
-        {selectedSite && reportReady ? (
+        {selectedSite ? (
           <section className="workspace-card workspace-card-modern workspace-card-wide report-view-card">
-            <div className="workspace-sites-head">
-              <div>
-                <p className="workspace-card-label">Saved report</p>
-                <h2 className="workspace-card-title">
-                  {selectedSite.company_name || "Pre-assessment report"}
-                </h2>
-                <p className="workspace-page-copy workspace-page-copy-tight">
-                  This is the report data currently saved in <code>report_metadata</code> for this customer-site pair.
-                </p>
+            <div className="tab-row report-tab-row" role="tablist" aria-label="Report sections">
+              <button
+                type="button"
+                className={`tab-btn ${activeReportTab === "preAssessment" ? "tab-btn-active" : ""}`}
+                onClick={() => setActiveReportTab("preAssessment")}
+                role="tab"
+                aria-selected={activeReportTab === "preAssessment"}
+              >
+                Pre-assessment
+              </button>
+              <button
+                type="button"
+                className={`tab-btn ${activeReportTab === "notes" ? "tab-btn-active" : ""}`}
+                onClick={() => setActiveReportTab("notes")}
+                role="tab"
+                aria-selected={activeReportTab === "notes"}
+              >
+                Notes
+              </button>
+            </div>
+
+            {activeReportTab === "preAssessment" ? (
+              <div className="tab-panel report-tab-panel" role="tabpanel">
+                {reportReady ? (
+                  <>
+                    <div className="workspace-sites-head">
+                      <div>
+                        <p className="workspace-card-label">Saved report</p>
+                        <h2 className="workspace-card-title">
+                          {selectedSite.company_name || "Pre-assessment report"}
+                        </h2>
+                        <p className="workspace-page-copy workspace-page-copy-tight">
+                          This is the report data currently saved in <code>report_metadata</code> for this customer-site pair.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="report-data-grid">
+                      {reportEntries.map(([key, value]) => (
+                        <div key={key} className="workspace-summary-chip report-data-chip">
+                          <span className="workspace-summary-label">{key.replace(/_/g, " ")}</span>
+                          <div className="workspace-summary-value report-data-value">{renderReportValue(value)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="report-running-panel">
+                    <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
+                      ...
+                    </div>
+                    <p className="workspace-eyebrow">Job running</p>
+                    <h2 className="workspace-page-title">Your report is still running</h2>
+                    <p className="workspace-page-copy">
+                      We’re still generating the pre-assessment report for this site. You’ll receive an email when it
+                      is complete.
+                    </p>
+                    <div className="pre-assessment-summary-grid">
+                      <div className="workspace-summary-chip">
+                        <span className="workspace-summary-label">Requested</span>
+                        <span className="workspace-summary-value">
+                          {requestedAt ? formatDateTime(requestedAt) : "Waiting for the first request"}
+                        </span>
+                      </div>
+                      <div className="workspace-summary-chip">
+                        <span className="workspace-summary-label">Status</span>
+                        <span className="workspace-summary-value">In progress</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-            <div className="report-data-grid">
-              {reportEntries.map(([key, value]) => (
-                <div key={key} className="workspace-summary-chip report-data-chip">
-                  <span className="workspace-summary-label">{key.replace(/_/g, " ")}</span>
-                  <div className="workspace-summary-value report-data-value">{renderReportValue(value)}</div>
+            ) : null}
+
+            {activeReportTab === "notes" ? (
+              <form className="tab-panel report-tab-panel report-notes-form" onSubmit={saveNotes} role="tabpanel">
+                <label className="workspace-field report-notes-field">
+                  <span>Notes</span>
+                  <textarea
+                    value={notesDraft}
+                    onChange={(event) => {
+                      setNotesDraft(event.target.value);
+                      setNotesMessage("");
+                      setNotesIsError(false);
+                    }}
+                    rows={10}
+                    placeholder="Add notes for this site."
+                  />
+                </label>
+                <div className="report-notes-actions">
+                  <button type="submit" className="btn-primary" disabled={savingNotes}>
+                    {savingNotes ? "Saving..." : "Save notes"}
+                  </button>
+                  <p className={`workspace-feedback ${notesMessage ? "" : "hidden"} ${notesIsError ? "workspace-feedback-error" : ""}`}>
+                    {notesMessage}
+                  </p>
                 </div>
-              ))}
-            </div>
-            <div className="auth-primary-action">
-              <Link to="/workspace" className="btn-primary">
-                Back to workspace
-              </Link>
-            </div>
+              </form>
+            ) : null}
           </section>
         ) : null}
       </section>
