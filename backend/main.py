@@ -1265,6 +1265,7 @@ async def handle_complete_onboarding(request: Request, body: dict[str, Any] = Bo
 
         if not dry_run:
             db = get_admin_db()
+            await upsert_account(db, customer_company_name, customer_company_domain)
             account = await upsert_account(db, site_company_name, site_company_domain)
             customer = await upsert_customer(
                 db,
