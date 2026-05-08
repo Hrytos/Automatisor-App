@@ -342,6 +342,21 @@ function buildGoogleMapsSearchLink(address) {
     : "";
 }
 
+function normalizeResolvedAddress(siteLike) {
+  if (!siteLike || typeof siteLike !== "object") return null;
+  const fullAddress = String(siteLike.full_address || siteLike.fullAddress || "").trim();
+  if (!fullAddress) return null;
+  return {
+    full_address: fullAddress,
+    street: siteLike.street || "",
+    city: siteLike.city || "",
+    state: siteLike.state || "",
+    zip: siteLike.zip || "",
+    country: siteLike.country || "US",
+    place_id: siteLike.place_id || "",
+  };
+}
+
 const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
   {
     inputId,
@@ -350,16 +365,25 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
     messageId,
     onResolvedChange,
     mapLabel,
+    initialResolvedAddress,
   },
   ref,
 ) {
-  const [selectedAddress, setSelectedAddress] = useState(DEFAULT_SITE_ADDRESS);
+  const initialResolved = useMemo(
+    () => normalizeResolvedAddress(initialResolvedAddress),
+    [initialResolvedAddress],
+  );
+  const [selectedAddress, setSelectedAddress] = useState(
+    () => initialResolved?.full_address || DEFAULT_SITE_ADDRESS,
+  );
   const [message, setStatusMessage] = useState("");
   const [messageIsError, setMessageIsError] = useState(false);
-  const [mapsLink, setMapsLink] = useState(buildGoogleMapsSearchLink(DEFAULT_SITE_ADDRESS));
+  const [mapsLink, setMapsLink] = useState(
+    () => buildGoogleMapsSearchLink(initialResolved?.full_address || DEFAULT_SITE_ADDRESS),
+  );
   const [isGoogleReady, setIsGoogleReady] = useState(false);
   const [useLegacyAutocomplete, setUseLegacyAutocomplete] = useState(false);
-  const resolvedRef = useRef(null);
+  const resolvedRef = useRef(initialResolved?.full_address ? initialResolved : null);
   const inputRef = useRef(null);
   const autocompleteHostRef = useRef(null);
   const autocompleteElementRef = useRef(null);
@@ -402,6 +426,11 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
       });
     }
   }
+
+  useEffect(() => {
+    if (!initialResolved?.full_address) return;
+    publishResolved(initialResolved);
+  }, [initialResolved?.full_address]);
 
   async function reverseGeocodeLocation(location) {
     const geocoder = geocoderRef.current;
@@ -698,9 +727,14 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
           }
         });
 
-        reverseGeocodeLocation(DEFAULT_SITE_COORDS).catch(() => {
-          setMapsLink(buildGoogleMapsSearchLink(DEFAULT_SITE_ADDRESS));
-        });
+        if (resolvedRef.current?.full_address) {
+          syncVisibleAddress(resolvedRef.current.full_address);
+          setMapsLink(buildGoogleMapsSearchLink(resolvedRef.current.full_address));
+        } else {
+          reverseGeocodeLocation(DEFAULT_SITE_COORDS).catch(() => {
+            setMapsLink(buildGoogleMapsSearchLink(DEFAULT_SITE_ADDRESS));
+          });
+        }
         setIsGoogleReady(true);
         initializedModeRef.current = useLegacy ? "legacy" : "new";
         window.__automatisorAutocompleteInspect = () => ({
@@ -1660,12 +1694,19 @@ function WorkspacePage() {
 
 function NewSitePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const pickerRef = useRef(null);
   const [session, setSession] = useRequireSession();
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ org_name: "", org_domain: "", hasAddress: false });
+  const editDraft = location.state?.editDraft || null;
+  const initialAddress = normalizeResolvedAddress(editDraft);
+  const [form, setForm] = useState(() => ({
+    org_name: editDraft?.org_name || editDraft?.company_name || "",
+    org_domain: editDraft?.org_domain || "",
+    hasAddress: Boolean(initialAddress?.full_address),
+  }));
 
   useEffect(() => {
     if (!session?.email) return;
@@ -1752,6 +1793,7 @@ function NewSitePage() {
               mapId="siteMap"
               messageId="siteActionMessage"
               mapLabel="Satellite map for site selection"
+              initialResolvedAddress={initialAddress}
               onResolvedChange={({ resolvedAddress, inputValue }) =>
                 setForm((current) => ({
                   ...current,
@@ -1775,15 +1817,18 @@ function NewSitePage() {
 }
 
 function PreAssessmentPage() {
+  const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const [session, setSession] = useRequireSession();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [tab, setTab] = useState("meaning");
   const [mode, setMode] = useState("flow");
   const [workspace, setWorkspace] = useState(() => session || loadSession());
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+  const [confirmedRouteState, setConfirmedRouteState] = useState(null);
   const routeState = location.state || {};
   const pendingSite = routeState.pendingSite || null;
   const accountId = routeState.accountId || searchParams.get("account_id") || session?.activeAccountId || "";
@@ -1818,6 +1863,29 @@ function PreAssessmentPage() {
   const creditsUsed = workspace?.creditsUsedTotal ?? session?.creditsUsedTotal ?? 0;
   const preAssessmentPriceCredits =
     workspace?.preAssessmentPriceCredits ?? session?.preAssessmentPriceCredits ?? 1;
+  const costLabel = `${preAssessmentPriceCredits} credit${preAssessmentPriceCredits === 1 ? "" : "s"}`;
+
+  function openReview() {
+    if (!selectedSite) {
+      setError("Select a site from the workspace before requesting a pre-assessment.");
+      return;
+    }
+    setError("");
+    setReviewOpen(true);
+  }
+
+  function editSelectedSite() {
+    setReviewOpen(false);
+    if (isPendingSite) {
+      navigate("/workspace/sites/new", {
+        state: {
+          editDraft: selectedSite,
+        },
+      });
+      return;
+    }
+    navigate("/workspace");
+  }
 
   async function requestPreAssessment() {
     if (!selectedSite) {
@@ -1868,6 +1936,10 @@ function PreAssessmentPage() {
           confirmed: true,
         }),
       });
+      const nextRouteState = {
+        accountId: payload.account_id || requestAccountId,
+        siteId: payload.site_id || requestSiteId,
+      };
       const nextState = buildSessionFromPayload(session, {
         ...nextWorkspace,
         credits_used_total: payload.credits_used_total,
@@ -1880,6 +1952,9 @@ function PreAssessmentPage() {
         creditsUsedTotal: nextState.creditsUsedTotal,
         creditsUsedThisMonth: nextState.creditsUsedThisMonth,
       }));
+      saveReportContext(nextRouteState);
+      setConfirmedRouteState(nextRouteState);
+      setReviewOpen(false);
       setMode("success");
     } catch (nextError) {
       setError(nextError.message || "Could not request the pre-assessment.");
@@ -2000,13 +2075,63 @@ function PreAssessmentPage() {
                 <button
                   type="button"
                   className="btn-primary btn-glow"
-                  onClick={requestPreAssessment}
+                  onClick={openReview}
                   disabled={loading || !selectedSite}
                 >
                   {loading ? "Please wait..." : "Confirm and start pre-assessment"}
                 </button>
               </div>
             </section>
+
+            {reviewOpen ? (
+              <div className="review-modal-backdrop" role="presentation">
+                <section
+                  className="review-modal"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="reviewModalTitle"
+                >
+                  <div className="review-modal-head">
+                    <p className="workspace-eyebrow">Review</p>
+                    <h2 id="reviewModalTitle" className="workspace-card-title">
+                      Review
+                    </h2>
+                  </div>
+                  <div className="pre-assessment-summary-grid review-summary-grid">
+                    <div className="workspace-summary-chip">
+                      <span className="workspace-summary-label">Company Name</span>
+                      <span className="workspace-summary-value">{selectedSite?.company_name || "-"}</span>
+                    </div>
+                    <div className="workspace-summary-chip">
+                      <span className="workspace-summary-label">Site Address</span>
+                      <span className="workspace-summary-value">{selectedSite?.full_address || "-"}</span>
+                    </div>
+                    <div className="workspace-summary-chip">
+                      <span className="workspace-summary-label">Cost of pre-assessment</span>
+                      <span className="workspace-summary-value">{costLabel}</span>
+                    </div>
+                  </div>
+                  <div className="review-modal-actions">
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={editSelectedSite}
+                      disabled={loading}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={requestPreAssessment}
+                      disabled={loading}
+                    >
+                      {loading ? "Please wait..." : "Confirm and proceed"}
+                    </button>
+                  </div>
+                </section>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -2032,6 +2157,16 @@ function PreAssessmentPage() {
               </div>
             </div>
             <div className="auth-primary-action">
+              <Link
+                to="/workspace/report"
+                className="btn-secondary"
+                state={{ ...(confirmedRouteState || {}), activeTab: "notes" }}
+                onClick={() => {
+                  if (confirmedRouteState) saveReportContext(confirmedRouteState);
+                }}
+              >
+                Notes
+              </Link>
               <Link to="/workspace" className="btn-primary">
                 Back to workspace
               </Link>
@@ -2052,7 +2187,9 @@ function ReportPage() {
   const [error, setError] = useState("");
   const [workspace, setWorkspace] = useState(() => session || loadSession());
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
-  const [activeReportTab, setActiveReportTab] = useState("preAssessment");
+  const [activeReportTab, setActiveReportTab] = useState(() =>
+    location.state?.activeTab === "notes" ? "notes" : "preAssessment",
+  );
   const [notesDraft, setNotesDraft] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesMessage, setNotesMessage] = useState("");
@@ -2078,6 +2215,12 @@ function ReportPage() {
       navigate("/workspace/report", { replace: true, state: routeState });
     }
   }, [location.search, routeState.accountId, routeState.siteId]);
+
+  useEffect(() => {
+    if (routeState.activeTab === "notes" || routeState.activeTab === "preAssessment") {
+      setActiveReportTab(routeState.activeTab);
+    }
+  }, [routeState.activeTab]);
 
   useEffect(() => {
     if (!session?.email) return;

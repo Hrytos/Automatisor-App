@@ -3221,6 +3221,52 @@ footer {
   box-shadow: 0 20px 46px rgba(15, 23, 42, 0.05);
 }
 
+.review-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 18, 41, 0.42);
+  backdrop-filter: blur(6px);
+}
+
+.review-modal {
+  width: min(680px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border-radius: 24px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: linear-gradient(180deg, #ffffff 0%, #fff9f5 100%);
+  box-shadow: 0 28px 80px rgba(8, 18, 41, 0.22);
+  padding: 28px;
+}
+
+.review-modal-head {
+  margin-bottom: 18px;
+  text-align: left;
+}
+
+.review-summary-grid {
+  grid-template-columns: 1fr;
+  margin-top: 0;
+}
+
+.review-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+
+.review-modal-actions .btn-primary,
+.review-modal-actions .btn-secondary {
+  min-width: 164px;
+  justify-content: center;
+}
+
 .report-page {
   max-width: 1080px;
 }
@@ -3390,6 +3436,8 @@ footer {
 
 .thank-you-state .auth-primary-action {
   justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .report-view-card .auth-primary-action {
@@ -3547,6 +3595,27 @@ footer {
   }
 
   .report-page-actions .btn-primary {
+    width: 100%;
+  }
+
+  .review-modal-backdrop {
+    padding: 12px;
+    align-items: end;
+  }
+
+  .review-modal {
+    max-height: calc(100vh - 24px);
+    padding: 20px;
+    border-radius: 20px;
+  }
+
+  .review-modal-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .review-modal-actions .btn-primary,
+  .review-modal-actions .btn-secondary {
     width: 100%;
   }
 }
