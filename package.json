@@ -1,0 +1,14 @@
+{
+  "name": "wareiq",
+  "version": "1.0.0",
+  "description": "AutomatiSOR React frontend and FastAPI backend",
+  "main": "backend/main.py",
+  "scripts": {
+    "start": "python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 3000",
+    "dev": "python3 -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 3000",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "preview:frontend": "npm --prefix frontend run preview",
+    "start:dry": "AUTOMATISOR_DRY=1 python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 3000"
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+frontend/dist/
+.env
+.DS_Store
+*.log
+__pycache__/
+legacy/
+google-places-setup.md
+how-to-run.md
+checklist.md
+schema/
