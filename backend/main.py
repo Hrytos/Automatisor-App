@@ -11,7 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from supabase import Client, create_client
 
-from .address_normalization import canonical_zip, normalize_full_address, normalize_state, normalize_street_line
+try:
+    from .address_normalization import canonical_zip, normalize_full_address, normalize_state, normalize_street_line
+except ImportError:
+    from address_normalization import canonical_zip, normalize_full_address, normalize_state, normalize_street_line
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT_DIR / ".env")
