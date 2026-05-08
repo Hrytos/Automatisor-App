@@ -3248,7 +3248,7 @@ footer {
   text-align: left;
 }
 
-.review-summary-grid {
+.pre-assessment-summary-grid.review-summary-grid {
   grid-template-columns: 1fr;
   margin-top: 0;
 }
