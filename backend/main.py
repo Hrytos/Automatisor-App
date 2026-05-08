@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fastapi import Body, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.routing import APIRoute
 from supabase import Client, create_client
 
 try:
@@ -1547,6 +1548,33 @@ async def signup_verify_alias(response: Response, request: Request, body: dict[s
 @app.post("/api/accounts/new-user")
 async def accounts_new_user_alias(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     return await handle_request_otp(request, body)
+
+
+def register_vercel_service_api_aliases() -> None:
+    api_routes = [
+        route
+        for route in app.router.routes
+        if isinstance(route, APIRoute) and route.path.startswith("/api/")
+    ]
+    existing = {
+        (route.path, tuple(sorted(route.methods or [])))
+        for route in app.router.routes
+        if isinstance(route, APIRoute)
+    }
+    for route in api_routes:
+        alias_path = route.path.removeprefix("/api")
+        methods = tuple(sorted(route.methods or []))
+        if (alias_path, methods) in existing:
+            continue
+        app.add_api_route(
+            alias_path,
+            route.endpoint,
+            methods=list(methods),
+            name=f"{route.name}_vercel_service_alias",
+        )
+
+
+register_vercel_service_api_aliases()
 
 
 def dist_response_for_path(path: str) -> FileResponse | None:
