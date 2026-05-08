@@ -75,6 +75,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+SERVICE_API_PREFIXES = (
+    "/account-sites",
+    "/accounts",
+    "/auth",
+    "/customer-sites",
+    "/debug",
+    "/frontend-config",
+    "/onboarding",
+    "/pre-assessment",
+    "/signup",
+    "/workspace",
+)
+
+
+@app.middleware("http")
+async def normalize_vercel_service_api_prefix(request: Request, call_next):
+    path = request.scope.get("path", "")
+    if not path.startswith("/api/") and path.startswith(SERVICE_API_PREFIXES):
+        request.scope["path"] = f"/api{path}"
+    return await call_next(request)
+
 
 class SupabaseAdmin:
     def __init__(self) -> None:
