@@ -958,8 +958,7 @@ def build_pre_assessment_approval_email(email: str, company_name: str, site_addr
             </h1>
             <p style="margin:0 0 14px;font-size:15px;color:#4a4a44;line-height:1.65">
               Thanks — we’ve received your AutomatiSOR site pre-assessment report request.
-              The job is now running, and we’ll send the report to
-              <strong style="color:#030149">{safe_email}</strong> when it is complete.
+              The job is now running, and we’ll notify you by email once the report has been generated.
             </p>
             <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">
               <tr>
