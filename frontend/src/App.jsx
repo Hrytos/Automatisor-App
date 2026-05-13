@@ -1636,7 +1636,7 @@ function WorkspaceMobileActions({ creditsUsed, onLogout }) {
 }
 
 function SiteRow({ site }) {
-  const title = site.company_name || site.metadata?.site_name || "Saved site";
+  const title = site.company_name || "Saved site";
   const routeState = buildPreAssessmentRouteState(site);
   const notesRouteState = { ...routeState, activeTab: "notes" };
   const reportReady = Boolean(site.is_report_ready);

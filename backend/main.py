@@ -285,12 +285,6 @@ def site_insert_row(account_id: str, company_name: str, site: dict[str, str]) ->
         "state": site["state"] or None,
         "zip": site["zip"] or None,
         "country": site["country"] or "US",
-        "metadata": {
-            "source": "Automatisor_user_site",
-            "site_name": site["siteName"] or None,
-            "site_type": site["siteType"] or "User-added site",
-            "normalized_full_address": normalize_full_address(site["fullAddress"]),
-        },
     }
 
 
@@ -320,19 +314,6 @@ def same_structured_site(a: dict[str, str], b: dict[str, str]) -> bool:
         and a["state"] == b["state"]
         and a["zip"] == b["zip"]
     )
-
-
-def build_site_metadata(existing_metadata: Any, site: dict[str, str]) -> dict[str, Any]:
-    source = existing_metadata if isinstance(existing_metadata, dict) else {}
-    return {
-        **source,
-        "source": "Automatisor_user_site",
-        "site_name": site.get("siteName") or source.get("site_name"),
-        "site_type": site.get("siteType") or source.get("site_type") or "User-added site",
-        "normalized_full_address": normalize_full_address(
-            site.get("fullAddress") or source.get("normalized_full_address") or ""
-        ),
-    }
 
 
 async def find_customer_by_email(db: SupabaseAdmin, email: str) -> dict[str, Any] | None:
@@ -777,14 +758,6 @@ async def ensure_customer_site_assignment(
 async def insert_account_site_if_missing(db: SupabaseAdmin, account_id: str, company_name: str, site: dict[str, str], customer_id: str) -> dict[str, Any]:
     duplicate_row = await find_duplicate_account_site(db, account_id, site)
     if duplicate_row:
-        next_metadata = build_site_metadata(duplicate_row.get("metadata"), site)
-        await db.request(
-            "PATCH",
-            "/rest/v1/account_sites",
-            params={"site_id": f"eq.{duplicate_row['site_id']}"},
-            json_body={"metadata": next_metadata},
-            headers={"Prefer": "return=minimal"},
-        )
         assignment = await ensure_customer_site_assignment(
             db,
             customer_id,
@@ -800,7 +773,7 @@ async def insert_account_site_if_missing(db: SupabaseAdmin, account_id: str, com
         "POST",
         "/rest/v1/account_sites",
         params={"select": "site_id"},
-        json_body={**site_insert_row(account_id, company_name, site), "metadata": build_site_metadata(None, site)},
+        json_body=site_insert_row(account_id, company_name, site),
         headers={"Prefer": "return=representation"},
     )
     site_id = created[0].get("site_id") if created else None
