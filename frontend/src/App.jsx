@@ -16,8 +16,26 @@ import {
   useSearchParams,
 } from "react-router-dom";
 
+import reportStructure from "./report_section_structure.json";
+
 const SESSION_KEY = "automatisor_auth_workspace_v2";
 const REPORT_CONTEXT_KEY = "automatisor_selected_report_v1";
+const REPORT_CONFIDENCE_FILTERS = ["All", "High", "Medium", "Low"];
+const REPORT_NOT_FOUND_VALUES = new Set([
+  "n/a",
+  "na",
+  "none",
+  "none found",
+  "not available",
+  "not found",
+  "not identified",
+  "no information found",
+  "unknown",
+]);
+const REPORT_NO_CONFIDENCE_PATHS = new Set([
+  "part_1_account_identification.account_identity.target_facility_addresses",
+  "part_1_account_identification.facility_profile.full_address",
+]);
 const DEFAULT_SITE_ADDRESS =
   "366, Remington Boulevard, Bolingbrook, Will County, Illinois, 60440, United States";
 const DEFAULT_SITE_COORDS = {
@@ -128,6 +146,718 @@ function renderReportValue(value) {
     return value ? "Yes" : "No";
   }
   return String(value);
+}
+
+function isWrappedReportField(value) {
+  return (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "value" in value &&
+    ("fetch_confidence" in value || "confidence_score" in value)
+  );
+}
+
+function reportLabelFromKey(key) {
+  return String(key || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function isMissingReportValue(value) {
+  if (value === null || value === undefined || value === "") return true;
+  if (Array.isArray(value)) return value.length === 0 || value.every(isMissingReportValue);
+  if (typeof value !== "string") return false;
+  return REPORT_NOT_FOUND_VALUES.has(value.trim().toLowerCase());
+}
+
+function confidenceBand(score) {
+  const numericScore = Number(score);
+  if (!Number.isFinite(numericScore)) return "Low";
+  if (numericScore >= 0.8) return "High";
+  if (numericScore >= 0.4) return "Medium";
+  return "Low";
+}
+
+function reportConfidenceLabel(fetchConfidence, confidenceScore) {
+  const signalBand = confidenceBand(fetchConfidence);
+  const validationBand = confidenceBand(confidenceScore);
+
+  if (signalBand === "Low") return "Low";
+  if (signalBand === "High" && validationBand === "High") return "High";
+  return "Medium";
+}
+
+function shouldHideReportConfidence(path) {
+  return (
+    path === "account_snapshot" ||
+    String(path || "").startsWith("account_snapshot.") ||
+    REPORT_NO_CONFIDENCE_PATHS.has(path)
+  );
+}
+
+function formatStructuredReportValue(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => formatStructuredReportValue(item))
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (value && typeof value === "object") {
+    return Object.entries(value)
+      .filter(([, nestedValue]) => !isMissingReportValue(nestedValue))
+      .map(([key, nestedValue]) => `${reportLabelFromKey(key)}: ${formatStructuredReportValue(nestedValue)}`)
+      .join("; ");
+  }
+
+  return String(value ?? "");
+}
+
+function getReportValueByPath(data, path) {
+  if (!path) return data;
+  return String(path)
+    .split(".")
+    .reduce((current, part) => current?.[part], data);
+}
+
+function unwrapReportField(data) {
+  if (isWrappedReportField(data)) {
+    return {
+      value: data.value,
+      confidence: reportConfidenceLabel(data.fetch_confidence, data.confidence_score),
+    };
+  }
+
+  return {
+    value: data,
+    confidence: reportConfidenceLabel(),
+  };
+}
+
+function flattenStructuredReportRows(data, prefix = [], inheritedConfidence = {}) {
+  if (isWrappedReportField(data)) {
+    if (isMissingReportValue(data.value)) return [];
+    const id = prefix.join(".");
+    return [
+      {
+        id,
+        field: prefix.map(reportLabelFromKey).join(" / "),
+        value: formatStructuredReportValue(data.value),
+        confidence: reportConfidenceLabel(
+          data.fetch_confidence ?? inheritedConfidence.fetch_confidence,
+          data.confidence_score ?? inheritedConfidence.confidence_score,
+        ),
+      },
+    ];
+  }
+
+  if (isMissingReportValue(data)) return [];
+
+  if (Array.isArray(data)) {
+    if (data.every((item) => !item || typeof item !== "object" || Array.isArray(item))) {
+      const value = formatStructuredReportValue(data.filter((item) => !isMissingReportValue(item)));
+      if (!value) return [];
+      return [
+        {
+          id: prefix.join("."),
+          field: prefix.map(reportLabelFromKey).join(" / "),
+          value,
+          confidence: reportConfidenceLabel(
+            inheritedConfidence.fetch_confidence,
+            inheritedConfidence.confidence_score,
+          ),
+        },
+      ];
+    }
+
+    return data.flatMap((item, index) =>
+      flattenStructuredReportRows(item, [...prefix, `${index + 1}`], inheritedConfidence),
+    );
+  }
+
+  if (data && typeof data === "object") {
+    return Object.entries(data).flatMap(([key, value]) =>
+      flattenStructuredReportRows(value, [...prefix, key], inheritedConfidence),
+    );
+  }
+
+  const id = prefix.join(".");
+  return [
+    {
+      id,
+      field: prefix.map(reportLabelFromKey).join(" / "),
+      value: formatStructuredReportValue(data),
+      confidence: reportConfidenceLabel(
+        inheritedConfidence.fetch_confidence,
+        inheritedConfidence.confidence_score,
+      ),
+    },
+  ];
+}
+
+function structuredReportRowsFromConfig(reportData, table) {
+  const tableData = getReportValueByPath(reportData, table.data_path);
+  const tableHideConfidence = Boolean(table.hide_confidence);
+
+  return (table.rows || []).flatMap((rowConfig) => {
+    const rowData = getReportValueByPath(tableData, rowConfig.field);
+    const fullPath = `${table.data_path}.${rowConfig.field}`;
+    const generatedLabel = reportLabelFromKey(rowConfig.field);
+    const configuredLabel = rowConfig.label || generatedLabel;
+
+    return flattenStructuredReportRows(rowData, [generatedLabel]).map((row, index) => {
+      const hideConfidence = tableHideConfidence || shouldHideReportConfidence(fullPath);
+      return {
+        ...row,
+        id: `${table.data_path}.${rowConfig.field}.${index}`,
+        confidence: hideConfidence ? null : row.confidence,
+        hideConfidence,
+        field:
+          row.field === generatedLabel
+            ? configuredLabel
+            : row.field.startsWith(`${generatedLabel} / `)
+              ? `${configuredLabel}${row.field.slice(generatedLabel.length)}`
+              : row.field,
+      };
+    });
+  });
+}
+
+function structuredReportRecordsFromConfig(reportData, table) {
+  const records = getReportValueByPath(reportData, table.data_path);
+  if (!Array.isArray(records)) return [];
+  const hideConfidence = Boolean(table.hide_confidence);
+
+  return records
+    .map((record, recordIndex) => {
+      const cells = (table.columns || []).map((column) => {
+        const cell = unwrapReportField(getReportValueByPath(record, column.field));
+        return {
+          id: column.field,
+          label: column.label,
+          value: isMissingReportValue(cell.value) ? "" : formatStructuredReportValue(cell.value),
+          confidence: hideConfidence ? null : cell.confidence,
+        };
+      });
+
+      if (cells.every((cell) => !cell.value)) return null;
+
+      const confidence = hideConfidence
+        ? null
+        : (() => {
+            const visibleConfidences = cells
+              .filter((cell) => cell.value)
+              .map((cell) => cell.confidence);
+            if (visibleConfidences.includes("Low")) return "Low";
+            if (visibleConfidences.includes("Medium")) return "Medium";
+            return "High";
+          })();
+
+      return {
+        id: `${table.data_path}.${recordIndex}`,
+        cells,
+        confidence,
+        hideConfidence,
+      };
+    })
+    .filter(Boolean);
+}
+
+function structuredReportItemFromConfig(reportData, config, id, number, description) {
+  if (config.tables?.length) {
+    const children = config.tables.map((table, index) =>
+      structuredReportItemFromConfig(
+        reportData,
+        table,
+        `${id}.${table.id || table.title || index}`.replace(/\s+/g, "_").toLowerCase(),
+        `${number}.${index + 1}`,
+        "",
+      ),
+    );
+    return {
+      id,
+      number,
+      title: config.title || config.section_title,
+      description,
+      tableType: "group",
+      hideConfidence: true,
+      columns: [],
+      rows: [],
+      children,
+    };
+  }
+
+  return {
+    id,
+    number,
+    title: config.title || config.section_title,
+    description,
+    tableType: config.table_type || "key_value",
+    hideConfidence: Boolean(config.hide_confidence),
+    columns: config.columns || [],
+    rows:
+      config.table_type === "records"
+        ? structuredReportRecordsFromConfig(reportData, config)
+        : structuredReportRowsFromConfig(reportData, config),
+  };
+}
+
+function filterStructuredReportItem(item, activeFilter, keepUnfiltered) {
+  if (item.tableType === "group") {
+    const children = (item.children || [])
+      .map((child) => filterStructuredReportItem(child, activeFilter, keepUnfiltered))
+      .filter((child) => child.rows.length > 0 || (child.children && child.children.length > 0));
+    return {
+      ...item,
+      rows: [],
+      children,
+    };
+  }
+
+  return {
+    ...item,
+    rows:
+      activeFilter === "All" || keepUnfiltered
+        ? item.rows
+        : item.rows.filter((row) => !row.hideConfidence && row.confidence === activeFilter),
+  };
+}
+
+function structuredItemRowCount(item) {
+  if (item.tableType === "group") {
+    return (item.children || []).reduce((total, child) => total + structuredItemRowCount(child), 0);
+  }
+  return item.rows.length;
+}
+
+function collectStructuredConfidenceCounts(item, counts) {
+  if (item.tableType === "group") {
+    (item.children || []).forEach((child) => collectStructuredConfidenceCounts(child, counts));
+    return counts;
+  }
+
+  item.rows.forEach((row) => {
+    if (!row.hideConfidence && row.confidence && counts[row.confidence] !== undefined) {
+      counts[row.confidence] += 1;
+    }
+  });
+  return counts;
+}
+
+function makeStructuredReportSections(reportData) {
+  return (reportStructure.sections || []).map((section, sectionIndex) => {
+    const sectionNumber = String(sectionIndex + 1);
+    let items = [];
+
+    if (section.tables?.length) {
+      items = section.tables.map((table, itemIndex) =>
+        structuredReportItemFromConfig(
+          reportData,
+          table,
+          `${section.section_id}.${table.data_path}.${table.title}`
+            .replace(/\s+/g, "_")
+            .toLowerCase(),
+          `${sectionNumber}.${itemIndex + 1}`,
+          "",
+        ),
+      );
+    } else if (section.subsections?.length) {
+      items = section.subsections.map((subsection, itemIndex) =>
+        structuredReportItemFromConfig(
+          reportData,
+          subsection,
+          `${section.section_id}.${subsection.id}`,
+          `${sectionNumber}.${itemIndex + 1}`,
+          "",
+        ),
+      );
+    } else {
+      const fallbackConfig = {
+        title: section.section_title,
+        data_path: section.section_id,
+        rows: Object.keys(reportData[section.section_id] || {}).map((field) => ({
+          field,
+          label: reportLabelFromKey(field),
+        })),
+      };
+      items = [
+        structuredReportItemFromConfig(
+          reportData,
+          fallbackConfig,
+          section.section_id,
+          `${sectionNumber}.1`,
+          "",
+        ),
+      ];
+    }
+
+    return {
+      id: section.section_id,
+      number: sectionNumber,
+      title: section.section_title,
+      description: section.section_description,
+      items,
+    };
+  });
+}
+
+function ReportConfidenceBadge({ label }) {
+  if (!label) return null;
+  return (
+    <span className={`structured-report-confidence structured-report-confidence-${label}`}>
+      {label}
+    </span>
+  );
+}
+
+function StructuredReportKeyValueTable({ rows, hideConfidenceColumn }) {
+  const showConfidenceColumn = !hideConfidenceColumn && rows.some((row) => !row.hideConfidence);
+
+  return (
+    <div className="structured-report-table-wrap">
+      <table className="structured-report-table">
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Value</th>
+            {showConfidenceColumn && <th>Confidence</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td data-label="Field">{row.field}</td>
+              <td data-label="Value">{row.value}</td>
+              {showConfidenceColumn && (
+                <td data-label="Confidence">
+                  {!row.hideConfidence && <ReportConfidenceBadge label={row.confidence} />}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function StructuredReportRecordsTable({ columns, rows, hideConfidenceColumn }) {
+  const showConfidenceColumn = !hideConfidenceColumn && rows.some((row) => !row.hideConfidence);
+
+  return (
+    <div className="structured-report-table-wrap">
+      <table className="structured-report-table structured-report-records-table">
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column.field}>{column.label}</th>
+            ))}
+            {showConfidenceColumn && <th>Confidence</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              {columns.map((column) => {
+                const cell = row.cells.find((item) => item.id === column.field);
+                return (
+                  <td data-label={column.label} key={column.field}>
+                    {cell?.value || ""}
+                  </td>
+                );
+              })}
+              {showConfidenceColumn && (
+                <td data-label="Confidence">
+                  {!row.hideConfidence && <ReportConfidenceBadge label={row.confidence} />}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function StructuredReportItem({ item, open, onToggle }) {
+  const [openChildId, setOpenChildId] = useState(item.children?.[0]?.id || null);
+  const itemRowCount = structuredItemRowCount(item);
+
+  return (
+    <section className={open ? "structured-report-item open" : "structured-report-item"} id={item.id}>
+      <button className="structured-report-item-header" onClick={onToggle} type="button">
+        <span className="structured-report-panel-title">
+          <span>{item.title}</span>
+          {item.description ? <small>{item.description}</small> : null}
+        </span>
+        <span className="structured-report-panel-meta">{itemRowCount}</span>
+        <span className="structured-report-chevron" aria-hidden="true">⌄</span>
+      </button>
+      {open && (
+        <div className="structured-report-item-body">
+          {item.tableType === "group" ? (
+            <div className="structured-report-subsection-stack">
+              {(item.children || []).map((child) => (
+                <section
+                  className={openChildId === child.id ? "structured-report-item open" : "structured-report-item"}
+                  key={child.id}
+                >
+                  <button
+                    className="structured-report-item-header"
+                    onClick={() => setOpenChildId((current) => (current === child.id ? null : child.id))}
+                    type="button"
+                  >
+                    <span className="structured-report-panel-title">
+                      <span>{child.title}</span>
+                      {child.description ? <small>{child.description}</small> : null}
+                    </span>
+                    <span className="structured-report-panel-meta">{child.rows.length}</span>
+                    <span className="structured-report-chevron" aria-hidden="true">⌄</span>
+                  </button>
+                  {openChildId === child.id ? (
+                    <div className="structured-report-item-body">
+                      {child.tableType === "records" ? (
+                        <StructuredReportRecordsTable
+                          columns={child.columns}
+                          rows={child.rows}
+                          hideConfidenceColumn={child.hideConfidence}
+                        />
+                      ) : (
+                        <StructuredReportKeyValueTable rows={child.rows} hideConfidenceColumn={child.hideConfidence} />
+                      )}
+                    </div>
+                  ) : null}
+                </section>
+              ))}
+            </div>
+          ) : item.tableType === "records" ? (
+            <StructuredReportRecordsTable
+              columns={item.columns}
+              rows={item.rows}
+              hideConfidenceColumn={item.hideConfidence}
+            />
+          ) : (
+            <StructuredReportKeyValueTable rows={item.rows} hideConfidenceColumn={item.hideConfidence} />
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function StructuredReportSection({ section, open, openItemId, onToggle, onToggleItem }) {
+  return (
+    <section className={open ? "structured-report-panel open" : "structured-report-panel"} id={section.id}>
+      <button className="structured-report-panel-header" onClick={onToggle} type="button">
+        <span className="structured-report-panel-number" aria-hidden="true">
+          {section.number}
+        </span>
+        <span className="structured-report-panel-title">
+          <span>{section.title}</span>
+          {section.description ? <small>{section.description}</small> : null}
+        </span>
+        <span className="structured-report-panel-meta">{section.rowCount}</span>
+        <span className="structured-report-chevron" aria-hidden="true">⌄</span>
+      </button>
+      {open && (
+        <div className="structured-report-panel-body">
+          <div className="structured-report-subsection-stack">
+            {section.items.map((item) => (
+              <StructuredReportItem
+                key={item.id}
+                item={item}
+                open={openItemId === item.id}
+                onToggle={() => onToggleItem(item.id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function StructuredPreAssessmentReport({ reportData }) {
+  const [activeFilter, setActiveFilter] = useState("All");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const sections = useMemo(() => makeStructuredReportSections(reportData), [reportData]);
+  const [openSectionId, setOpenSectionId] = useState(sections[0]?.id || null);
+  const [openItemsBySection, setOpenItemsBySection] = useState({});
+  const availableFilters = useMemo(() => {
+    const counts = { High: 0, Medium: 0, Low: 0 };
+    sections.forEach((section) => {
+      section.items.forEach((item) => collectStructuredConfidenceCounts(item, counts));
+    });
+    return ["All", ...REPORT_CONFIDENCE_FILTERS.filter((filter) => filter !== "All" && counts[filter] > 0)];
+  }, [sections]);
+  useEffect(() => {
+    if (!availableFilters.includes(activeFilter)) {
+      setActiveFilter("All");
+    }
+  }, [activeFilter, availableFilters]);
+  const filteredSections = useMemo(
+    () =>
+      sections
+        .map((section) => {
+          const keepSectionUnfiltered = section.id === "account_snapshot";
+          const items = section.items
+            .map((item) => filterStructuredReportItem(item, activeFilter, keepSectionUnfiltered))
+            .filter((item) => structuredItemRowCount(item) > 0);
+          return {
+            ...section,
+            items,
+            rowCount: items.reduce((total, item) => total + structuredItemRowCount(item), 0),
+          };
+        })
+        .filter((section) => section.items.length > 0),
+    [activeFilter, sections],
+  );
+  const visibleOpenSectionId =
+    filteredSections.some((section) => section.id === openSectionId)
+      ? openSectionId
+      : null;
+  const snapshot = reportData.account_snapshot || {};
+  const companyField = unwrapReportField(snapshot.company);
+  const facilityField = unwrapReportField(snapshot.facility);
+  const facilityValue = isMissingReportValue(facilityField.value)
+    ? ""
+    : formatStructuredReportValue(facilityField.value);
+
+  function getOpenItemId(section) {
+    if (Object.prototype.hasOwnProperty.call(openItemsBySection, section.id)) {
+      return openItemsBySection[section.id];
+    }
+    const storedId = openItemsBySection[section.id];
+    if (section.items.some((item) => item.id === storedId)) {
+      return storedId;
+    }
+    return section.items[0]?.id || null;
+  }
+
+  function toggleItem(sectionId, itemId) {
+    setOpenItemsBySection((current) => ({
+      ...current,
+      [sectionId]: current[sectionId] === itemId ? null : itemId,
+    }));
+  }
+
+  function openSectionFromNav(sectionId) {
+    setOpenSectionId(sectionId);
+    setMenuOpen(false);
+    window.setTimeout(() => {
+      document.getElementById(sectionId)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 0);
+  }
+
+  if (!filteredSections.length) {
+    return (
+      <div className="structured-report-empty">
+        <h2 className="workspace-page-title">Report data is unavailable</h2>
+        <p className="workspace-page-copy">
+          The report is marked ready, but the saved report metadata does not match the expected template.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="structured-report-shell">
+      <main className="structured-report-main">
+        <header className="structured-report-header">
+          <div>
+            <p className="structured-report-kicker">
+              {isMissingReportValue(companyField.value) ? "Assessment Report" : formatStructuredReportValue(companyField.value)}
+            </p>
+            <h1>{reportStructure.report_ui?.report_title || "Warehouse Automation Pre-Assessment Report"}</h1>
+            <p>{reportStructure.report_ui?.report_subtitle || "Operational Intelligence & Automation Fit Analysis"}</p>
+          </div>
+          {facilityValue ? (
+            <div className="structured-report-header-meta">
+              <span>{facilityValue}</span>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="structured-report-menu-button"
+            aria-controls="structuredReportSectionMenu"
+            aria-expanded={menuOpen}
+            aria-label="Toggle report sections"
+            onClick={() => setMenuOpen((current) => !current)}
+          >
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+          </button>
+        </header>
+
+        {menuOpen ? (
+          <nav
+            id="structuredReportSectionMenu"
+            className="structured-report-section-menu"
+            aria-label="Report sections"
+          >
+            {filteredSections.map((section) => (
+              <a
+                className={visibleOpenSectionId === section.id ? "active" : ""}
+                href={`#${section.id}`}
+                key={section.id}
+                onClick={(event) => {
+                  event.preventDefault();
+                  openSectionFromNav(section.id);
+                }}
+              >
+                <span className="structured-report-nav-number">{section.number}</span>
+                {section.title}
+              </a>
+            ))}
+          </nav>
+        ) : null}
+
+        <section className="structured-report-filter-bar" aria-label="Confidence filter">
+          {availableFilters.map((filter) => (
+            <button
+              className={activeFilter === filter ? "active" : ""}
+              key={filter}
+              onClick={() => setActiveFilter(filter)}
+              type="button"
+            >
+              {filter}
+            </button>
+          ))}
+        </section>
+
+        <div className="structured-report-panel-stack">
+          {filteredSections.map((section) => (
+            <StructuredReportSection
+              key={section.id}
+              section={section}
+              open={visibleOpenSectionId === section.id}
+              openItemId={getOpenItemId(section)}
+              onToggle={() =>
+                setOpenSectionId((current) => (current === section.id ? null : section.id))
+              }
+              onToggleItem={(itemId) => toggleItem(section.id, itemId)}
+            />
+          ))}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function StructuredReportUnavailable() {
+  return (
+    <div className="structured-report-empty">
+      <h2 className="workspace-page-title">Report data is unavailable</h2>
+      <p className="workspace-page-copy">
+        The report is marked ready, but <code>report_metadata</code> does not contain the expected report structure.
+      </p>
+    </div>
+  );
 }
 
 function normalizeAuthFeedback(rawMessage) {
@@ -876,9 +1606,39 @@ function CreditsUsedChip({ creditsUsed }) {
   );
 }
 
+function WorkspaceMobileActions({ creditsUsed, onLogout }) {
+  return (
+    <nav className="workspace-mobile-actions" aria-label="Workspace actions">
+      <Link to="/workspace/sites/new" className="workspace-mobile-action workspace-mobile-action-primary">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </svg>
+        <span>Add site</span>
+      </Link>
+      <div className="workspace-mobile-action workspace-mobile-credits" aria-label="Credits used">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+          <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h10A2.5 2.5 0 0 1 19 7.5V9h-2.75A3.25 3.25 0 0 0 13 12.25v.5A3.25 3.25 0 0 0 16.25 16H19v.5A2.5 2.5 0 0 1 16.5 19h-10A2.5 2.5 0 0 1 4 16.5v-9Z" />
+          <path d="M14 12.25A1.75 1.75 0 0 1 15.75 10.5H20v4h-4.25A1.75 1.75 0 0 1 14 12.75v-.5Z" />
+        </svg>
+        <span>Credits used: {creditsUsed}</span>
+      </div>
+      <button type="button" className="workspace-mobile-action" onClick={onLogout}>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+          <path d="M10 6H6.5v12H10" />
+          <path d="M14 8l4 4-4 4" />
+          <path d="M18 12H9" />
+        </svg>
+        <span>Logout</span>
+      </button>
+    </nav>
+  );
+}
+
 function SiteRow({ site }) {
   const title = site.company_name || site.metadata?.site_name || "Saved site";
   const routeState = buildPreAssessmentRouteState(site);
+  const notesRouteState = { ...routeState, activeTab: "notes" };
   const reportReady = Boolean(site.is_report_ready);
   return (
     <article className="site-bar-item">
@@ -887,14 +1647,24 @@ function SiteRow({ site }) {
         <p className="site-bar-address">{site.full_address || ""}</p>
       </div>
       <div className="site-bar-actions">
-        <Link
-          className="site-bar-link site-bar-link-primary"
-          to={buildWorkspaceReportPath(routeState)}
-          state={routeState}
-          onClick={() => saveReportContext(routeState)}
-        >
-          View Report
-        </Link>
+        <div className="site-bar-action-row">
+          <Link
+            className="site-bar-link site-bar-link-primary"
+            to={buildWorkspaceReportPath(routeState)}
+            state={routeState}
+            onClick={() => saveReportContext(routeState)}
+          >
+            View Report
+          </Link>
+          <Link
+            className="site-bar-link site-bar-link-secondary"
+            to={buildWorkspaceReportPath(notesRouteState)}
+            state={notesRouteState}
+            onClick={() => saveReportContext(notesRouteState)}
+          >
+            Notes
+          </Link>
+        </div>
         <p className="site-bar-meta">
           {reportReady
             ? "Report available"
@@ -1330,9 +2100,6 @@ function NewUserPage() {
           designation: onboarding.designation,
           customer_company_name: onboarding.customer_company_name,
           customer_company_domain: onboarding.customer_company_domain,
-          site_company_name: onboarding.site_company_name,
-          site_company_domain: onboarding.site_company_domain,
-          ...sitePayload,
         }),
       });
       const nextState = buildSessionFromPayload(sessionState, payload);
@@ -1663,6 +2430,7 @@ function WorkspacePage() {
             />
           </div>
         </header>
+        <WorkspaceMobileActions creditsUsed={workspace?.creditsUsedTotal || 0} onLogout={logout} />
 
         <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
 
@@ -2244,9 +3012,9 @@ function ReportPage() {
 
   const selectedSite = (workspace?.sites || []).find((site) => site.site_id === siteId) || null;
   const reportMetadata = selectedSite?.report_metadata || {};
-  const reportReady = hasReportMetadata(reportMetadata);
+  const reportMarkedReady = Boolean(selectedSite?.is_report_ready);
+  const reportHasMetadata = hasReportMetadata(reportMetadata);
   const requestedAt = selectedSite?.customer_site_metadata?.last_pre_assessment_requested_at || "";
-  const reportEntries = Object.entries(reportMetadata || {});
 
   useEffect(() => {
     setNotesDraft(selectedSite?.notes || "");
@@ -2357,28 +3125,12 @@ function ReportPage() {
 
             {activeReportTab === "preAssessment" ? (
               <div className="tab-panel report-tab-panel" role="tabpanel">
-                {reportReady ? (
-                  <>
-                    <div className="workspace-sites-head">
-                      <div>
-                        <p className="workspace-card-label">Saved report</p>
-                        <h2 className="workspace-card-title">
-                          {selectedSite.company_name || "Pre-assessment report"}
-                        </h2>
-                        <p className="workspace-page-copy workspace-page-copy-tight">
-                          This is the report data currently saved in <code>report_metadata</code> for this customer-site pair.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="report-data-grid">
-                      {reportEntries.map(([key, value]) => (
-                        <div key={key} className="workspace-summary-chip report-data-chip">
-                          <span className="workspace-summary-label">{key.replace(/_/g, " ")}</span>
-                          <div className="workspace-summary-value report-data-value">{renderReportValue(value)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
+                {reportMarkedReady ? (
+                  reportHasMetadata ? (
+                    <StructuredPreAssessmentReport reportData={reportMetadata} />
+                  ) : (
+                    <StructuredReportUnavailable />
+                  )
                 ) : (
                   <div className="report-running-panel">
                     <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
@@ -2433,6 +3185,45 @@ function ReportPage() {
               </form>
             ) : null}
           </section>
+        ) : null}
+        {selectedSite ? (
+          <nav className="report-mobile-actions" aria-label="Report actions">
+            <Link to="/workspace" className="report-mobile-action">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                <path d="M3 11.5 12 4l9 7.5" />
+                <path d="M5.5 10.5V20h13v-9.5" />
+                <path d="M9.5 20v-5h5v5" />
+              </svg>
+              <span>Workspace</span>
+            </Link>
+            <button
+              type="button"
+              className={`report-mobile-action ${activeReportTab === "preAssessment" ? "active" : ""}`}
+              onClick={() => setActiveReportTab("preAssessment")}
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                <path d="M7 3.5h7l3 3V20.5H7z" />
+                <path d="M14 3.5v4h4" />
+                <path d="M9.5 11h5" />
+                <path d="M9.5 14h5" />
+                <path d="M9.5 17h3" />
+              </svg>
+              <span>Pre-assessment</span>
+            </button>
+            <button
+              type="button"
+              className={`report-mobile-action ${activeReportTab === "notes" ? "active" : ""}`}
+              onClick={() => setActiveReportTab("notes")}
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                <path d="M6.5 4.5h11v15h-11z" />
+                <path d="M9 8h6" />
+                <path d="M9 11.5h6" />
+                <path d="M9 15h3.5" />
+              </svg>
+              <span>Notes</span>
+            </button>
+          </nav>
         ) : null}
       </section>
     </main>

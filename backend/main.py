@@ -79,14 +79,12 @@ app.add_middleware(
 SERVICE_API_PREFIXES = (
     "/account-sites",
     "/accounts",
-    "/auth",
     "/customer-sites",
     "/debug",
     "/frontend-config",
     "/onboarding",
     "/pre-assessment",
     "/signup",
-    "/workspace",
 )
 
 
@@ -1249,24 +1247,15 @@ async def handle_complete_onboarding(request: Request, body: dict[str, Any] = Bo
         customer_company_domain = normalize_domain(
             body.get("customer_company_domain") or body.get("company_domain")
         )
-        site_company_name = clean_required(
-            body.get("site_company_name") or body.get("org_name"),
-            "Site company name",
-        )
-        site_company_domain = normalize_domain(
-            body.get("site_company_domain") or body.get("org_domain")
-        )
-        site = parse_site_input(body)
         dry_run = is_dry_run_request(request, body)
 
-        account = {"accountId": None, "companyName": site_company_name, "domain": site_company_domain}
+        account = {"accountId": None, "companyName": customer_company_name, "domain": customer_company_domain}
         customer = {"customerId": None}
         site_result = {"status": "pending_confirmation", "siteId": None}
 
         if not dry_run:
             db = get_admin_db()
-            await upsert_account(db, customer_company_name, customer_company_domain)
-            account = await upsert_account(db, site_company_name, site_company_domain)
+            account = await upsert_account(db, customer_company_name, customer_company_domain)
             customer = await upsert_customer(
                 db,
                 {

@@ -1,0 +1,403 @@
+{
+  "report_ui": {
+    "report_title": "Site Pre-Assessment",
+    "report_subtitle": "Operational Intelligence & Automation Fit Analysis"
+  },
+  "sections": [
+    {
+      "section_id": "part_1_account_identification",
+      "section_title": "Account Identification",
+      "section_description": "Company structure, operation type, and facility profile.",
+      "icon": "building",
+      "show_in_sidebar": true,
+      "subsections": [
+        {
+          "id": "account_identity",
+          "title": "Account Identity",
+          "data_path": "part_1_account_identification.account_identity",
+          "rows": [
+            { "field": "company_legal_name", "label": "Company legal name" },
+            { "field": "trading_names", "label": "Trading name(s) / brand name(s)" },
+            { "field": "headquarters_address", "label": "Headquarters address" },
+            { "field": "target_facility_addresses", "label": "Target facility address(es)" },
+            { "field": "ownership_structure", "label": "Ownership structure" },
+            { "field": "year_founded", "label": "Year founded / years in operation" },
+            { "field": "industry_naics_code", "label": "Industry / NAICS code" }
+          ]
+        },
+        {
+          "id": "operation_type",
+          "title": "Operation Type",
+          "data_path": "part_1_account_identification.operation_type",
+          "rows": [
+            { "field": "primary_warehouse_operation_types", "label": "Primary warehouse operation type(s)" },
+            { "field": "primary_warehouse_product_categories", "label": "Primary product categories handled" },
+            { "field": "customer_base", "label": "Customer base" }
+          ]
+        },
+        {
+          "id": "facility_profile",
+          "title": "Facility Profile",
+          "data_path": "part_1_account_identification.facility_profile",
+          "rows": [
+            { "field": "full_address", "label": "Full address" },
+            { "field": "building_size_sqft", "label": "Building size (square footage)" },
+            { "field": "building_age_year", "label": "Building age / year of construction" },
+            { "field": "clear_height", "label": "Estimated clear height" },
+            { "field": "dock_door_count", "label": "Approximate dock door count" },
+            { "field": "yard_configuration", "label": "Yard configuration" },
+            { "field": "ownership_or_lease_status", "label": "Ownership / lease status" },
+            { "field": "lease_expiry", "label": "Known lease expiry (if leased)" },
+            { "field": "recent_building_permits", "label": "Recent building permits at this address" },
+            { "field": "satellite_imagery_observations", "label": "Satellite imagery observations" }
+          ]
+        }
+      ]
+    },
+    {
+      "section_id": "part_2_operational_intelligence",
+      "section_title": "Operational Intelligence",
+      "section_description": "Workforce, labour market, wages, attrition, systems, performance, OSHA, and financial capacity.",
+      "icon": "activity",
+      "show_in_sidebar": true,
+      "subsections": [
+        {
+          "id": "workforce_and_headcount_profile",
+          "title": "Workforce & Headcount",
+          "data_path": "part_2_operational_intelligence.workforce_and_headcount_profile",
+          "rows": [
+            { "field": "total_warehouse_headcount_estimate", "label": "Total warehouse headcount estimate" },
+            { "field": "headcount_sources_and_confidence", "label": "Source(s) and confidence level" },
+            { "field": "headcount_breakdown_by_function.forklift_operators", "label": "Headcount — forklift / MHE operators" },
+            { "field": "headcount_breakdown_by_function.material_handlers", "label": "Headcount — material handlers" },
+            { "field": "headcount_breakdown_by_function.pickers_packers", "label": "Headcount — pickers / packers" },
+            { "field": "headcount_breakdown_by_function.receiving_associates", "label": "Headcount — receiving associates" },
+            { "field": "headcount_breakdown_by_function.supervisors", "label": "Headcount — supervisors" },
+            { "field": "headcount_breakdown_by_function.other", "label": "Headcount — other" },
+            { "field": "shift_structure", "label": "Shift structure" },
+            { "field": "temporary_vs_permanent_ratio", "label": "Temporary vs permanent workforce ratio" }
+          ]
+        },
+        {
+          "id": "labour_market_conditions",
+          "title": "Labour Market Conditions",
+          "data_path": "part_2_operational_intelligence.labour_market_conditions",
+          "rows": [
+            { "field": "msa_or_county", "label": "MSA or county" },
+            { "field": "unemployment_rate.current_rate", "label": "Current unemployment rate (county or MSA)" },
+            { "field": "unemployment_rate.date", "label": "Date of unemployment data" },
+            { "field": "unemployment_rate.national_rate_comparison", "label": "National rate for comparison" },
+            { "field": "warehouse_worker_wages_msa", "label": "Warehouse worker wages in this MSA" },
+            { "field": "labour_supply_tightness_signals", "label": "Labour supply tightness signals" },
+            { "field": "job_posts_similar_roles_within_20_miles", "label": "No. of job posts for similar roles within ~20 miles" },
+            { "field": "competing_employers_within_20_miles", "label": "Competing warehouse employers within ~20 miles" },
+            { "field": "warehouses_hiring_same_roles_count", "label": "Warehouses within ~20 miles hiring for the same roles" }
+          ]
+        },
+        {
+          "id": "wage_and_labour_cost_intelligence",
+          "title": "Wage & Labour Cost Intelligence",
+          "data_path": "part_2_operational_intelligence.wage_and_labour_cost_intelligence",
+          "rows": [
+            { "field": "signing_or_retention_bonuses", "label": "Signing bonuses or retention bonuses" },
+            { "field": "wage_deviation_from_msa_min_wage", "label": "Deviation of wage rates from the MSA min wage" },
+            { "field": "recent_wage_increases", "label": "Recent wage increases (stated or implied)" },
+            { "field": "estimated_fully_loaded_annual_cost", "label": "Estimated fully-loaded annual cost — transport/material movement workforce" }
+          ]
+        },
+        {
+          "id": "technology_systems",
+          "title": "Technology & Systems",
+          "data_path": "part_2_operational_intelligence.technology_and_systems_intelligence",
+          "rows": [
+            { "field": "wms.identified_system", "label": "WMS identified" },
+            { "field": "wms.tier_assessment", "label": "WMS tier assessment" },
+            { "field": "other_systems.tms", "label": "TMS" },
+            { "field": "other_systems.oms", "label": "OMS" },
+            { "field": "other_systems.lms", "label": "LMS" },
+            { "field": "other_systems.wcs", "label": "WCS" },
+            { "field": "other_systems.erp", "label": "ERP" }
+          ]
+        },
+        {
+          "id": "automation_existing_in_use",
+          "title": "Existing Automation",
+          "data_path": "part_2_operational_intelligence.technology_and_systems_intelligence.automation_existing_in_use",
+          "rows": [
+            { "field": "autonomous_mobile_robots_amrs", "label": "Autonomous mobile robots (AMRs)" },
+            { "field": "autonomous_tuggers_tow_tractors", "label": "Autonomous tuggers / tow tractors" },
+            { "field": "autonomous_forklifts", "label": "Autonomous forklifts" },
+            { "field": "goods_to_person_gtp_autostore_skypod", "label": "Goods-to-person (GTP) / AutoStore / Skypod" },
+            { "field": "conveyor_sorter", "label": "Conveyor / sorter" },
+            { "field": "asrs_miniload", "label": "ASRS / miniload" },
+            { "field": "voice_directed_picking", "label": "Voice-directed picking" },
+            { "field": "pick_to_light_put_to_light", "label": "Pick-to-light / put-to-light" },
+            { "field": "other", "label": "Other" }
+          ]
+        },
+        {
+          "id": "it_infrastructure_signals",
+          "title": "IT Infrastructure Signals",
+          "data_path": "part_2_operational_intelligence.technology_and_systems_intelligence.it_infrastructure_signals",
+          "rows": [
+            { "field": "wifi_infrastructure_evidence", "label": "WiFi infrastructure evidence" }
+          ]
+        },
+        {
+          "id": "operational_performance_customer_driver",
+          "title": "Operational Performance",
+          "data_path": "part_2_operational_intelligence.operational_performance_signals",
+          "rows": [
+            { "field": "customer_facing_performance_indicators", "label": "Customer-facing performance indicators" },
+            { "field": "driver_and_carrier_reviews", "label": "Driver and carrier reviews of this facility" }
+          ]
+        },
+        {
+          "id": "osha_ita_by_year",
+          "title": "OSHA Injury Tracking",
+          "description": "TRIR and DART by year where ITA data exists.",
+          "data_path": "part_2_operational_intelligence.operational_performance_signals.osha_ita_by_year",
+          "table_type": "records",
+          "hide_confidence": true,
+          "columns": [
+            { "field": "year", "label": "Year" },
+            { "field": "trir", "label": "TRIR" },
+            { "field": "dart_rate", "label": "DART rate" }
+          ]
+        },
+        {
+          "id": "osha_inspection_history",
+          "title": "OSHA Inspection History",
+          "data_path": "part_2_operational_intelligence.operational_performance_signals.osha_inspection_history",
+          "table_type": "records",
+          "hide_confidence": true,
+          "columns": [
+            { "field": "date", "label": "Date" },
+            { "field": "inspection_type", "label": "Type" },
+            { "field": "violations", "label": "Violations" },
+            { "field": "penalty", "label": "Penalty" },
+            { "field": "status", "label": "Status" }
+          ]
+        },
+        {
+          "id": "osha_safety_summary",
+          "title": "OSHA Summary & Compliance",
+          "data_path": "part_2_operational_intelligence.operational_performance_signals",
+          "rows": [
+            { "field": "osha_safety_and_compliance", "label": "OSHA safety and compliance (summary / notable findings)" },
+            { "field": "food_safety_or_regulatory_compliance", "label": "Food safety / FDA (if applicable)" },
+            { "field": "epa_environmental_compliance_record", "label": "EPA / environmental compliance" }
+          ]
+        },
+        {
+          "id": "financial_capacity_intelligence",
+          "title": "Financial Capacity",
+          "data_path": "part_2_operational_intelligence.financial_capacity_intelligence",
+          "rows": [
+            { "field": "revenue_estimate", "label": "Revenue estimate" },
+            { "field": "private_equity_venture_backed", "label": "Private equity or venture backing" },
+            { "field": "recent_capital_investments", "label": "Recent capital investment signals" },
+            { "field": "government_incentives_received", "label": "Government incentives received" }
+          ]
+        }
+      ]
+    },
+    {
+      "section_id": "part_3_pain_and_urgency_signals",
+      "section_title": "Pain & Urgency Signals",
+      "section_description": "What is driving potential automation interest now: labour, competition, growth, financial events, and compliance.",
+      "icon": "alert-triangle",
+      "show_in_sidebar": true,
+      "subsections": [
+        {
+          "id": "chronically_open_roles_table",
+          "title": "Chronically Open Roles",
+          "description": "Roles open >60 days or that reappear quickly — template table.",
+          "data_path": "part_3_pain_and_urgency_signals.labour_urgency_signals.chronically_open_roles_detail",
+          "table_type": "records",
+          "hide_confidence": true,
+          "columns": [
+            { "field": "role", "label": "Role" },
+            { "field": "estimated_time_open", "label": "Estimated time open" },
+            { "field": "evidence", "label": "Evidence" }
+          ]
+        },
+        {
+          "id": "labour_urgency_signals",
+          "title": "Labour Urgency",
+          "data_path": "part_3_pain_and_urgency_signals.labour_urgency_signals",
+          "rows": [
+            { "field": "temp_agency_dependency_evidence", "label": "Temp agency dependency" },
+            { "field": "labour_market_trend", "label": "Local labour market deterioration" }
+          ]
+        },
+        {
+          "id": "competitor_automation_deployments_table",
+          "title": "Competitor Automation Deployments",
+          "data_path": "part_3_pain_and_urgency_signals.competitive_automation_pressure.competitor_automation_deployments",
+          "table_type": "records",
+          "columns": [
+            { "field": "competitor", "label": "Competitor" },
+            { "field": "automation_type", "label": "Automation type" },
+            { "field": "vendor", "label": "Vendor" },
+            { "field": "source", "label": "Source" },
+            { "field": "date", "label": "Date" }
+          ]
+        },
+        {
+          "id": "competitive_automation_pressure",
+          "title": "Competitive Automation Pressure",
+          "data_path": "part_3_pain_and_urgency_signals.competitive_automation_pressure",
+          "rows": [
+            { "field": "competitors_identified", "label": "Competitors identified" },
+            { "field": "competitor_automation_mentions", "label": "Competitor automation mentions" },
+            { "field": "industry_automation_adoption_context", "label": "Industry automation adoption context" }
+          ]
+        },
+        {
+          "id": "growth_and_network_change_signals",
+          "title": "Growth and Network Change Signals",
+          "data_path": "part_3_pain_and_urgency_signals.growth_and_network_change_signals",
+          "tables": [
+            {
+              "id": "volume_growth_trajectory",
+              "title": "Volume Growth Trajectory",
+              "data_path": "part_3_pain_and_urgency_signals.growth_and_network_change_signals",
+              "rows": [
+                { "field": "volume_growth_signal", "label": "Volume growth signal" },
+                { "field": "revenue_growth_disclosure", "label": "Revenue growth disclosure" },
+                { "field": "linkedin_employee_count_growth_trend", "label": "LinkedIn employee count growth trend" },
+                { "field": "public_growth_recognition", "label": "Public growth recognition" },
+                { "field": "economic_development_job_creation_announcement", "label": "Economic development job creation announcement" }
+              ]
+            },
+            {
+              "id": "new_facility_openings_or_network_expansion",
+              "title": "New Facility Openings or Network Expansion",
+              "data_path": "part_3_pain_and_urgency_signals.growth_and_network_change_signals",
+              "rows": [
+                { "field": "facility_expansion_permit", "label": "Facility expansion permit" },
+                { "field": "new_facility_opening", "label": "New facility opening" },
+                { "field": "expanded_partnership_announcement", "label": "Expanded partnership announcement" },
+                { "field": "network_expansion_signal_business", "label": "Network expansion signal" },
+                { "field": "network_expansion_signal_finance", "label": "Network expansion signal" }
+              ]
+            },
+            {
+              "id": "new_customer_wins_or_contract_announcements",
+              "title": "New Customer Wins or Contract Announcements",
+              "data_path": "part_3_pain_and_urgency_signals.growth_and_network_change_signals",
+              "rows": [
+                { "field": "new_customer_win", "label": "New customer win" },
+                { "field": "new_contract_announcement", "label": "New Contract announcement" }
+              ]
+            },
+            {
+              "id": "peak_volume_management_challenges",
+              "title": "Peak Volume Management Challenges",
+              "data_path": "part_3_pain_and_urgency_signals.growth_and_network_change_signals",
+              "rows": [
+                { "field": "peak_season_demand_spike", "label": "Peak season demand spike" },
+                { "field": "peak_volume_management_challenge", "label": "Peak volume management challenge" },
+                { "field": "hiring_for_new_city_or_new_site", "label": "Hiring for new city or new site" }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "financial_event_triggers",
+          "title": "Financial Event Triggers",
+          "data_path": "part_3_pain_and_urgency_signals.financial_event_triggers",
+          "tables": [
+            {
+              "id": "private_equity_acquisition_or_new_investment_round",
+              "title": "Private Equity Acquisition or New Investment Round",
+              "data_path": "part_3_pain_and_urgency_signals.financial_event_triggers",
+              "rows": [
+                { "field": "private_equity_acquisition", "label": "Private equity acquisition" },
+                { "field": "new_investment_round", "label": "New investment round" }
+              ]
+            },
+            {
+              "id": "recent_ownership_or_investment_change",
+              "title": "Recent Ownership or Investment Change",
+              "data_path": "part_3_pain_and_urgency_signals.financial_event_triggers",
+              "rows": [
+                { "field": "recent_investment_change", "label": "Recent investment change" },
+                { "field": "recent_ownership_change", "label": "Recent ownership change" }
+              ]
+            },
+            {
+              "id": "new_c_suite_or_operational_leadership",
+              "title": "New C-suite or Operational Leadership",
+              "data_path": "part_3_pain_and_urgency_signals.financial_event_triggers",
+              "rows": [
+                { "field": "new_c_suite_leadership_appointment", "label": "New C-suite leadership appointment" },
+                { "field": "new_operations_leadership_appointment", "label": "New operations leadership appointment" },
+                { "field": "new_supply_chain_leadership_appointment", "label": "New supply chain leadership appointment" }
+              ]
+            },
+            {
+              "id": "lease_renewal_approaching",
+              "title": "Lease Renewal Approaching",
+              "data_path": "part_3_pain_and_urgency_signals.financial_event_triggers",
+              "rows": [
+                { "field": "lease_renewal_approaching", "label": "Lease renewal approaching" }
+              ]
+            },
+            {
+              "id": "budget_cycle_timing",
+              "title": "Budget Cycle Timing",
+              "data_path": "part_3_pain_and_urgency_signals.financial_event_triggers",
+              "rows": [
+                { "field": "budget_cycle_timing_raw", "label": "Budget cycle timing" }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "regulatory_and_compliance_pressure",
+          "title": "Regulatory & Compliance Pressure",
+          "data_path": "part_3_pain_and_urgency_signals.regulatory_and_compliance_pressure",
+          "rows": [
+            { "field": "active_osha_citations", "label": "Active OSHA citation" }
+          ]
+        }
+      ]
+    }
+  ],
+  "dashboard_cards": [
+    {
+      "title": "Automation Readiness Score",
+      "field": "automation_readiness_score",
+      "type": "score"
+    },
+    {
+      "title": "Labour Pressure Level",
+      "field": "labour_pressure_level",
+      "type": "badge"
+    },
+    {
+      "title": "Estimated Annual Savings",
+      "field": "estimated_savings_per_year",
+      "type": "currency"
+    },
+    {
+      "title": "Best Solution Fit",
+      "field": "recommended_solution",
+      "type": "tag"
+    }
+  ],
+  "recommended_ui_layout": {
+    "navigation": "left_sidebar",
+    "header_style": "sticky_header",
+    "section_layout": "accordion_sections",
+    "summary_cards_position": "top",
+    "charts_enabled": true,
+    "export_options": [
+      "PDF",
+      "DOCX",
+      "JSON"
+    ]
+  }
+}
