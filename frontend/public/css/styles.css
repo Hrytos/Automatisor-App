@@ -732,17 +732,22 @@
   display: flex;
   justify-content: flex-start;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
   margin-top: 16px;
+  min-width: 0;
+  width: 100%;
 }
 
 .workspace-search-action .btn-secondary {
   min-height: 50px;
-  min-width: 200px;
+  min-width: 0;
+  max-width: 100%;
   padding: 0 22px;
   border-radius: 16px;
   white-space: nowrap;
   justify-content: center;
+  box-sizing: border-box;
 }
 
 .workspace-field-wide {
@@ -1046,6 +1051,13 @@
 
   .workspace-map-toolbar .btn-primary {
     margin-left: 0;
+  }
+
+  .workspace-search-action .btn-secondary {
+    width: 100%;
+    padding: 12px 16px;
+    white-space: normal;
+    text-align: center;
   }
 
   .wallet-summary-value {
@@ -4342,6 +4354,9 @@ footer {
     padding-inline: 6px;
     background: #f8fafc;
     color: #0f172a;
+    font-size: 9px;
+    line-height: 1.05;
+    white-space: normal;
   }
 
   .workspace-mobile-action:focus-visible {
@@ -4509,6 +4524,13 @@ footer {
 }
 
 @media (min-width: 769px) and (max-width: 1024px) {
+  .workspace-search-action .btn-secondary {
+    width: 100%;
+    padding: 12px 16px;
+    white-space: normal;
+    text-align: center;
+  }
+
   .workspace-topbar-actions {
     display: none;
   }
@@ -4579,6 +4601,9 @@ footer {
   .workspace-mobile-credits {
     background: #f8fafc;
     color: #0f172a;
+    font-size: 11px;
+    line-height: 1.05;
+    white-space: nowrap;
   }
 
   .report-page {
