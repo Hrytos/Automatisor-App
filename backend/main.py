@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from pathlib import Path
@@ -34,6 +35,7 @@ SERVER_DRY_RUN = "--dry" in os.sys.argv or os.getenv("AUTOMATISOR_DRY") == "1"
 SIGNUP_CREDITS = 1
 PRE_ASSESSMENT_PRICE = 1
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
+SAMPLE_REPORT_PATH = ROOT_DIR / "backend" / "sample-report" / "data_structure.json"
 
 DISALLOWED_PERSONAL_EMAIL_DOMAINS = {
     "gmail.com",
@@ -1124,6 +1126,16 @@ async def frontend_config() -> dict[str, Any]:
     return {"google_maps_api_key": GOOGLE_MAPS_API_KEY}
 
 
+@app.get("/api/sample-reports/br-williams")
+async def br_williams_sample_report() -> Any:
+    if not SAMPLE_REPORT_PATH.exists():
+        raise HTTPException(status_code=404, detail="Sample report data is not configured")
+    try:
+        return json.loads(SAMPLE_REPORT_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail="Sample report data is not valid JSON") from exc
+
+
 @app.get("/api/debug/google-status")
 async def debug_google_status() -> dict[str, Any]:
     key = GOOGLE_MAPS_API_KEY or ""
@@ -1516,7 +1528,11 @@ def register_vercel_service_api_aliases() -> None:
     api_routes = [
         route
         for route in app.router.routes
-        if isinstance(route, APIRoute) and route.path.startswith("/api/")
+        if (
+            isinstance(route, APIRoute)
+            and route.path.startswith("/api/")
+            and not route.path.startswith("/api/sample-reports/")
+        )
     ]
     existing = {
         (route.path, tuple(sorted(route.methods or [])))

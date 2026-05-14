@@ -2872,6 +2872,33 @@ footer {
   text-align: left;
 }
 
+.pre-assessment-meaning-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.sample-report-link-row {
+  display: flex;
+  align-items: center;
+  margin: 2px 0 4px;
+}
+
+.sample-report-link {
+  min-height: 44px;
+}
+
+.sample-report-page .report-page {
+  max-width: 100%;
+}
+
+.sample-report-head {
+  width: 100%;
+  max-width: 1360px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0 34px;
+}
+
 .workspace-page-title {
   margin: 0 0 14px;
   max-width: none;
@@ -3802,6 +3829,7 @@ footer {
 .structured-report-panel-header,
 .structured-report-item-header {
   width: 100%;
+  min-height: 48px;
   display: grid;
   align-items: center;
   border: 0;
@@ -3809,6 +3837,7 @@ footer {
   background: #ffffff;
   color: #030149;
   text-align: left;
+  touch-action: manipulation;
 }
 
 .structured-report-panel-header {

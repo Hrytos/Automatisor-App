@@ -580,13 +580,23 @@ function StructuredReportRecordsTable({ columns, rows, hideConfidenceColumn }) {
   );
 }
 
-function StructuredReportItem({ item, open, onToggle }) {
-  const [openChildId, setOpenChildId] = useState(item.children?.[0]?.id || null);
+function toggleIdInList(list, id) {
+  return list.includes(id) ? list.filter((itemId) => itemId !== id) : [...list, id];
+}
+
+function StructuredReportItem({ item, open, openChildIds, onToggle, onToggleChild }) {
   const itemRowCount = structuredItemRowCount(item);
+  const bodyId = `${item.id}-body`;
 
   return (
     <section className={open ? "structured-report-item open" : "structured-report-item"} id={item.id}>
-      <button className="structured-report-item-header" onClick={onToggle} type="button">
+      <button
+        aria-controls={bodyId}
+        aria-expanded={open}
+        className="structured-report-item-header"
+        onClick={onToggle}
+        type="button"
+      >
         <span className="structured-report-panel-title">
           <span>{item.title}</span>
           {item.description ? <small>{item.description}</small> : null}
@@ -595,41 +605,47 @@ function StructuredReportItem({ item, open, onToggle }) {
         <span className="structured-report-chevron" aria-hidden="true">⌄</span>
       </button>
       {open && (
-        <div className="structured-report-item-body">
+        <div className="structured-report-item-body" id={bodyId}>
           {item.tableType === "group" ? (
             <div className="structured-report-subsection-stack">
-              {(item.children || []).map((child) => (
-                <section
-                  className={openChildId === child.id ? "structured-report-item open" : "structured-report-item"}
-                  key={child.id}
-                >
-                  <button
-                    className="structured-report-item-header"
-                    onClick={() => setOpenChildId((current) => (current === child.id ? null : child.id))}
-                    type="button"
+              {(item.children || []).map((child) => {
+                const childOpen = openChildIds.includes(child.id);
+                const childBodyId = `${child.id}-body`;
+                return (
+                  <section
+                    className={childOpen ? "structured-report-item open" : "structured-report-item"}
+                    key={child.id}
                   >
-                    <span className="structured-report-panel-title">
-                      <span>{child.title}</span>
-                      {child.description ? <small>{child.description}</small> : null}
-                    </span>
-                    <span className="structured-report-panel-meta">{child.rows.length}</span>
-                    <span className="structured-report-chevron" aria-hidden="true">⌄</span>
-                  </button>
-                  {openChildId === child.id ? (
-                    <div className="structured-report-item-body">
-                      {child.tableType === "records" ? (
-                        <StructuredReportRecordsTable
-                          columns={child.columns}
-                          rows={child.rows}
-                          hideConfidenceColumn={child.hideConfidence}
-                        />
-                      ) : (
-                        <StructuredReportKeyValueTable rows={child.rows} hideConfidenceColumn={child.hideConfidence} />
-                      )}
-                    </div>
-                  ) : null}
-                </section>
-              ))}
+                    <button
+                      aria-controls={childBodyId}
+                      aria-expanded={childOpen}
+                      className="structured-report-item-header"
+                      onClick={() => onToggleChild(child.id)}
+                      type="button"
+                    >
+                      <span className="structured-report-panel-title">
+                        <span>{child.title}</span>
+                        {child.description ? <small>{child.description}</small> : null}
+                      </span>
+                      <span className="structured-report-panel-meta">{child.rows.length}</span>
+                      <span className="structured-report-chevron" aria-hidden="true">⌄</span>
+                    </button>
+                    {childOpen ? (
+                      <div className="structured-report-item-body" id={childBodyId}>
+                        {child.tableType === "records" ? (
+                          <StructuredReportRecordsTable
+                            columns={child.columns}
+                            rows={child.rows}
+                            hideConfidenceColumn={child.hideConfidence}
+                          />
+                        ) : (
+                          <StructuredReportKeyValueTable rows={child.rows} hideConfidenceColumn={child.hideConfidence} />
+                        )}
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
             </div>
           ) : item.tableType === "records" ? (
             <StructuredReportRecordsTable
@@ -646,10 +662,18 @@ function StructuredReportItem({ item, open, onToggle }) {
   );
 }
 
-function StructuredReportSection({ section, open, openItemId, onToggle, onToggleItem }) {
+function StructuredReportSection({ section, open, openItemIds, openChildIdsByItem, onToggle, onToggleItem, onToggleChild }) {
+  const bodyId = `${section.id}-body`;
+
   return (
     <section className={open ? "structured-report-panel open" : "structured-report-panel"} id={section.id}>
-      <button className="structured-report-panel-header" onClick={onToggle} type="button">
+      <button
+        aria-controls={bodyId}
+        aria-expanded={open}
+        className="structured-report-panel-header"
+        onClick={onToggle}
+        type="button"
+      >
         <span className="structured-report-panel-number" aria-hidden="true">
           {section.number}
         </span>
@@ -661,14 +685,16 @@ function StructuredReportSection({ section, open, openItemId, onToggle, onToggle
         <span className="structured-report-chevron" aria-hidden="true">⌄</span>
       </button>
       {open && (
-        <div className="structured-report-panel-body">
+        <div className="structured-report-panel-body" id={bodyId}>
           <div className="structured-report-subsection-stack">
             {section.items.map((item) => (
               <StructuredReportItem
                 key={item.id}
                 item={item}
-                open={openItemId === item.id}
+                open={openItemIds.includes(item.id)}
+                openChildIds={openChildIdsByItem[item.id] || []}
                 onToggle={() => onToggleItem(item.id)}
+                onToggleChild={(childId) => onToggleChild(item.id, childId)}
               />
             ))}
           </div>
@@ -682,8 +708,9 @@ function StructuredPreAssessmentReport({ reportData }) {
   const [activeFilter, setActiveFilter] = useState("All");
   const [menuOpen, setMenuOpen] = useState(false);
   const sections = useMemo(() => makeStructuredReportSections(reportData), [reportData]);
-  const [openSectionId, setOpenSectionId] = useState(sections[0]?.id || null);
+  const [openSectionIds, setOpenSectionIds] = useState(() => sections[0]?.id ? [sections[0].id] : []);
   const [openItemsBySection, setOpenItemsBySection] = useState({});
+  const [openChildrenByItem, setOpenChildrenByItem] = useState({});
   const availableFilters = useMemo(() => {
     const counts = { High: 0, Medium: 0, Low: 0 };
     sections.forEach((section) => {
@@ -713,10 +740,9 @@ function StructuredPreAssessmentReport({ reportData }) {
         .filter((section) => section.items.length > 0),
     [activeFilter, sections],
   );
-  const visibleOpenSectionId =
-    filteredSections.some((section) => section.id === openSectionId)
-      ? openSectionId
-      : null;
+  const visibleOpenSectionIds = openSectionIds.filter((sectionId) =>
+    filteredSections.some((section) => section.id === sectionId),
+  );
   const snapshot = reportData.account_snapshot || {};
   const companyField = unwrapReportField(snapshot.company);
   const facilityField = unwrapReportField(snapshot.facility);
@@ -724,26 +750,46 @@ function StructuredPreAssessmentReport({ reportData }) {
     ? ""
     : formatStructuredReportValue(facilityField.value);
 
-  function getOpenItemId(section) {
+  function getOpenItemIds(section) {
     if (Object.prototype.hasOwnProperty.call(openItemsBySection, section.id)) {
-      return openItemsBySection[section.id];
+      return openItemsBySection[section.id].filter((itemId) =>
+        section.items.some((item) => item.id === itemId),
+      );
     }
-    const storedId = openItemsBySection[section.id];
-    if (section.items.some((item) => item.id === storedId)) {
-      return storedId;
-    }
-    return section.items[0]?.id || null;
+    return section.items[0]?.id ? [section.items[0].id] : [];
+  }
+
+  function getOpenChildIdsByItem(section) {
+    return section.items.reduce((openChildren, item) => {
+      const storedIds = openChildrenByItem[item.id];
+      if (storedIds) {
+        openChildren[item.id] = storedIds.filter((childId) =>
+          (item.children || []).some((child) => child.id === childId),
+        );
+      } else {
+        const firstChildId = item.children?.[0]?.id;
+        openChildren[item.id] = firstChildId ? [firstChildId] : [];
+      }
+      return openChildren;
+    }, {});
   }
 
   function toggleItem(sectionId, itemId) {
     setOpenItemsBySection((current) => ({
       ...current,
-      [sectionId]: current[sectionId] === itemId ? null : itemId,
+      [sectionId]: toggleIdInList(current[sectionId] || [], itemId),
+    }));
+  }
+
+  function toggleChild(itemId, childId) {
+    setOpenChildrenByItem((current) => ({
+      ...current,
+      [itemId]: toggleIdInList(current[itemId] || [], childId),
     }));
   }
 
   function openSectionFromNav(sectionId) {
-    setOpenSectionId(sectionId);
+    setOpenSectionIds((current) => current.includes(sectionId) ? current : [...current, sectionId]);
     setMenuOpen(false);
     window.setTimeout(() => {
       document.getElementById(sectionId)?.scrollIntoView({
@@ -802,7 +848,7 @@ function StructuredPreAssessmentReport({ reportData }) {
           >
             {filteredSections.map((section) => (
               <a
-                className={visibleOpenSectionId === section.id ? "active" : ""}
+                className={visibleOpenSectionIds.includes(section.id) ? "active" : ""}
                 href={`#${section.id}`}
                 key={section.id}
                 onClick={(event) => {
@@ -835,12 +881,14 @@ function StructuredPreAssessmentReport({ reportData }) {
             <StructuredReportSection
               key={section.id}
               section={section}
-              open={visibleOpenSectionId === section.id}
-              openItemId={getOpenItemId(section)}
+              open={visibleOpenSectionIds.includes(section.id)}
+              openItemIds={getOpenItemIds(section)}
+              openChildIdsByItem={getOpenChildIdsByItem(section)}
               onToggle={() =>
-                setOpenSectionId((current) => (current === section.id ? null : section.id))
+                setOpenSectionIds((current) => toggleIdInList(current, section.id))
               }
               onToggleItem={(itemId) => toggleItem(section.id, itemId)}
+              onToggleChild={toggleChild}
             />
           ))}
         </div>
@@ -857,6 +905,83 @@ function StructuredReportUnavailable() {
         The report is marked ready, but <code>report_metadata</code> does not contain the expected report structure.
       </p>
     </div>
+  );
+}
+
+function SampleReportPage() {
+  const [reportData, setReportData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchJson("/api/sample-reports/br-williams", { method: "GET" })
+      .then((payload) => {
+        if (isMounted) {
+          setReportData(payload);
+        }
+      })
+      .catch((nextError) => {
+        if (isMounted) {
+          setError(nextError.message || "Could not load the sample report.");
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const hasSampleData = hasReportMetadata(reportData);
+
+  return (
+    <main className="workspace-page-shell signup-body workspace-body sample-report-page">
+      <section className="workspace-page workspace-form-page report-page">
+        <header className="workspace-subpage-head sample-report-head">
+          <div className="workspace-subpage-bar">
+            <div>
+              <p className="workspace-eyebrow">Sample report</p>
+              <h1 className="workspace-page-title">BR Williams Pre-Assessment Sample</h1>
+              <p className="workspace-page-copy">
+                This public sample uses the same structured report layout as a generated site pre-assessment.
+              </p>
+            </div>
+          </div>
+        </header>
+
+        {loading ? (
+          <section className="workspace-card workspace-card-modern workspace-card-wide thank-you-state">
+            <div className="workspace-loading-state">
+              <p>Loading sample report...</p>
+            </div>
+          </section>
+        ) : null}
+
+        {!loading && error ? (
+          <section className="workspace-card workspace-card-modern workspace-card-wide thank-you-state">
+            <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
+              !
+            </div>
+            <h2 className="workspace-page-title">Sample report unavailable</h2>
+            <p className="workspace-page-copy">{error}</p>
+          </section>
+        ) : null}
+
+        {!loading && !error ? (
+          <section className="workspace-card workspace-card-modern workspace-card-wide report-view-card">
+            {hasSampleData ? (
+              <StructuredPreAssessmentReport reportData={reportData} />
+            ) : (
+              <StructuredReportUnavailable />
+            )}
+          </section>
+        ) : null}
+      </section>
+    </main>
   );
 }
 
@@ -2592,7 +2717,6 @@ function PreAssessmentPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [tab, setTab] = useState("meaning");
   const [mode, setMode] = useState("flow");
   const [workspace, setWorkspace] = useState(() => session || loadSession());
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
@@ -2790,54 +2914,41 @@ function PreAssessmentPage() {
 
             <section className="workspace-card workspace-card-modern workspace-card-wide pre-assessment-card">
               <div className="tab-row">
-                {[
-                  ["meaning", "What it means"],
-                  ["benefits", "Benefits"],
-                  ["pricing", "Pricing"],
-                ].map(([key, label]) => (
-                  <button
-                    key={key}
-                    className={`tab-btn ${tab === key ? "tab-btn-active" : ""}`}
-                    type="button"
-                    onClick={() => setTab(key)}
-                  >
-                    {label}
-                  </button>
-                ))}
+                <button className="tab-btn tab-btn-active" type="button">
+                  What it means
+                </button>
               </div>
 
-              {tab === "meaning" ? (
-                <div className="tab-panel">
-                  <h2 className="workspace-card-title">What a pre-assessment does</h2>
-                  <p className="workspace-copy">
-                    The pre-assessment creates the first operational view of your site before a
-                    deeper workflow runs. It packages the location context, readiness signals, and
-                    likely automation fit into one starting report for your team.
-                  </p>
+              <div className="tab-panel pre-assessment-meaning-panel">
+                <h2 className="workspace-card-title">What a pre-assessment does</h2>
+                <p className="workspace-copy">
+                  The pre-assessment creates the first operational view of your site before a
+                  deeper workflow runs. It packages the location context, readiness signals, and
+                  likely automation fit into one starting report for your team.
+                </p>
+                <div className="sample-report-link-row">
+                  <Link
+                    className="btn-secondary sample-report-link"
+                    to="/sample-reports/br-williams"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    View sample BR Williams report
+                  </Link>
                 </div>
-              ) : null}
-
-              {tab === "benefits" ? (
-                <div className="tab-panel">
-                  <h2 className="workspace-card-title">Why teams use it</h2>
-                  <ul className="simple-list">
-                    <li>It gives operators a clean site-level starting point before a broader automation discussion.</li>
-                    <li>It highlights fit, constraints, and readiness signals in one request-driven workflow.</li>
-                    <li>It creates a reusable report trail tied to the exact site in your workspace.</li>
-                  </ul>
-                </div>
-              ) : null}
-
-              {tab === "pricing" ? (
-                <div className="tab-panel">
-                  <h2 className="workspace-card-title">Current pricing</h2>
-                  <p className="workspace-copy">
-                    Each pre-assessment request adds{" "}
-                    <strong>{preAssessmentPriceCredits} credit used</strong>. We
-                    track usage here and bill monthly, so nothing is prepaid or blocked in-product.
-                  </p>
-                </div>
-              ) : null}
+                <h2 className="workspace-card-title">Why teams use it</h2>
+                <ul className="simple-list">
+                  <li>It gives operators a clean site-level starting point before a broader automation discussion.</li>
+                  <li>It highlights fit, constraints, and readiness signals in one request-driven workflow.</li>
+                  <li>It creates a reusable report trail tied to the exact site in your workspace.</li>
+                </ul>
+                <h2 className="workspace-card-title">Current pricing</h2>
+                <p className="workspace-copy">
+                  Each pre-assessment request adds{" "}
+                  <strong>{preAssessmentPriceCredits} credit used</strong>. We
+                  track usage here and bill monthly, so nothing is prepaid or blocked in-product.
+                </p>
+              </div>
 
               <div className="auth-primary-action">
                 <button
@@ -3239,7 +3350,7 @@ function App() {
         : "AutomatiSOR";
     if (location.pathname === "/auth" || location.pathname === "/new-user") {
       document.body.className = "signup-body";
-    } else if (location.pathname.startsWith("/workspace")) {
+    } else if (location.pathname.startsWith("/workspace") || location.pathname.startsWith("/sample-reports")) {
       document.body.className = "signup-body workspace-body";
     } else {
       document.body.className = "";
@@ -3258,6 +3369,7 @@ function App() {
       <Route path="/workspace/sites/new" element={<NewSitePage />} />
       <Route path="/workspace/pre-assessment" element={<PreAssessmentPage />} />
       <Route path="/workspace/report" element={<ReportPage />} />
+      <Route path="/sample-reports/br-williams" element={<SampleReportPage />} />
       <Route path="*" element={<Navigate to="/auth" replace />} />
     </Routes>
   );

@@ -19,7 +19,7 @@
             { "field": "company_legal_name", "label": "Company legal name" },
             { "field": "trading_names", "label": "Trading name(s) / brand name(s)" },
             { "field": "headquarters_address", "label": "Headquarters address" },
-            { "field": "target_facility_addresses", "label": "Target facility address(es)" },
+            { "field": "target_facility_addresses", "label": "Target facility address" },
             { "field": "ownership_structure", "label": "Ownership structure" },
             { "field": "year_founded", "label": "Year founded / years in operation" },
             { "field": "industry_naics_code", "label": "Industry / NAICS code" }
@@ -124,9 +124,9 @@
           "title": "Existing Automation",
           "data_path": "part_2_operational_intelligence.technology_and_systems_intelligence.automation_existing_in_use",
           "rows": [
-            { "field": "autonomous_mobile_robots_amrs", "label": "Autonomous mobile robots (AMRs)" },
-            { "field": "autonomous_tuggers_tow_tractors", "label": "Autonomous tuggers / tow tractors" },
-            { "field": "autonomous_forklifts", "label": "Autonomous forklifts" },
+            { "field": "autonomous_mobile_robots_amrs", "label": "mobile robots (AMRs)" },
+            { "field": "autonomous_tuggers_tow_tractors", "label": "tuggers / tow tractors" },
+            { "field": "autonomous_forklifts", "label": "forklifts" },
             { "field": "goods_to_person_gtp_autostore_skypod", "label": "Goods-to-person (GTP) / AutoStore / Skypod" },
             { "field": "conveyor_sorter", "label": "Conveyor / sorter" },
             { "field": "asrs_miniload", "label": "ASRS / miniload" },
@@ -279,8 +279,7 @@
                 { "field": "facility_expansion_permit", "label": "Facility expansion permit" },
                 { "field": "new_facility_opening", "label": "New facility opening" },
                 { "field": "expanded_partnership_announcement", "label": "Expanded partnership announcement" },
-                { "field": "network_expansion_signal_business", "label": "Network expansion signal" },
-                { "field": "network_expansion_signal_finance", "label": "Network expansion signal" }
+                { "field": "network_expansion_signal_business", "label": "Network expansion signal" }
               ]
             },
             {
