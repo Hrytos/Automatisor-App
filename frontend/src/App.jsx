@@ -915,7 +915,7 @@ function SampleReportPage() {
 
   useEffect(() => {
     let isMounted = true;
-    fetchJson("/api/sample-reports/br-williams", { method: "GET" })
+    fetchJson("/api/public-sample-reports/br-williams", { method: "GET" })
       .then((payload) => {
         if (isMounted) {
           setReportData(payload);

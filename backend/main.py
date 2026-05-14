@@ -86,6 +86,7 @@ SERVICE_API_PREFIXES = (
     "/frontend-config",
     "/onboarding",
     "/pre-assessment",
+    "/public-sample-reports",
     "/signup",
 )
 
@@ -1126,7 +1127,7 @@ async def frontend_config() -> dict[str, Any]:
     return {"google_maps_api_key": GOOGLE_MAPS_API_KEY}
 
 
-@app.get("/api/sample-reports/br-williams")
+@app.get("/api/public-sample-reports/br-williams")
 async def br_williams_sample_report() -> Any:
     if not SAMPLE_REPORT_PATH.exists():
         raise HTTPException(status_code=404, detail="Sample report data is not configured")
