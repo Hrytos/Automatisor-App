@@ -16,6 +16,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 
+import brWilliamsSampleReport from "../../backend/sample-report/data_structure.json";
 import reportStructure from "./report_section_structure.json";
 
 const SESSION_KEY = "automatisor_auth_workspace_v2";
@@ -909,34 +910,7 @@ function StructuredReportUnavailable() {
 }
 
 function SampleReportPage() {
-  const [reportData, setReportData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let isMounted = true;
-    fetchJson("/api/public-sample-reports/br-williams", { method: "GET" })
-      .then((payload) => {
-        if (isMounted) {
-          setReportData(payload);
-        }
-      })
-      .catch((nextError) => {
-        if (isMounted) {
-          setError(nextError.message || "Could not load the sample report.");
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const hasSampleData = hasReportMetadata(reportData);
+  const hasSampleData = hasReportMetadata(brWilliamsSampleReport);
 
   return (
     <main className="workspace-page-shell signup-body workspace-body sample-report-page">
@@ -953,33 +927,13 @@ function SampleReportPage() {
           </div>
         </header>
 
-        {loading ? (
-          <section className="workspace-card workspace-card-modern workspace-card-wide thank-you-state">
-            <div className="workspace-loading-state">
-              <p>Loading sample report...</p>
-            </div>
-          </section>
-        ) : null}
-
-        {!loading && error ? (
-          <section className="workspace-card workspace-card-modern workspace-card-wide thank-you-state">
-            <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
-              !
-            </div>
-            <h2 className="workspace-page-title">Sample report unavailable</h2>
-            <p className="workspace-page-copy">{error}</p>
-          </section>
-        ) : null}
-
-        {!loading && !error ? (
-          <section className="workspace-card workspace-card-modern workspace-card-wide report-view-card">
-            {hasSampleData ? (
-              <StructuredPreAssessmentReport reportData={reportData} />
-            ) : (
-              <StructuredReportUnavailable />
-            )}
-          </section>
-        ) : null}
+        <section className="workspace-card workspace-card-modern workspace-card-wide report-view-card">
+          {hasSampleData ? (
+            <StructuredPreAssessmentReport reportData={brWilliamsSampleReport} />
+          ) : (
+            <StructuredReportUnavailable />
+          )}
+        </section>
       </section>
     </main>
   );
