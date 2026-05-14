@@ -910,11 +910,20 @@ function StructuredReportUnavailable() {
 }
 
 function SampleReportPage() {
+  const [session] = useRequireSession();
   const hasSampleData = hasReportMetadata(brWilliamsSampleReport);
+
+  if (!session?.email) return null;
 
   return (
     <main className="workspace-page-shell signup-body workspace-body sample-report-page">
       <section className="workspace-page workspace-form-page report-page">
+        <div className="report-page-actions">
+          <Link to="/workspace/pre-assessment" className="btn-primary sample-report-back-link">
+            Back to pre-assessment
+          </Link>
+        </div>
+
         <header className="workspace-subpage-head sample-report-head">
           <div className="workspace-subpage-bar">
             <div>
@@ -2867,41 +2876,65 @@ function PreAssessmentPage() {
             </section>
 
             <section className="workspace-card workspace-card-modern workspace-card-wide pre-assessment-card">
-              <div className="tab-row">
-                <button className="tab-btn tab-btn-active" type="button">
-                  What it means
-                </button>
-              </div>
-
               <div className="tab-panel pre-assessment-meaning-panel">
-                <h2 className="workspace-card-title">What a pre-assessment does</h2>
+                <h2 className="workspace-card-title">What is a site pre-assessment?</h2>
                 <p className="workspace-copy">
-                  The pre-assessment creates the first operational view of your site before a
-                  deeper workflow runs. It packages the location context, readiness signals, and
-                  likely automation fit into one starting report for your team.
+                  A pre-assessment is a thorough, structured evaluation conducted prior to a formal audit or
+                  operational review of a warehousing site. It serves as a foundational discovery process,
+                  gathering critical information across all key dimensions of the operation to build a complete
+                  picture of the site's current state.
+                </p>
+
+                <p className="workspace-copy">
+                  At its core, a pre-assessment examines four primary areas:
+                </p>
+
+                <div className="pre-assessment-copy-stack">
+                  <p className="workspace-copy">
+                    <strong>Organization</strong> — This covers the background and profile of the business,
+                    including its industry, customer base & service offerings. Understanding the business and what
+                    it is trying to achieve provides the context needed to evaluate everything else.
+                  </p>
+                  <p className="workspace-copy">
+                    <strong>Facility</strong> — A detailed look at the physical environment, including the size and
+                    layout of the warehouse, the condition of the building and infrastructure, storage systems,
+                    equipment, technology in use, and any health and safety considerations. This establishes what
+                    the operation is working with in terms of physical capacity and capability.
+                  </p>
+                  <p className="workspace-copy">
+                    <strong>Operations</strong> — An analysis of how the warehouse functions — inventory
+                    management, order fulfillment processes, returns handling, and the use of warehouse management
+                    systems. This reveals how efficiently and effectively the site is running relative to its goals
+                    and industry benchmarks.
+                  </p>
+                  <p className="workspace-copy">
+                    <strong>Labor</strong> — A review of the workforce supporting the operation, covering
+                    headcount, shift structures, productivity levels, training practices, and workforce management.
+                    Labor is often the largest cost driver in a warehouse, making this a critical area of scrutiny.
+                  </p>
+                </div>
+
+                <p className="workspace-copy">
+                  Taken together, a pre-assessment provides a holistic snapshot of a warehousing site before any
+                  deeper engagement begins. It helps identify strengths, surface inefficiencies, flag risks, and
+                  prioritize areas for improvement — ensuring that any subsequent recommendations or interventions
+                  are grounded in a clear, accurate understanding of the operation as it actually exists.
+                </p>
+
+                <h2 className="workspace-card-title">How much does it cost?</h2>
+                <p className="workspace-copy">
+                  A site pre-assessment costs 1 credit
+                </p>
+
+                <h2 className="workspace-card-title">Sample site pre-assessment report</h2>
+                <p className="workspace-copy">
+                  Here is a sample of BR Williams, a 3PL at 1535 Hillyer Robinson Parkway, Anniston, Alabama
                 </p>
                 <div className="sample-report-link-row">
-                  <Link
-                    className="btn-secondary sample-report-link"
-                    to="/sample-reports/br-williams"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    View sample BR Williams report
+                  <Link className="btn-secondary sample-report-link" to="/sample-reports/br-williams">
+                    View Sample Report
                   </Link>
                 </div>
-                <h2 className="workspace-card-title">Why teams use it</h2>
-                <ul className="simple-list">
-                  <li>It gives operators a clean site-level starting point before a broader automation discussion.</li>
-                  <li>It highlights fit, constraints, and readiness signals in one request-driven workflow.</li>
-                  <li>It creates a reusable report trail tied to the exact site in your workspace.</li>
-                </ul>
-                <h2 className="workspace-card-title">Current pricing</h2>
-                <p className="workspace-copy">
-                  Each pre-assessment request adds{" "}
-                  <strong>{preAssessmentPriceCredits} credit used</strong>. We
-                  track usage here and bill monthly, so nothing is prepaid or blocked in-product.
-                </p>
               </div>
 
               <div className="auth-primary-action">

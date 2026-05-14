@@ -2877,6 +2877,11 @@ footer {
   gap: 14px;
 }
 
+.pre-assessment-copy-stack {
+  display: grid;
+  gap: 12px;
+}
+
 .sample-report-link-row {
   display: flex;
   align-items: center;
@@ -2897,6 +2902,13 @@ footer {
   margin-left: auto;
   margin-right: auto;
   padding: 0 34px;
+}
+
+.sample-report-page .report-page-actions .sample-report-back-link {
+  min-width: 210px;
+  width: auto;
+  padding-left: 18px;
+  padding-right: 18px;
 }
 
 .workspace-page-title {
@@ -4442,6 +4454,15 @@ footer {
     display: none;
   }
 
+  .sample-report-page .report-page-actions {
+    display: flex;
+    justify-content: stretch;
+  }
+
+  .sample-report-page .report-page-actions .sample-report-back-link {
+    width: 100%;
+  }
+
   .report-view-card {
     margin-bottom: 18px;
     padding: 12px;
@@ -4642,6 +4663,15 @@ footer {
   .report-page-actions,
   .report-tab-row {
     display: none;
+  }
+
+  .sample-report-page .report-page-actions {
+    display: flex;
+    justify-content: stretch;
+  }
+
+  .sample-report-page .report-page-actions .sample-report-back-link {
+    width: 100%;
   }
 
   .report-mobile-actions {
