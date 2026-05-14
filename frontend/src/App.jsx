@@ -21,6 +21,7 @@ import reportStructure from "./report_section_structure.json";
 
 const SESSION_KEY = "automatisor_auth_workspace_v2";
 const REPORT_CONTEXT_KEY = "automatisor_selected_report_v1";
+const PRE_ASSESSMENT_CONTEXT_KEY = "automatisor_selected_pre_assessment_v1";
 const REPORT_CONFIDENCE_FILTERS = ["All", "High", "Medium", "Low"];
 const REPORT_NOT_FOUND_VALUES = new Set([
   "n/a",
@@ -87,6 +88,23 @@ function loadReportContext() {
 function saveReportContext(nextState) {
   try {
     window.sessionStorage.setItem(REPORT_CONTEXT_KEY, JSON.stringify(nextState));
+  } catch {
+    // Ignore.
+  }
+}
+
+function loadPreAssessmentContext() {
+  try {
+    const raw = window.sessionStorage.getItem(PRE_ASSESSMENT_CONTEXT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePreAssessmentContext(nextState) {
+  try {
+    window.sessionStorage.setItem(PRE_ASSESSMENT_CONTEXT_KEY, JSON.stringify(nextState));
   } catch {
     // Ignore.
   }
@@ -911,6 +929,9 @@ function StructuredReportUnavailable() {
 
 function SampleReportPage() {
   const [session] = useRequireSession();
+  const location = useLocation();
+  const returnToPreAssessment =
+    location.state?.returnToPreAssessment || loadPreAssessmentContext() || {};
   const hasSampleData = hasReportMetadata(brWilliamsSampleReport);
 
   if (!session?.email) return null;
@@ -919,7 +940,11 @@ function SampleReportPage() {
     <main className="workspace-page-shell signup-body workspace-body sample-report-page">
       <section className="workspace-page workspace-form-page report-page">
         <div className="report-page-actions">
-          <Link to="/workspace/pre-assessment" className="btn-primary sample-report-back-link">
+          <Link
+            to="/workspace/pre-assessment"
+            state={returnToPreAssessment}
+            className="btn-primary sample-report-back-link"
+          >
             Back to pre-assessment
           </Link>
         </div>
@@ -983,6 +1008,7 @@ function clearSession() {
   try {
     window.sessionStorage.removeItem(SESSION_KEY);
     window.sessionStorage.removeItem(REPORT_CONTEXT_KEY);
+    window.sessionStorage.removeItem(PRE_ASSESSMENT_CONTEXT_KEY);
   } catch {
     // Ignore.
   }
@@ -2684,10 +2710,28 @@ function PreAssessmentPage() {
   const [workspace, setWorkspace] = useState(() => session || loadSession());
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
   const [confirmedRouteState, setConfirmedRouteState] = useState(null);
-  const routeState = location.state || {};
+  const storedPreAssessmentContext = loadPreAssessmentContext();
+  const queryRouteState = {
+    accountId: searchParams.get("account_id") || "",
+    siteId: searchParams.get("site_id") || "",
+  };
+  const routeState =
+    location.state ||
+    (queryRouteState.accountId || queryRouteState.siteId ? queryRouteState : null) ||
+    storedPreAssessmentContext ||
+    {};
   const pendingSite = routeState.pendingSite || null;
-  const accountId = routeState.accountId || searchParams.get("account_id") || session?.activeAccountId || "";
-  const siteId = routeState.siteId || searchParams.get("site_id") || "";
+  const accountId = routeState.accountId || session?.activeAccountId || "";
+  const siteId = routeState.siteId || "";
+
+  useEffect(() => {
+    if (routeState.accountId || routeState.siteId || routeState.pendingSite) {
+      savePreAssessmentContext(routeState);
+    }
+    if (location.search) {
+      navigate("/workspace/pre-assessment", { replace: true, state: routeState });
+    }
+  }, [location.search, navigate, routeState.accountId, routeState.siteId, routeState.pendingSite]);
 
   useEffect(() => {
     if (!session?.email) return;
@@ -2931,7 +2975,12 @@ function PreAssessmentPage() {
                   Here is a sample of BR Williams, a 3PL at 1535 Hillyer Robinson Parkway, Anniston, Alabama
                 </p>
                 <div className="sample-report-link-row">
-                  <Link className="btn-secondary sample-report-link" to="/sample-reports/br-williams">
+                  <Link
+                    className="btn-secondary sample-report-link"
+                    to="/sample-reports/br-williams"
+                    state={{ returnToPreAssessment: routeState }}
+                    onClick={() => savePreAssessmentContext(routeState)}
+                  >
                     View Sample Report
                   </Link>
                 </div>
