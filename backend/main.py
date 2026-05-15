@@ -1523,11 +1523,14 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
                 credits_used=PRE_ASSESSMENT_PRICE,
                 metadata={"requested_at": requested_at},
             )
-            await send_pre_assessment_approval_email(
-                email,
-                site.get("company_name") or customer.get("company_name") or "",
-                site.get("full_address") or "",
-            )
+            try:
+                await send_pre_assessment_approval_email(
+                    email,
+                    site.get("company_name") or customer.get("company_name") or "",
+                    site.get("full_address") or "",
+                )
+            except Exception as email_exc:
+                print(f"Pre-assessment approval email failed: {email_exc}")
             try:
                 contact_name = " ".join(
                     part
