@@ -554,10 +554,6 @@
           "data_path": "part_3_pain_and_urgency_signals.competitive_automation_pressure",
           "rows": [
             {
-              "field": "competitors_identified",
-              "label": "Competitors identified"
-            },
-            {
               "field": "competitor_automation_mentions",
               "label": "Competitor automation mentions"
             },
