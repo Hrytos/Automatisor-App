@@ -23,6 +23,24 @@ const SESSION_KEY = "automatisor_auth_workspace_v2";
 const REPORT_CONTEXT_KEY = "automatisor_selected_report_v1";
 const PRE_ASSESSMENT_CONTEXT_KEY = "automatisor_selected_pre_assessment_v1";
 const REPORT_CONFIDENCE_FILTERS = ["All", "High", "Medium", "Low"];
+const REPORT_RATING_FIELDS = [
+  {
+    key: "coverage",
+    label: "Coverage",
+    question: "Did you get the information you were looking for?",
+  },
+  {
+    key: "accuracy",
+    label: "Accuracy",
+    question: "Is the information accurate according to you?",
+  },
+  {
+    key: "value",
+    label: "Value",
+    question: "Is this information valuable to you?",
+  },
+];
+const REPORT_RATING_VALUES = [1, 2, 3, 4, 5];
 const REPORT_NOT_FOUND_VALUES = new Set([
   "n/a",
   "na",
@@ -165,6 +183,21 @@ function renderReportValue(value) {
     return value ? "Yes" : "No";
   }
   return String(value);
+}
+
+function normalizeReportRatingMetadata(raw) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const normalizeRating = (value) => {
+    const nextValue = Number(value);
+    return Number.isInteger(nextValue) && nextValue >= 1 && nextValue <= 5 ? nextValue : null;
+  };
+  return {
+    coverage: normalizeRating(source.coverage),
+    accuracy: normalizeRating(source.accuracy),
+    value: normalizeRating(source.value),
+    additional_feedback: String(source.additional_feedback || ""),
+    updated_at: source.updated_at || "",
+  };
 }
 
 function isWrappedReportField(value) {
@@ -930,8 +963,12 @@ function StructuredReportUnavailable() {
 function SampleReportPage() {
   const [session] = useRequireSession();
   const location = useLocation();
+  const returnToWorkspace = Boolean(location.state?.returnToWorkspace);
   const returnToPreAssessment =
     location.state?.returnToPreAssessment || loadPreAssessmentContext() || {};
+  const backLink = returnToWorkspace
+    ? { to: "/workspace", state: undefined, label: "Back to workspace" }
+    : { to: "/workspace/pre-assessment", state: returnToPreAssessment, label: "Back to pre-assessment" };
   const hasSampleData = hasReportMetadata(brWilliamsSampleReport);
 
   if (!session?.email) return null;
@@ -941,11 +978,11 @@ function SampleReportPage() {
       <section className="workspace-page workspace-form-page report-page">
         <div className="report-page-actions">
           <Link
-            to="/workspace/pre-assessment"
-            state={returnToPreAssessment}
+            to={backLink.to}
+            state={backLink.state}
             className="btn-primary sample-report-back-link"
           >
-            Back to pre-assessment
+            {backLink.label}
           </Link>
         </div>
 
@@ -1791,6 +1828,35 @@ function SiteRow({ site }) {
   );
 }
 
+function PinnedSampleReportRow() {
+  return (
+    <article className="site-bar-item sample-report-pinned-item">
+      <div className="site-bar-copy">
+        <p className="site-bar-title sample-report-pinned-title">
+          <svg className="sample-report-pin-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+            <path d="M15 4.5 19.5 9" />
+            <path d="m14 5.5-5 5-3.5-.5L4 11.5l8.5 8.5 1.5-1.5-.5-3.5 5-5" />
+            <path d="m9 15-5 5" />
+          </svg>
+          <span>BR Williams Pre-Assessment Sample</span>
+        </p>
+        <p className="site-bar-address">1535 Hillyer Robinson Parkway, Anniston, Alabama, USA</p>
+      </div>
+      <div className="site-bar-actions">
+        <div className="site-bar-action-row">
+          <Link
+            className="site-bar-link site-bar-link-primary"
+            to="/sample-reports/br-williams"
+            state={{ returnToWorkspace: true }}
+          >
+            View Report
+          </Link>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function buildPreAssessmentRouteState(siteOrPayload) {
   return {
     accountId:
@@ -1838,7 +1904,6 @@ function AppNav({ backToHome = false }) {
             <span className="nav-logo-text">
               Automati<span>SOR</span>
             </span>
-            <span className="nav-logo-byline">by Hrytos</span>
           </div>
         </div>
 
@@ -2555,17 +2620,21 @@ function WorkspacePage() {
             </div>
           ) : sites.length ? (
             <div className="site-bar-list">
+              <PinnedSampleReportRow />
               {sites.map((site) => (
                 <SiteRow key={site.site_id} site={site} />
               ))}
             </div>
           ) : (
-            <div className="workspace-empty-state">
-              <h3>No sites added yet</h3>
-              <p>Add your first site to start organizing the workspace around real operating locations.</p>
-              <Link to="/workspace/sites/new" className="btn-primary">
-                Add first site
-              </Link>
+            <div className="site-bar-list">
+              <PinnedSampleReportRow />
+              <div className="workspace-empty-state">
+                <h3>No sites added yet</h3>
+                <p>Add your first site to start organizing the workspace around real operating locations.</p>
+                <Link to="/workspace/sites/new" className="btn-primary">
+                  Add first site
+                </Link>
+              </div>
             </div>
           )}
         </section>
@@ -3094,6 +3163,77 @@ function PreAssessmentPage() {
   );
 }
 
+function ReportRatingPanel({
+  rating,
+  savingField,
+  savingFeedback,
+  message,
+  isError,
+  onSelectRating,
+  onFeedbackChange,
+  onSaveFeedback,
+}) {
+  return (
+    <section className="report-rating-panel" aria-label="Report feedback">
+      <div className="report-rating-head">
+        <p className="workspace-eyebrow">Report feedback</p>
+        <h2 className="workspace-card-title">Rate this report</h2>
+      </div>
+      <div className="report-rating-grid">
+        {REPORT_RATING_FIELDS.map((field) => (
+          <div className="report-rating-field" key={field.key}>
+            <div className="report-rating-copy">
+              <span className="report-rating-label">{field.label}</span>
+              <p>{field.question}</p>
+            </div>
+            <div className="report-rating-buttons" role="radiogroup" aria-label={field.label}>
+              {REPORT_RATING_VALUES.map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={rating[field.key] >= value ? "report-rating-button active" : "report-rating-button"}
+                  aria-checked={rating[field.key] === value}
+                  aria-label={`${value} out of 5`}
+                  role="radio"
+                  onClick={() => onSelectRating(field.key, value)}
+                  disabled={Boolean(savingField)}
+                >
+                  {savingField === field.key && rating[field.key] === value ? (
+                    "..."
+                  ) : (
+                    <svg className="report-rating-star" aria-hidden="true" viewBox="0 0 24 24">
+                      <path d="m12 3.5 2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9L12 3.5Z" />
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <form className="report-rating-feedback" onSubmit={onSaveFeedback}>
+        <label className="workspace-field report-rating-textarea">
+          <span>Additional feedback</span>
+          <textarea
+            value={rating.additional_feedback}
+            onChange={(event) => onFeedbackChange(event.target.value)}
+            rows={3}
+            placeholder="Share anything else about this report."
+          />
+        </label>
+        <div className="report-notes-actions">
+          <button type="submit" className="btn-primary" disabled={savingFeedback}>
+            {savingFeedback ? "Saving..." : "Save feedback"}
+          </button>
+          <p className={`workspace-feedback ${message ? "" : "hidden"} ${isError ? "workspace-feedback-error" : ""}`}>
+            {message}
+          </p>
+        </div>
+      </form>
+    </section>
+  );
+}
+
 function ReportPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -3109,6 +3249,11 @@ function ReportPage() {
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesMessage, setNotesMessage] = useState("");
   const [notesIsError, setNotesIsError] = useState(false);
+  const [ratingDraft, setRatingDraft] = useState(() => normalizeReportRatingMetadata({}));
+  const [savingRatingField, setSavingRatingField] = useState("");
+  const [savingRatingFeedback, setSavingRatingFeedback] = useState(false);
+  const [ratingMessage, setRatingMessage] = useState("");
+  const [ratingIsError, setRatingIsError] = useState(false);
   const queryRouteState = {
     accountId: searchParams.get("account_id") || "",
     siteId: searchParams.get("site_id") || "",
@@ -3167,7 +3312,28 @@ function ReportPage() {
     setNotesDraft(selectedSite?.notes || "");
     setNotesMessage("");
     setNotesIsError(false);
+    setRatingDraft(normalizeReportRatingMetadata(selectedSite?.rating_metadata));
+    setSavingRatingField("");
+    setSavingRatingFeedback(false);
+    setRatingMessage("");
+    setRatingIsError(false);
   }, [selectedSite?.customer_site_id, selectedSite?.site_id]);
+
+  function updateSiteInState(updates) {
+    const updateSites = (state) => {
+      if (!state || !Array.isArray(state.sites) || !selectedSite) return state;
+      return {
+        ...state,
+        sites: state.sites.map((site) =>
+          site.site_id === selectedSite.site_id ? { ...site, ...updates } : site,
+        ),
+      };
+    };
+    setWorkspace((current) => updateSites(current));
+    const nextSession = updateSites(session);
+    setSession(nextSession);
+    saveSession(nextSession);
+  }
 
   async function saveNotes(event) {
     event.preventDefault();
@@ -3186,20 +3352,8 @@ function ReportPage() {
         }),
       });
       const savedNotes = payload.notes || "";
-      const updateSites = (state) => {
-        if (!state || !Array.isArray(state.sites)) return state;
-        return {
-          ...state,
-          sites: state.sites.map((site) =>
-            site.site_id === selectedSite.site_id ? { ...site, notes: savedNotes } : site,
-          ),
-        };
-      };
       setNotesDraft(savedNotes);
-      setWorkspace((current) => updateSites(current));
-      const nextSession = updateSites(session);
-      setSession(nextSession);
-      saveSession(nextSession);
+      updateSiteInState({ notes: savedNotes });
       setNotesMessage("Notes saved.");
     } catch (nextError) {
       setNotesIsError(true);
@@ -3207,6 +3361,52 @@ function ReportPage() {
     } finally {
       setSavingNotes(false);
     }
+  }
+
+  async function saveReportRating(nextRating, { fieldKey = "", successMessage = "Feedback saved." } = {}) {
+    if (!selectedSite || !session?.email) return;
+    if (fieldKey) {
+      setSavingRatingField(fieldKey);
+    } else {
+      setSavingRatingFeedback(true);
+    }
+    setRatingMessage("");
+    setRatingIsError(false);
+    try {
+      const payload = await fetchJson("/api/customer-sites/rating", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          account_id: selectedSite.account_id || accountId,
+          site_id: selectedSite.site_id || siteId,
+          coverage: nextRating.coverage,
+          accuracy: nextRating.accuracy,
+          value: nextRating.value,
+          additional_feedback: nextRating.additional_feedback,
+        }),
+      });
+      const savedRating = normalizeReportRatingMetadata(payload.rating_metadata);
+      setRatingDraft(savedRating);
+      updateSiteInState({ rating_metadata: savedRating });
+      setRatingMessage(successMessage);
+    } catch (nextError) {
+      setRatingIsError(true);
+      setRatingMessage(nextError.message || "Could not save feedback.");
+    } finally {
+      setSavingRatingField("");
+      setSavingRatingFeedback(false);
+    }
+  }
+
+  function selectReportRating(fieldKey, value) {
+    const nextRating = normalizeReportRatingMetadata({ ...ratingDraft, [fieldKey]: value });
+    setRatingDraft(nextRating);
+    saveReportRating(nextRating, { fieldKey, successMessage: "Rating saved." });
+  }
+
+  function saveAdditionalFeedback(event) {
+    event.preventDefault();
+    saveReportRating(ratingDraft, { successMessage: "Feedback saved." });
   }
 
   if (!session?.email) return null;
@@ -3303,6 +3503,22 @@ function ReportPage() {
                     </div>
                   </div>
                 )}
+                {reportMarkedReady ? (
+                  <ReportRatingPanel
+                    rating={ratingDraft}
+                    savingField={savingRatingField}
+                    savingFeedback={savingRatingFeedback}
+                    message={ratingMessage}
+                    isError={ratingIsError}
+                    onSelectRating={selectReportRating}
+                    onFeedbackChange={(value) => {
+                      setRatingDraft((current) => ({ ...current, additional_feedback: value }));
+                      setRatingMessage("");
+                      setRatingIsError(false);
+                    }}
+                    onSaveFeedback={saveAdditionalFeedback}
+                  />
+                ) : null}
               </div>
             ) : null}
 

@@ -3027,8 +3027,31 @@ footer {
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.045);
 }
 
+.sample-report-pinned-item {
+  border-color: rgba(242, 92, 25, 0.22);
+  background: linear-gradient(180deg, #fff7ed 0%, #ffffff 100%);
+  box-shadow: 0 16px 34px rgba(242, 92, 25, 0.08);
+}
+
 .site-bar-copy {
   min-width: 0;
+}
+
+.sample-report-pinned-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sample-report-pin-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: #cf4d14;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .site-bar-title {
@@ -3427,6 +3450,114 @@ footer {
 
 .report-notes-actions .workspace-feedback {
   margin: 0;
+}
+
+.report-rating-panel {
+  max-width: 860px;
+  margin: 28px auto 0;
+  padding: 22px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #fffaf6 100%);
+}
+
+.report-rating-head {
+  margin-bottom: 18px;
+}
+
+.report-rating-head .workspace-card-title {
+  margin-bottom: 0;
+}
+
+.report-rating-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.report-rating-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.report-rating-copy p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.report-rating-label {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.report-rating-buttons {
+  display: grid;
+  grid-template-columns: repeat(5, 38px);
+  gap: 8px;
+}
+
+.report-rating-button {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: #ffffff;
+  color: #334155;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.report-rating-button:hover:not(:disabled),
+.report-rating-button.active {
+  border-color: rgba(242, 92, 25, 0.24);
+  background: rgba(242, 92, 25, 0.12);
+  color: #cf4d14;
+  transform: translateY(-1px);
+}
+
+.report-rating-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.report-rating-star {
+  width: 18px;
+  height: 18px;
+  fill: transparent;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+
+.report-rating-button.active .report-rating-star {
+  fill: currentColor;
+}
+
+.report-rating-feedback {
+  margin-top: 16px;
+  max-width: 680px;
+}
+
+.report-rating-textarea {
+  margin-top: 0;
 }
 
 .pre-assessment-site-title {
@@ -4442,6 +4573,23 @@ footer {
   }
 
   .report-notes-actions .btn-primary {
+    width: 100%;
+  }
+
+  .report-rating-panel {
+    padding: 16px;
+  }
+
+  .report-rating-field {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .report-rating-buttons {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .report-rating-button {
     width: 100%;
   }
 

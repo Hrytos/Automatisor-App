@@ -25,7 +25,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "hello@hrytos.com")
+RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "no-reply@automatisor.com")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true") != "false"
@@ -231,6 +231,28 @@ def clean_required(raw: Any, label: str) -> str:
 
 def clean_optional(raw: Any) -> str:
     return str(raw or "").strip()
+
+
+def clean_rating_value(raw: Any, label: str) -> int | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} rating must be between 1 and 5") from exc
+    if value < 1 or value > 5:
+        raise ValueError(f"{label} rating must be between 1 and 5")
+    return value
+
+
+def build_rating_metadata(body: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "coverage": clean_rating_value(body.get("coverage"), "Coverage"),
+        "accuracy": clean_rating_value(body.get("accuracy"), "Accuracy"),
+        "value": clean_rating_value(body.get("value"), "Value"),
+        "additional_feedback": str(body.get("additional_feedback") or ""),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def is_truthy_flag(value: Any) -> bool:
@@ -539,7 +561,7 @@ async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, sit
         "GET",
         "/rest/v1/automatisor_customer_sites",
         params={
-            "select": "customer_site_id,metadata,notes,report_metadata,is_report_ready",
+            "select": "customer_site_id,metadata,notes,report_metadata,rating_metadata,is_report_ready",
             "customer_id": f"eq.{customer_id}",
             "account_id": f"eq.{account_id}",
             "site_id": f"eq.{site_id}",
@@ -568,6 +590,7 @@ async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, sit
         row["customer_site_metadata"] = assignment.get("metadata") or {}
         row["notes"] = assignment.get("notes") or ""
         row["report_metadata"] = assignment.get("report_metadata") or {}
+        row["rating_metadata"] = assignment.get("rating_metadata") or {}
         row["is_report_ready"] = bool(assignment.get("is_report_ready"))
     return row
 
@@ -579,7 +602,7 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
         "GET",
         "/rest/v1/automatisor_customer_sites",
         params={
-            "select": "customer_site_id,site_id,account_id,metadata,notes,report_metadata,is_report_ready,created_at",
+            "select": "customer_site_id,site_id,account_id,metadata,notes,report_metadata,rating_metadata,is_report_ready,created_at",
             "customer_id": f"eq.{customer_id}",
             "order": "created_at.desc",
         },
@@ -614,6 +637,7 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
                 "customer_site_metadata": assignment.get("metadata") or {},
                 "notes": assignment.get("notes") or "",
                 "report_metadata": assignment.get("report_metadata") or {},
+                "rating_metadata": assignment.get("rating_metadata") or {},
                 "is_report_ready": bool(assignment.get("is_report_ready")),
             }
         )
@@ -921,7 +945,6 @@ def build_pre_assessment_approval_email(email: str, company_name: str, site_addr
           <td style="background:#030149;padding:24px 32px">
             <span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:-0.3px">AutomatiSOR</span>
             <span style="color:#f25c19;font-size:18px;font-weight:700"> ·</span>
-            <span style="color:#a0a8c0;font-size:13px;margin-left:8px">by Hrytos</span>
           </td>
         </tr>
         <tr>
@@ -953,9 +976,9 @@ def build_pre_assessment_approval_email(email: str, company_name: str, site_addr
         <tr>
           <td style="padding:20px 32px;text-align:center">
             <p style="margin:0;font-size:12px;color:#a0a09a;line-height:1.6">
-              AutomatiSOR by Hrytos<br>
+              AutomatiSOR<br>
               Questions? Reply to this email or contact
-              <a href="mailto:hello@hrytos.com" style="color:#7a7a72">hello@hrytos.com</a>
+              <a href="mailto:no-reply@automatisor.com" style="color:#7a7a72">no-reply@automatisor.com</a>
             </p>
           </td>
         </tr>
@@ -1401,6 +1424,51 @@ async def save_customer_site_notes(body: dict[str, Any] = Body(default={})) -> d
             "account_id": account_id,
             "site_id": site_id,
             "notes": notes,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/customer-sites/rating")
+async def save_customer_site_rating(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        account_id = clean_required(body.get("account_id"), "Account")
+        site_id = clean_required(body.get("site_id"), "Site")
+        rating_metadata = build_rating_metadata(body)
+        db = get_admin_db()
+        customer = await find_customer_by_email(db, email)
+        if not customer:
+            raise HTTPException(status_code=422, detail="Customer not found")
+        assignment_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_customer_sites",
+            params={
+                "select": "customer_site_id",
+                "customer_id": f"eq.{customer['customer_id']}",
+                "account_id": f"eq.{account_id}",
+                "site_id": f"eq.{site_id}",
+                "limit": 1,
+            },
+        )
+        assignment = assignment_rows[0] if assignment_rows else None
+        if not assignment:
+            raise HTTPException(status_code=422, detail="Selected site was not found for this customer")
+        await db.request(
+            "PATCH",
+            "/rest/v1/automatisor_customer_sites",
+            params={"customer_site_id": f"eq.{assignment['customer_site_id']}"},
+            json_body={
+                "rating_metadata": rating_metadata,
+                "updated_at": rating_metadata["updated_at"],
+            },
+            headers={"Prefer": "return=minimal"},
+        )
+        return {
+            "status": "saved",
+            "account_id": account_id,
+            "site_id": site_id,
+            "rating_metadata": rating_metadata,
         }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
