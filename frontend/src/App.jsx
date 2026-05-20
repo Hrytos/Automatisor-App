@@ -3333,7 +3333,10 @@ function NewSitePage() {
               mapLabel="Satellite map for site selection"
               initialResolvedAddress={initialAddress}
               onResolvedChange={({ resolvedAddress, inputValue }) => {
-                if (skippingInitialAddressPublishRef.current) {
+                const isSameInitialAddress =
+                  initialAddress?.full_address &&
+                  resolvedAddress?.full_address === initialAddress.full_address;
+                if (skippingInitialAddressPublishRef.current || isSameInitialAddress) {
                   skippingInitialAddressPublishRef.current = false;
                 } else if (!applyingSiteCandidateRef.current) {
                   resetSiteValidationOverrides();
