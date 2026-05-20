@@ -128,6 +128,14 @@ function savePreAssessmentContext(nextState) {
   }
 }
 
+function clearPreAssessmentContext() {
+  try {
+    window.sessionStorage.removeItem(PRE_ASSESSMENT_CONTEXT_KEY);
+  } catch {
+    // Ignore.
+  }
+}
+
 function hasReportMetadata(reportMetadata) {
   return Boolean(
     reportMetadata &&
@@ -1174,6 +1182,16 @@ function workEmailError(value) {
   return "";
 }
 
+function cityFromFormattedAddress(formattedAddress) {
+  const parts = String(formattedAddress || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 3) return "";
+  const candidate = parts[1] || "";
+  return /county$/i.test(candidate) ? "" : candidate;
+}
+
 function structuredAddressFromComponents(formattedAddress, components) {
   const byType = {};
   (components || []).forEach((component) => {
@@ -1193,6 +1211,8 @@ function structuredAddressFromComponents(formattedAddress, components) {
     longText(byType.street_number),
     longText(byType.route),
   ].filter(Boolean);
+  const formattedCity = cityFromFormattedAddress(formattedAddress);
+  const county = longText(byType.administrative_area_level_2);
 
   return {
     full_address: String(formattedAddress || "").trim(),
@@ -1201,7 +1221,8 @@ function structuredAddressFromComponents(formattedAddress, components) {
       longText(byType.locality) ||
       longText(byType.postal_town) ||
       longText(byType.sublocality) ||
-      longText(byType.administrative_area_level_2) ||
+      formattedCity ||
+      (/county$/i.test(county) ? "" : county) ||
       "",
     state: String(
       shortText(byType.administrative_area_level_1) ||
@@ -1235,7 +1256,350 @@ function normalizeResolvedAddress(siteLike) {
     zip: siteLike.zip || "",
     country: siteLike.country || "US",
     place_id: siteLike.place_id || "",
+    lat: Number.isFinite(Number(siteLike.lat)) ? Number(siteLike.lat) : null,
+    lng: Number.isFinite(Number(siteLike.lng)) ? Number(siteLike.lng) : null,
   };
+}
+
+function normalizeCandidateDomain(candidate) {
+  const website = String(candidate?.website || "").trim();
+  if (!website) return "";
+  try {
+    const url = website.includes("://") ? new URL(website) : new URL(`https://${website}`);
+    return url.hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return website
+      .split("/")[0]
+      .split(":")[0]
+      .replace(/^www\./, "")
+      .toLowerCase();
+  }
+}
+
+function candidateKey(candidate) {
+  return String(candidate?.place_id || `${candidate?.name || ""}|${candidate?.address || ""}`);
+}
+
+function resolvedAddressFromCandidate(candidate, fallback = {}) {
+  const address = String(candidate?.address || "").trim();
+  if (!address) return null;
+  const location = candidate?.location || {};
+  return {
+    full_address: address,
+    street: "",
+    city: cityFromFormattedAddress(address),
+    state: "",
+    zip: "",
+    country: "US",
+    place_id: candidate?.place_id || fallback.place_id || "",
+    lat: Number.isFinite(Number(location.lat)) ? Number(location.lat) : null,
+    lng: Number.isFinite(Number(location.lng)) ? Number(location.lng) : null,
+  };
+}
+
+function validationRequestBasis(validation, selectedCandidate, justification) {
+  if (selectedCandidate) return "candidate_selected";
+  if (String(justification || "").trim()) return "manual_justification";
+  if (validation?.status === "validated") return "validated";
+  if (validation?.status === "unavailable") return "validation_unavailable";
+  return "";
+}
+
+function initialSelectedCandidateFromDraft(draft) {
+  return draft?.request_basis === "candidate_selected" && draft?.selected_candidate
+    ? draft.selected_candidate
+    : null;
+}
+
+function initialJustificationFromDraft(draft) {
+  return draft?.request_basis === "manual_justification" ? draft?.justification || "" : "";
+}
+
+function useAutomaticAddressValidation({
+  companyName,
+  domain,
+  resolvedAddress,
+  initialSelectedCandidate = null,
+  initialJustification = "",
+}) {
+  const [validation, setValidation] = useState(null);
+  const [validationError, setValidationError] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [selectedCandidate, setSelectedCandidate] = useState(initialSelectedCandidate);
+  const [justification, setJustification] = useState(initialJustification);
+  const normalizedCompany = String(companyName || "").trim();
+  const normalizedDomain = String(domain || "").trim();
+  const normalizedAddress = String(resolvedAddress?.full_address || "").trim();
+  const validationKey = `${normalizedCompany}|${normalizedDomain}|${normalizedAddress}`;
+  const hasValidationInputs = Boolean(normalizedCompany && normalizedDomain && normalizedAddress);
+
+  useEffect(() => {
+    setValidation(null);
+    setValidationError("");
+    if (!hasValidationInputs) {
+      setChecking(false);
+      return undefined;
+    }
+
+    let active = true;
+    setChecking(true);
+    const timer = window.setTimeout(() => {
+      fetchJson("/api/address-validation/check", {
+        method: "POST",
+        body: JSON.stringify({
+          company_name: normalizedCompany,
+          domain: normalizedDomain,
+          address: normalizedAddress,
+        }),
+      })
+        .then((payload) => {
+          if (!active) return;
+          setValidation(payload);
+          setValidationError("");
+        })
+        .catch((error) => {
+          if (!active) return;
+          setValidation(null);
+          setValidationError(error.message || "Could not validate this company and address.");
+        })
+        .finally(() => {
+          if (active) setChecking(false);
+        });
+    }, 650);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [validationKey, hasValidationInputs, normalizedCompany, normalizedDomain, normalizedAddress]);
+
+  const basis = validationRequestBasis(validation, selectedCandidate, justification);
+  const canProceed = Boolean(
+    hasValidationInputs &&
+      !checking &&
+      !validationError &&
+      (validation?.status === "validated" ||
+        validation?.status === "unavailable" ||
+        selectedCandidate ||
+        String(justification || "").trim()),
+  );
+
+  return {
+    validation,
+    validationError,
+    checking,
+    selectedCandidate,
+    setSelectedCandidate,
+    justification,
+    setJustification,
+    resetOverrides() {
+      setSelectedCandidate(null);
+      setJustification("");
+    },
+    hasValidationInputs,
+    canProceed,
+    requestBasis: basis,
+  };
+}
+
+function AddressValidationPanel({
+  validation,
+  validationError,
+  checking,
+  selectedCandidate,
+  onSelectCandidate,
+  justification,
+  onJustificationChange,
+  hasValidationInputs,
+  domain,
+}) {
+  if (!hasValidationInputs) {
+    if (selectedCandidate) {
+      return (
+        <div className="address-validation-panel address-validation-panel-warning">
+          Enter the company domain before requesting the pre-assessment.
+        </div>
+      );
+    }
+    return null;
+  }
+
+  if (checking) {
+    return (
+      <div className="address-validation-panel address-validation-panel-checking">
+        Checking whether this company exists at the selected address...
+      </div>
+    );
+  }
+
+  if (validationError) {
+    return (
+      <div className="address-validation-panel address-validation-panel-error">
+        {validationError}
+      </div>
+    );
+  }
+
+  if (!validation) return null;
+
+  if (validation.status === "validated") {
+    return null;
+  }
+
+  if (validation.status === "unavailable") {
+    return (
+      <div className="address-validation-panel address-validation-panel-neutral">
+        Address validation is temporarily unavailable. You can continue.
+      </div>
+    );
+  }
+
+  const candidates = Array.isArray(validation.candidates) ? validation.candidates : [];
+
+  return (
+    <section className="address-validation-panel address-validation-panel-warning">
+      <div className="address-validation-head">
+        <h3>We could not find this company at that address.</h3>
+        <p>Here are a few things you could do.</p>
+      </div>
+      <div className="address-validation-options-table">
+        <div className="address-validation-option-row">
+          <div className="address-validation-option-label">Option 1</div>
+          <div className="address-validation-option-content">
+            <h4>Edit the address</h4>
+            <p>
+              Please edit the address in the <strong>Site address</strong> field above.
+            </p>
+          </div>
+        </div>
+        <div className="address-validation-option-row">
+          <div className="address-validation-option-label">Option 2</div>
+          <div className="address-validation-option-content">
+            <h4>Identified companies at this address</h4>
+            <p>
+              We have found the below companies at the address you specified, if you want to do a
+              pre-assessment for one of these companies instead then click the{" "}
+              <strong>Use this</strong> button.
+            </p>
+            {candidates.length ? (
+              <div className="address-candidate-list">
+                {candidates.map((candidate, index) => {
+                  const selected = candidateKey(selectedCandidate) === candidateKey(candidate);
+                  return (
+                    <article
+                      className={`address-candidate ${selected ? "address-candidate-selected" : ""}`}
+                      key={candidate.place_id || `${candidate.name}-${index}`}
+                    >
+                      <div className="address-candidate-copy">
+                        <strong>{candidate.name || "Unnamed place"}</strong>
+                        <span>{candidate.address || "No address returned"}</span>
+                        <span>{candidate.website || "No website returned"}</span>
+                      </div>
+                      <div className="address-candidate-actions">
+                        {candidate.google_maps_uri ? (
+                          <a
+                            className="address-candidate-map-link"
+                            href={candidate.google_maps_uri}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Maps
+                          </a>
+                        ) : null}
+                        <button
+                          type="button"
+                          className={selected ? "btn-secondary" : "btn-primary"}
+                          onClick={() => {
+                            if (!selected) onSelectCandidate(candidate);
+                          }}
+                          disabled={selected}
+                        >
+                          {selected ? "Selected" : "Use this"}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="address-validation-empty">No candidates identified at this address.</p>
+            )}
+          </div>
+        </div>
+        <div className="address-validation-option-row">
+          <div className="address-validation-option-label">Option 3</div>
+          <div className="address-validation-option-content">
+            <h4>Justification</h4>
+            <p>
+              If you're sure of the company name and the address it is located at, please
+              give us more information regarding it in the text area below.
+            </p>
+            <label className="workspace-field address-justification-field">
+              <span>Reason</span>
+              <textarea
+                value={justification}
+                onChange={(event) => onJustificationChange(event.target.value)}
+                placeholder="Example: This company ships from this address through PartnerCo's warehouse. Mention the partner company name if there is one, and explain the relationship so the report has better context."
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+      {selectedCandidate && !String(domain || "").trim() ? (
+        <p className="address-validation-domain-hint">
+          Enter the company domain before requesting the pre-assessment.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function CandidateConfirmationModal({ candidate, loading, onCancel, onConfirm }) {
+  if (!candidate) return null;
+  const domain = normalizeCandidateDomain(candidate);
+  return (
+    <div className="review-modal-backdrop" role="presentation">
+      <section
+        className="review-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="candidateConfirmTitle"
+      >
+        <div className="review-modal-head">
+          <p className="workspace-eyebrow">Confirm candidate</p>
+          <h2 id="candidateConfirmTitle" className="workspace-card-title">
+            Use this candidate?
+          </h2>
+        </div>
+        <p className="workspace-copy">
+          Confirming will update the company name, domain, site address, and map pin for this
+          request.
+        </p>
+        <div className="pre-assessment-summary-grid review-summary-grid">
+          <div className="workspace-summary-chip">
+            <span className="workspace-summary-label">Company Name</span>
+            <span className="workspace-summary-value">{candidate.name || "-"}</span>
+          </div>
+          <div className="workspace-summary-chip">
+            <span className="workspace-summary-label">Site Address</span>
+            <span className="workspace-summary-value">{candidate.address || "-"}</span>
+          </div>
+          <div className="workspace-summary-chip">
+            <span className="workspace-summary-label">Domain</span>
+            <span className="workspace-summary-value">{domain || "No website returned"}</span>
+          </div>
+        </div>
+        <div className="review-modal-actions">
+          <button type="button" className="btn-secondary" onClick={onCancel} disabled={loading}>
+            Cancel
+          </button>
+          <button type="button" className="btn-primary" onClick={onConfirm} disabled={loading}>
+            {loading ? "Please wait..." : "Confirm candidate"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
@@ -1255,12 +1619,12 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
     [initialResolvedAddress],
   );
   const [selectedAddress, setSelectedAddress] = useState(
-    () => initialResolved?.full_address || DEFAULT_SITE_ADDRESS,
+    () => initialResolved?.full_address || "",
   );
   const [message, setStatusMessage] = useState("");
   const [messageIsError, setMessageIsError] = useState(false);
   const [mapsLink, setMapsLink] = useState(
-    () => buildGoogleMapsSearchLink(initialResolved?.full_address || DEFAULT_SITE_ADDRESS),
+    () => buildGoogleMapsSearchLink(initialResolved?.full_address || ""),
   );
   const [isGoogleReady, setIsGoogleReady] = useState(false);
   const [useLegacyAutocomplete, setUseLegacyAutocomplete] = useState(false);
@@ -1308,6 +1672,18 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
     }
   }
 
+  function moveMapToLocation(location) {
+    if (!location || !markerRef.current || !mapRef.current) return false;
+    const lat = Number(location.lat);
+    const lng = Number(location.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+    const nextLocation = { lat, lng };
+    markerRef.current.setPosition(nextLocation);
+    mapRef.current.panTo(nextLocation);
+    mapRef.current.setZoom(19);
+    return true;
+  }
+
   useEffect(() => {
     if (!initialResolved?.full_address) return;
     publishResolved(initialResolved);
@@ -1343,6 +1719,38 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
       },
       getCurrentInput() {
         return String(resolvedRef.current?.full_address || "").trim();
+      },
+      async applyResolvedAddress(nextAddress) {
+        const normalized = normalizeResolvedAddress(nextAddress);
+        if (!normalized?.full_address) {
+          throw new Error("Candidate address is missing.");
+        }
+        let resolvedForPublish = { ...normalized };
+        if (geocoderRef.current && normalized.full_address) {
+          const result = await geocoderRef.current.geocode({ address: normalized.full_address });
+          const top = result.results && result.results[0];
+          if (top) {
+            resolvedForPublish = {
+              ...structuredAddressFromComponents(
+                top.formatted_address || normalized.full_address,
+                top.address_components || [],
+              ),
+              full_address: normalized.full_address,
+              place_id: normalized.place_id || top.place_id || "",
+            };
+            if (top.geometry?.location) {
+              resolvedForPublish.lat = top.geometry.location.lat();
+              resolvedForPublish.lng = top.geometry.location.lng();
+            }
+          }
+        }
+        publishResolved(resolvedForPublish);
+        if (moveMapToLocation(nextAddress) || moveMapToLocation(resolvedForPublish)) {
+          showStatusMessage("Address updated from the selected candidate.", false);
+          return { ...resolvedForPublish };
+        }
+        showStatusMessage("Address updated from the selected candidate.", false);
+        return { ...resolvedForPublish };
       },
     }),
     [],
@@ -1611,10 +2019,24 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
         if (resolvedRef.current?.full_address) {
           syncVisibleAddress(resolvedRef.current.full_address);
           setMapsLink(buildGoogleMapsSearchLink(resolvedRef.current.full_address));
-        } else {
-          reverseGeocodeLocation(DEFAULT_SITE_COORDS).catch(() => {
-            setMapsLink(buildGoogleMapsSearchLink(DEFAULT_SITE_ADDRESS));
-          });
+          if (initialResolved?.lat && initialResolved?.lng) {
+            moveMapToLocation(initialResolved);
+          } else {
+            try {
+              const result = await geocoderRef.current.geocode({
+                address: resolvedRef.current.full_address,
+              });
+              const top = result.results && result.results[0];
+              if (top?.geometry?.location) {
+                moveMapToLocation({
+                  lat: top.geometry.location.lat(),
+                  lng: top.geometry.location.lng(),
+                });
+              }
+            } catch {
+              // Keep the default map center if the draft address cannot be geocoded.
+            }
+          }
         }
         setIsGoogleReady(true);
         initializedModeRef.current = useLegacy ? "legacy" : "new";
@@ -1765,7 +2187,7 @@ function WorkspaceMobileActions({ creditsUsed, onLogout }) {
           <path d="M12 5v14" />
           <path d="M5 12h14" />
         </svg>
-        <span>Add site</span>
+        <span>Add facility</span>
       </Link>
       <div className="workspace-mobile-action workspace-mobile-credits" aria-label="Credits used">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
@@ -1873,23 +2295,41 @@ function buildWorkspaceReportPath(siteOrPayload) {
 }
 
 function buildPendingSiteFromInput(form, sitePayload) {
+  const validationState = form.validationState || {};
+  const selectedCandidate = validationState.selectedCandidate || null;
+  const candidateDomain = normalizeCandidateDomain(selectedCandidate);
+  const companyName = selectedCandidate?.name || form.org_name;
+  const domain = candidateDomain || form.org_domain;
+  const address = selectedCandidate?.address || sitePayload.full_address || sitePayload.fullAddress || "";
   return {
     account_id: "",
     site_id: "",
-    company_name: form.org_name,
-    org_name: form.org_name,
-    org_domain: form.org_domain,
-    full_address: sitePayload.full_address || sitePayload.fullAddress || "",
+    company_name: companyName,
+    org_name: companyName,
+    org_domain: domain,
+    full_address: address,
     street: sitePayload.street || "",
     city: sitePayload.city || "",
     state: sitePayload.state || "",
     zip: sitePayload.zip || "",
     country: sitePayload.country || "US",
-    place_id: sitePayload.place_id || "",
+    place_id: selectedCandidate?.place_id || sitePayload.place_id || "",
+    lat: sitePayload.lat ?? sitePayload.latitude ?? null,
+    lng: sitePayload.lng ?? sitePayload.longitude ?? null,
     metadata: {
-      site_name: form.org_name,
+      site_name: companyName,
       site_type: "Pending pre-assessment site",
     },
+    address_validation: validationState.validation
+      ? {
+          ...validationState.validation,
+          request_basis: validationState.requestBasis,
+          ...(selectedCandidate ? { selected_candidate: selectedCandidate } : {}),
+        }
+      : null,
+    selected_candidate: selectedCandidate,
+    justification: validationState.justification || "",
+    request_basis: validationState.requestBasis || "",
   };
 }
 
@@ -2098,6 +2538,7 @@ function HomePage() {
 function NewUserPage() {
   const navigate = useNavigate();
   const addressPickerRef = useRef(null);
+  const applyingOnboardingCandidateRef = useRef(false);
   const [stage, setStage] = useState("email");
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
@@ -2129,7 +2570,55 @@ function NewUserPage() {
     site_company_domain: "",
     hasAddress: false,
   });
+  const [onboardingResolvedAddress, setOnboardingResolvedAddress] = useState(null);
+  const [onboardingCandidateToConfirm, setOnboardingCandidateToConfirm] = useState(null);
+  const [confirmingOnboardingCandidate, setConfirmingOnboardingCandidate] = useState(false);
+  const onboardingValidation = useAutomaticAddressValidation({
+    companyName: onboarding.site_company_name,
+    domain: onboarding.site_company_domain,
+    resolvedAddress: onboardingResolvedAddress,
+  });
   const feedback = normalizeAuthFeedback(formError);
+
+  function resetOnboardingValidationOverrides() {
+    onboardingValidation.resetOverrides();
+  }
+
+  function chooseOnboardingCandidate(candidate) {
+    setOnboardingCandidateToConfirm(candidate);
+  }
+
+  async function confirmOnboardingCandidate() {
+    const candidate = onboardingCandidateToConfirm;
+    if (!candidate) return;
+    const candidateDomain = normalizeCandidateDomain(candidate);
+    const nextResolved = resolvedAddressFromCandidate(candidate, onboardingResolvedAddress || {});
+    applyingOnboardingCandidateRef.current = true;
+    setConfirmingOnboardingCandidate(true);
+    try {
+      setOnboarding((current) => ({
+        ...current,
+        site_company_name: candidate.name || current.site_company_name,
+        site_company_domain: candidateDomain || current.site_company_domain,
+        hasAddress: Boolean(nextResolved?.full_address),
+      }));
+      setOnboardingResolvedAddress(nextResolved || null);
+      onboardingValidation.setSelectedCandidate(candidate);
+      onboardingValidation.setJustification("");
+      if (nextResolved) {
+        const applied = await addressPickerRef.current?.applyResolvedAddress(nextResolved);
+        if (applied?.full_address) {
+          setOnboardingResolvedAddress(applied);
+        }
+      }
+      setOnboardingCandidateToConfirm(null);
+    } catch (error) {
+      setFormError(error.message || "Could not apply the selected candidate.");
+    } finally {
+      setConfirmingOnboardingCandidate(false);
+      applyingOnboardingCandidateRef.current = false;
+    }
+  }
 
   useEffect(() => {
     const saved = loadSession();
@@ -2169,7 +2658,8 @@ function NewUserPage() {
       onboarding.customer_company_domain &&
       onboarding.site_company_name &&
       onboarding.site_company_domain &&
-      onboarding.hasAddress,
+      onboarding.hasAddress &&
+      onboardingValidation.canProceed,
   );
 
   async function handleEmailSubmit(event) {
@@ -2289,6 +2779,7 @@ function NewUserPage() {
             {
               org_name: onboarding.site_company_name,
               org_domain: onboarding.site_company_domain,
+              validationState: onboardingValidation,
             },
             sitePayload,
           ),
@@ -2480,12 +2971,13 @@ function NewUserPage() {
                       <span>Site company name</span>
                       <input
                         value={onboarding.site_company_name}
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          resetOnboardingValidationOverrides();
                           setOnboarding((current) => ({
                             ...current,
                             site_company_name: event.target.value,
-                          }))
-                        }
+                          }));
+                        }}
                         placeholder="Company name for this site"
                       />
                     </label>
@@ -2493,12 +2985,19 @@ function NewUserPage() {
                       <span>Site company domain</span>
                       <input
                         value={onboarding.site_company_domain}
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          const selectedCandidateNeedsDomain =
+                            onboardingValidation.selectedCandidate &&
+                            !normalizeCandidateDomain(onboardingValidation.selectedCandidate) &&
+                            !onboarding.site_company_domain;
+                          if (!selectedCandidateNeedsDomain) {
+                            resetOnboardingValidationOverrides();
+                          }
                           setOnboarding((current) => ({
                             ...current,
                             site_company_domain: event.target.value,
-                          }))
-                        }
+                          }));
+                        }}
                         placeholder="Company domain for this site"
                       />
                     </label>
@@ -2511,11 +3010,32 @@ function NewUserPage() {
                     messageId="onboardingSiteMessage"
                     mapLabel="Interactive site map for onboarding"
                     onResolvedChange={({ resolvedAddress, inputValue }) => {
+                      if (!applyingOnboardingCandidateRef.current) {
+                        resetOnboardingValidationOverrides();
+                      }
+                      setOnboardingResolvedAddress(resolvedAddress || null);
                       setOnboarding((current) => ({
                         ...current,
                         hasAddress: Boolean((resolvedAddress || {}).full_address),
                       }));
                     }}
+                  />
+                  <AddressValidationPanel
+                    validation={onboardingValidation.validation}
+                    validationError={onboardingValidation.validationError}
+                    checking={onboardingValidation.checking}
+                    selectedCandidate={onboardingValidation.selectedCandidate}
+                    onSelectCandidate={chooseOnboardingCandidate}
+                    justification={onboardingValidation.justification}
+                    onJustificationChange={onboardingValidation.setJustification}
+                    hasValidationInputs={onboardingValidation.hasValidationInputs}
+                    domain={onboarding.site_company_domain}
+                  />
+                  <CandidateConfirmationModal
+                    candidate={onboardingCandidateToConfirm}
+                    loading={confirmingOnboardingCandidate}
+                    onCancel={() => setOnboardingCandidateToConfirm(null)}
+                    onConfirm={confirmOnboardingCandidate}
                   />
                 </section>
 
@@ -2595,11 +3115,11 @@ function WorkspacePage() {
         <header className="workspace-topbar">
           <div className="workspace-topbar-copy">
             <p className="workspace-eyebrow">Workspace</p>
-            <h1 className="workspace-page-title">Saved sites</h1>
+            <h1 className="workspace-page-title">Saved facilities</h1>
           </div>
           <div className="workspace-topbar-actions">
             <Link to="/workspace/sites/new" className="btn-primary">
-              Add new site
+              Add new facility
             </Link>
             <button type="button" className="btn-secondary" onClick={logout}>
               Logout
@@ -2632,7 +3152,7 @@ function WorkspacePage() {
                 <h3>No sites added yet</h3>
                 <p>Add your first site to start organizing the workspace around real operating locations.</p>
                 <Link to="/workspace/sites/new" className="btn-primary">
-                  Add first site
+                  Add first facility
                 </Link>
               </div>
             </div>
@@ -2647,17 +3167,69 @@ function NewSitePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const pickerRef = useRef(null);
+  const applyingSiteCandidateRef = useRef(false);
   const [session, setSession] = useRequireSession();
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [siteCandidateToConfirm, setSiteCandidateToConfirm] = useState(null);
+  const [confirmingSiteCandidate, setConfirmingSiteCandidate] = useState(false);
   const editDraft = location.state?.editDraft || null;
   const initialAddress = normalizeResolvedAddress(editDraft);
+  const skippingInitialAddressPublishRef = useRef(Boolean(initialAddress?.full_address));
+  const [resolvedAddress, setResolvedAddress] = useState(initialAddress);
   const [form, setForm] = useState(() => ({
     org_name: editDraft?.org_name || editDraft?.company_name || "",
     org_domain: editDraft?.org_domain || "",
     hasAddress: Boolean(initialAddress?.full_address),
   }));
+  const siteValidation = useAutomaticAddressValidation({
+    companyName: form.org_name,
+    domain: form.org_domain,
+    resolvedAddress,
+    initialSelectedCandidate: initialSelectedCandidateFromDraft(editDraft),
+    initialJustification: initialJustificationFromDraft(editDraft),
+  });
+
+  function resetSiteValidationOverrides() {
+    siteValidation.resetOverrides();
+  }
+
+  function chooseSiteCandidate(candidate) {
+    setSiteCandidateToConfirm(candidate);
+  }
+
+  async function confirmSiteCandidate() {
+    const candidate = siteCandidateToConfirm;
+    if (!candidate) return;
+    const candidateDomain = normalizeCandidateDomain(candidate);
+    const nextResolved = resolvedAddressFromCandidate(candidate, resolvedAddress || {});
+    applyingSiteCandidateRef.current = true;
+    setConfirmingSiteCandidate(true);
+    try {
+      setForm((current) => ({
+        ...current,
+        org_name: candidate.name || current.org_name,
+        org_domain: candidateDomain || current.org_domain,
+        hasAddress: Boolean(nextResolved?.full_address),
+      }));
+      setResolvedAddress(nextResolved || null);
+      siteValidation.setSelectedCandidate(candidate);
+      siteValidation.setJustification("");
+      if (nextResolved) {
+        const applied = await pickerRef.current?.applyResolvedAddress(nextResolved);
+        if (applied?.full_address) {
+          setResolvedAddress(applied);
+        }
+      }
+      setSiteCandidateToConfirm(null);
+    } catch (error) {
+      setMessage(error.message || "Could not apply the selected candidate.");
+    } finally {
+      setConfirmingSiteCandidate(false);
+      applyingSiteCandidateRef.current = false;
+    }
+  }
 
   useEffect(() => {
     if (!session?.email) return;
@@ -2676,7 +3248,7 @@ function NewSitePage() {
       .catch((nextError) => setError(nextError.message || "Could not load workspace accounts."));
   }, [session?.email]);
 
-  const ready = Boolean(form.org_name && form.org_domain && form.hasAddress);
+  const ready = Boolean(form.org_name && form.org_domain && form.hasAddress && siteValidation.canProceed);
 
   async function continueToPreAssessment() {
     setError("");
@@ -2686,7 +3258,10 @@ function NewSitePage() {
       const sitePayload = await pickerRef.current.resolveCurrentAddress();
       navigate("/workspace/pre-assessment", {
         state: {
-          pendingSite: buildPendingSiteFromInput(form, sitePayload),
+          pendingSite: buildPendingSiteFromInput(
+            { ...form, validationState: siteValidation },
+            sitePayload,
+          ),
         },
       });
     } catch (nextError) {
@@ -2705,7 +3280,7 @@ function NewSitePage() {
           <div className="workspace-subpage-bar">
             <div>
               <p className="workspace-eyebrow">Workspace</p>
-              <h1 className="workspace-page-title">Add a new site</h1>
+              <h1 className="workspace-page-title">Add a new facility</h1>
               <p className="workspace-page-copy">
                 Enter the account details and operating location. We will save the site only after
                 you confirm the pre-assessment request.
@@ -2725,7 +3300,10 @@ function NewSitePage() {
               <span>Company name</span>
               <input
                 value={form.org_name}
-                onChange={(event) => setForm((current) => ({ ...current, org_name: event.target.value }))}
+                onChange={(event) => {
+                  resetSiteValidationOverrides();
+                  setForm((current) => ({ ...current, org_name: event.target.value }));
+                }}
                 placeholder="Company name"
               />
             </label>
@@ -2733,7 +3311,16 @@ function NewSitePage() {
               <span>Company domain</span>
               <input
                 value={form.org_domain}
-                onChange={(event) => setForm((current) => ({ ...current, org_domain: event.target.value }))}
+                onChange={(event) => {
+                  const selectedCandidateNeedsDomain =
+                    siteValidation.selectedCandidate &&
+                    !normalizeCandidateDomain(siteValidation.selectedCandidate) &&
+                    !form.org_domain;
+                  if (!selectedCandidateNeedsDomain) {
+                    resetSiteValidationOverrides();
+                  }
+                  setForm((current) => ({ ...current, org_domain: event.target.value }));
+                }}
                 placeholder="company.com or https://company.com"
               />
             </label>
@@ -2745,12 +3332,35 @@ function NewSitePage() {
               messageId="siteActionMessage"
               mapLabel="Satellite map for site selection"
               initialResolvedAddress={initialAddress}
-              onResolvedChange={({ resolvedAddress, inputValue }) =>
+              onResolvedChange={({ resolvedAddress, inputValue }) => {
+                if (skippingInitialAddressPublishRef.current) {
+                  skippingInitialAddressPublishRef.current = false;
+                } else if (!applyingSiteCandidateRef.current) {
+                  resetSiteValidationOverrides();
+                }
+                setResolvedAddress(resolvedAddress || null);
                 setForm((current) => ({
                   ...current,
                   hasAddress: Boolean((resolvedAddress || {}).full_address),
-                }))
-              }
+                }));
+              }}
+            />
+            <AddressValidationPanel
+              validation={siteValidation.validation}
+              validationError={siteValidation.validationError}
+              checking={siteValidation.checking}
+              selectedCandidate={siteValidation.selectedCandidate}
+              onSelectCandidate={chooseSiteCandidate}
+              justification={siteValidation.justification}
+              onJustificationChange={siteValidation.setJustification}
+              hasValidationInputs={siteValidation.hasValidationInputs}
+              domain={form.org_domain}
+            />
+            <CandidateConfirmationModal
+              candidate={siteCandidateToConfirm}
+              loading={confirmingSiteCandidate}
+              onCancel={() => setSiteCandidateToConfirm(null)}
+              onConfirm={confirmSiteCandidate}
             />
           </div>
 
@@ -2773,6 +3383,7 @@ function PreAssessmentPage() {
   const [searchParams] = useSearchParams();
   const [session, setSession] = useRequireSession();
   const [error, setError] = useState("");
+  const [reviewError, setReviewError] = useState("");
   const [loading, setLoading] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [mode, setMode] = useState("flow");
@@ -2839,11 +3450,13 @@ function PreAssessmentPage() {
       return;
     }
     setError("");
+    setReviewError("");
     setReviewOpen(true);
   }
 
   function editSelectedSite() {
     setReviewOpen(false);
+    setReviewError("");
     if (isPendingSite) {
       navigate("/workspace/sites/new", {
         state: {
@@ -2861,6 +3474,7 @@ function PreAssessmentPage() {
       return;
     }
     setError("");
+    setReviewError("");
     setLoading(true);
     try {
       let requestAccountId = accountId || selectedSite.account_id || "";
@@ -2881,6 +3495,10 @@ function PreAssessmentPage() {
             zip: pendingSite.zip || "",
             country: pendingSite.country || "US",
             place_id: pendingSite.place_id || "",
+            address_validation: pendingSite.address_validation || null,
+            selected_candidate: pendingSite.selected_candidate || null,
+            justification: pendingSite.justification || "",
+            request_basis: pendingSite.request_basis || "",
           }),
         });
         nextWorkspace = buildSessionFromPayload(session, savedSitePayload);
@@ -2921,11 +3539,18 @@ function PreAssessmentPage() {
         creditsUsedThisMonth: nextState.creditsUsedThisMonth,
       }));
       saveReportContext(nextRouteState);
+      clearPreAssessmentContext();
+      navigate("/workspace/pre-assessment", { replace: true, state: nextRouteState });
       setConfirmedRouteState(nextRouteState);
       setReviewOpen(false);
       setMode("success");
     } catch (nextError) {
-      setError(nextError.message || "Could not request the pre-assessment.");
+      const message = nextError.message || "Could not request the pre-assessment.";
+      if (reviewOpen) {
+        setReviewError(message);
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }
@@ -3095,6 +3720,7 @@ function PreAssessmentPage() {
                       <span className="workspace-summary-value">{costLabel}</span>
                     </div>
                   </div>
+                  <p className={`form-error ${reviewError ? "" : "hidden"}`}>{reviewError}</p>
                   <div className="review-modal-actions">
                     <button
                       type="button"
@@ -3151,7 +3777,7 @@ function PreAssessmentPage() {
               >
                 Notes
               </Link>
-              <Link to="/workspace" className="btn-primary">
+              <Link to="/workspace" className="btn-primary" onClick={clearPreAssessmentContext}>
                 Back to workspace
               </Link>
             </div>
@@ -3534,7 +4160,7 @@ function ReportPage() {
                       setNotesIsError(false);
                     }}
                     rows={10}
-                    placeholder="Add notes for this site."
+                    placeholder="Add notes for this facility."
                   />
                 </label>
                 <div className="report-notes-actions">

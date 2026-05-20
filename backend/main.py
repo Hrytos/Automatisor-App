@@ -14,8 +14,10 @@ from supabase import Client, create_client
 
 try:
     from .address_normalization import canonical_zip, normalize_full_address, normalize_state, normalize_street_line
+    from .address_validator import validate_company_site
 except ImportError:
     from address_normalization import canonical_zip, normalize_full_address, normalize_state, normalize_street_line
+    from address_validator import validate_company_site
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT_DIR / ".env")
@@ -79,6 +81,7 @@ app.add_middleware(
 SERVICE_API_PREFIXES = (
     "/account-sites",
     "/accounts",
+    "/address-validation",
     "/customer-sites",
     "/debug",
     "/frontend-config",
@@ -310,6 +313,30 @@ def site_insert_row(account_id: str, company_name: str, site: dict[str, str]) ->
     }
 
 
+def compact_validation_evidence(body: dict[str, Any], *, include_justification: bool) -> dict[str, Any]:
+    source = body.get("address_validation")
+    if not isinstance(source, dict):
+        source = {}
+    evidence = {
+        key: value
+        for key, value in source.items()
+        if key not in {"justification"}
+    }
+    request_basis = clean_optional(body.get("request_basis") or evidence.get("request_basis"))
+    if request_basis:
+        evidence["request_basis"] = request_basis
+    selected_candidate = body.get("selected_candidate") or evidence.get("selected_candidate")
+    if isinstance(selected_candidate, dict) and selected_candidate:
+        evidence["selected_candidate"] = selected_candidate
+    if evidence and "checked_at" not in evidence:
+        evidence["checked_at"] = datetime.now(timezone.utc).isoformat()
+    if include_justification:
+        justification = clean_optional(body.get("justification") or source.get("justification"))
+        if justification:
+            evidence["justification"] = justification
+    return evidence
+
+
 def normalized_structured_site(site_like: dict[str, Any]) -> dict[str, str]:
     street_parts = normalize_street_line(site_like.get("street") or "")
     return {
@@ -446,13 +473,21 @@ async def touch_customer_login(db: SupabaseAdmin, customer_id: str | None) -> No
     )
 
 
-def build_customer_site_metadata(existing_metadata: Any, *, requested_at: str | None = None, generated_at: str | None = None) -> dict[str, Any]:
+def build_customer_site_metadata(
+    existing_metadata: Any,
+    *,
+    requested_at: str | None = None,
+    generated_at: str | None = None,
+    address_validation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     source = existing_metadata if isinstance(existing_metadata, dict) else {}
     next_metadata = {**source}
     if requested_at:
         next_metadata["last_pre_assessment_requested_at"] = requested_at
     if generated_at:
         next_metadata["last_pre_assessment_generated_at"] = generated_at
+    if address_validation:
+        next_metadata["address_validation"] = address_validation
     return next_metadata
 
 
@@ -731,6 +766,7 @@ async def ensure_customer_site_assignment(
     assigned_via: str = "user_added_site",
     requested_at: str | None = None,
     generated_at: str | None = None,
+    address_validation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     existing = await db.request(
         "GET",
@@ -747,6 +783,7 @@ async def ensure_customer_site_assignment(
         row.get("metadata") if row else None,
         requested_at=requested_at,
         generated_at=generated_at,
+        address_validation=address_validation,
     )
     payload = {
         "customer_id": customer_id,
@@ -779,7 +816,15 @@ async def ensure_customer_site_assignment(
     return {"customerSiteId": result["customer_site_id"], "metadata": result.get("metadata") or metadata}
 
 
-async def insert_account_site_if_missing(db: SupabaseAdmin, account_id: str, company_name: str, site: dict[str, str], customer_id: str) -> dict[str, Any]:
+async def insert_account_site_if_missing(
+    db: SupabaseAdmin,
+    account_id: str,
+    company_name: str,
+    site: dict[str, str],
+    customer_id: str,
+    *,
+    customer_site_validation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     duplicate_row = await find_duplicate_account_site(db, account_id, site)
     if duplicate_row:
         assignment = await ensure_customer_site_assignment(
@@ -787,6 +832,7 @@ async def insert_account_site_if_missing(db: SupabaseAdmin, account_id: str, com
             customer_id,
             account_id,
             duplicate_row["site_id"],
+            address_validation=customer_site_validation,
         )
         return {
             "status": "already_exists",
@@ -806,6 +852,7 @@ async def insert_account_site_if_missing(db: SupabaseAdmin, account_id: str, com
         customer_id,
         account_id,
         site_id,
+        address_validation=customer_site_validation,
     )
     return {"status": "created", "siteId": site_id, "customerSiteId": assignment["customerSiteId"]}
 
@@ -1147,6 +1194,18 @@ async def frontend_config() -> dict[str, Any]:
     return {"google_maps_api_key": GOOGLE_MAPS_API_KEY}
 
 
+@app.post("/api/address-validation/check")
+async def check_address_validation(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        company_name = clean_required(body.get("company_name") or body.get("company"), "Company name")
+        domain = clean_required(body.get("domain") or body.get("company_domain"), "Company domain")
+        address = clean_required(body.get("address") or body.get("full_address"), "Site address")
+        result = validate_company_site(company_name, address, domain, api_key=GOOGLE_MAPS_API_KEY)
+        return {**result, "checked_at": datetime.now(timezone.utc).isoformat()}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @app.get("/api/debug/google-status")
 async def debug_google_status() -> dict[str, Any]:
     key = GOOGLE_MAPS_API_KEY or ""
@@ -1299,6 +1358,7 @@ async def handle_add_account_site(request: Request, body: dict[str, Any] = Body(
         email = assert_work_email(body.get("email") or body.get("work_email"))
         site = parse_site_input(body)
         selected_account_id = clean_optional(body.get("account_id"))
+        customer_site_validation = compact_validation_evidence(body, include_justification=True)
         dry_run = is_dry_run_request(request, body)
 
         account = None
@@ -1324,6 +1384,9 @@ async def handle_add_account_site(request: Request, body: dict[str, Any] = Body(
                 domain = normalize_domain(body.get("org_domain") or body.get("company_domain"))
                 account = await upsert_account(db, org_name, domain)
 
+            if not site["fullAddress"]:
+                raise HTTPException(status_code=422, detail="Site address is required")
+
             customer = await upsert_customer(
                 db,
                 {
@@ -1342,6 +1405,7 @@ async def handle_add_account_site(request: Request, body: dict[str, Any] = Body(
                 account["companyName"],
                 site,
                 customer["customerId"],
+                customer_site_validation=customer_site_validation,
             )
             workspace = await build_workspace_payload(db, email, account["accountId"])
             return {

@@ -745,6 +745,9 @@
   max-width: 100%;
   padding: 0 22px;
   border-radius: 16px;
+  border-color: rgba(2, 5, 63, 0.22);
+  background: #eef3ff;
+  color: #02053f;
   white-space: nowrap;
   justify-content: center;
   box-sizing: border-box;
@@ -2773,6 +2776,186 @@ footer {
   height: clamp(280px, 34vw, 360px);
 }
 
+.address-validation-panel {
+  grid-column: 1 / -1;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: #fff;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.address-validation-panel-idle,
+.address-validation-panel-neutral,
+.address-validation-panel-checking {
+  background: #f8fafc;
+  color: #475569;
+}
+
+.address-validation-panel-error,
+.address-validation-panel-warning {
+  border-color: rgba(185, 28, 28, 0.16);
+  background: #fff7f7;
+}
+
+.address-validation-head h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: #991b1b;
+}
+
+.address-validation-head p,
+.address-validation-empty {
+  margin: 0;
+  color: #0f172a;
+}
+
+.address-validation-head p {
+  font-weight: 700;
+}
+
+.address-validation-options-table {
+  display: grid;
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.address-validation-option-row {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+}
+
+.address-validation-option-row + .address-validation-option-row {
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.address-validation-option-label {
+  display: flex;
+  align-items: flex-start;
+  padding: 14px 12px;
+  background: #f8fafc;
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.address-validation-option-content {
+  min-width: 0;
+  padding: 14px;
+}
+
+.address-validation-option {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.address-validation-option h4,
+.address-validation-option-content h4 {
+  margin: 0 0 6px;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.address-validation-option p,
+.address-validation-option-content p {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.address-candidate-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.address-candidate {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: #fff;
+}
+
+.address-candidate-selected {
+  border-color: rgba(15, 118, 110, 0.3);
+  background: #f0fdfa;
+}
+
+.address-candidate-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.address-candidate-copy strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.address-candidate-copy span,
+.address-candidate-copy small {
+  color: #64748b;
+  overflow-wrap: anywhere;
+}
+
+.address-candidate-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.address-candidate-map-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(2, 5, 63, 0.16);
+  background: #eef3ff;
+  color: #02053f;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.address-candidate-actions .btn-primary,
+.address-candidate-actions .btn-secondary {
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+.address-justification-field {
+  display: grid;
+  margin-top: 14px;
+}
+
+.address-justification-field textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.address-validation-domain-hint {
+  margin: 10px 0 0;
+  color: #991b1b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .pre-assessment-page {
   max-width: 1120px;
 }
@@ -4539,6 +4722,30 @@ footer {
   .workspace-search-action {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .address-validation-option-row {
+    grid-template-columns: 1fr;
+  }
+
+  .address-validation-option-label {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  }
+
+  .address-candidate {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .address-candidate-actions {
+    justify-content: stretch;
+  }
+
+  .address-candidate-actions .btn-primary,
+  .address-candidate-actions .btn-secondary,
+  .address-candidate-map-link {
+    flex: 1;
   }
 
   .site-bar-actions {
