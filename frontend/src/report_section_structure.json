@@ -37,6 +37,10 @@
               "label": "Ownership structure"
             },
             {
+              "field": "parent_sister_company",
+              "label": "Parent / sister company"
+            },
+            {
               "field": "year_founded",
               "label": "Year founded / years in operation"
             },
