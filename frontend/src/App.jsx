@@ -22,7 +22,7 @@ import reportStructure from "./report_section_structure.json";
 const SESSION_KEY = "automatisor_auth_workspace_v2";
 const REPORT_CONTEXT_KEY = "automatisor_selected_report_v1";
 const PRE_ASSESSMENT_CONTEXT_KEY = "automatisor_selected_pre_assessment_v1";
-const REPORT_CONFIDENCE_FILTERS = ["All", "High", "Medium", "Low"];
+const REPORT_CONFIDENCE_FILTERS = ["All", "High"];
 const REPORT_RATING_FIELDS = [
   {
     key: "coverage",
@@ -214,7 +214,16 @@ function isWrappedReportField(value) {
     typeof value === "object" &&
     !Array.isArray(value) &&
     "value" in value &&
-    ("fetch_confidence" in value || "confidence_score" in value)
+    ("fetch_confidence" in value || "confidence_score" in value || isSourceVariantReportValue(value.value))
+  );
+}
+
+function isSourceVariantReportValue(value) {
+  return (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    ("high" in value || "all" in value)
   );
 }
 
@@ -243,7 +252,7 @@ function reportConfidenceLabel(fetchConfidence, confidenceScore) {
   const signalBand = confidenceBand(fetchConfidence);
   const validationBand = confidenceBand(confidenceScore);
 
-  if (signalBand === "Low") return "Low";
+  if (signalBand === "Low" || validationBand === "Low") return "Low";
   if (signalBand === "High" && validationBand === "High") return "High";
   return "Medium";
 }
@@ -295,19 +304,51 @@ function unwrapReportField(data) {
   };
 }
 
+function sourceReportValueVariants(value) {
+  if (isSourceVariantReportValue(value)) {
+    const high = isMissingReportValue(value.high) ? "" : formatStructuredReportValue(value.high);
+    const all = isMissingReportValue(value.all) ? "" : formatStructuredReportValue(value.all);
+    return {
+      high,
+      all,
+      highConfidence: high ? "High" : "",
+      allConfidence: all ? "Medium" : high ? "High" : "",
+    };
+  }
+  return null;
+}
+
+function sourceReportItemForFilter(item, activeFilter) {
+  if (!item.variants) return item;
+
+  const variant = activeFilter === "High" ? "high" : item.variants.all ? "all" : "high";
+  const value = item.variants[variant];
+  if (isMissingReportValue(value)) return null;
+
+  return {
+    ...item,
+    value,
+    confidence: variant === "high" ? item.variants.highConfidence : item.variants.allConfidence,
+  };
+}
+
 function flattenStructuredReportRows(data, prefix = [], inheritedConfidence = {}) {
   if (isWrappedReportField(data)) {
     if (isMissingReportValue(data.value)) return [];
     const id = prefix.join(".");
+    const variants = sourceReportValueVariants(data.value);
     return [
       {
         id,
         field: prefix.map(reportLabelFromKey).join(" / "),
-        value: formatStructuredReportValue(data.value),
-        confidence: reportConfidenceLabel(
-          data.fetch_confidence ?? inheritedConfidence.fetch_confidence,
-          data.confidence_score ?? inheritedConfidence.confidence_score,
-        ),
+        value: variants ? variants.all || variants.high : formatStructuredReportValue(data.value),
+        confidence: variants
+          ? variants.allConfidence || variants.highConfidence
+          : reportConfidenceLabel(
+              data.fetch_confidence ?? inheritedConfidence.fetch_confidence,
+              data.confidence_score ?? inheritedConfidence.confidence_score,
+            ),
+        variants,
       },
     ];
   }
@@ -424,6 +465,55 @@ function structuredReportRecordsFromConfig(reportData, table) {
     .filter(Boolean);
 }
 
+function structuredOperationalSnapshotRowsFromConfig(reportData, table) {
+  const tableData = getReportValueByPath(reportData, table.data_path);
+  const hideConfidence = Boolean(table.hide_confidence);
+
+  return (table.rows || [])
+    .map((rowConfig) => {
+      const operationData = getReportValueByPath(tableData, rowConfig.field);
+      const nature = unwrapReportField(operationData?.nature);
+      const automation = unwrapReportField(operationData?.automation);
+      const natureVariants = sourceReportValueVariants(nature.value);
+      const automationVariants = sourceReportValueVariants(automation.value);
+      const natureValue = natureVariants
+        ? natureVariants.all || natureVariants.high
+        : isMissingReportValue(nature.value)
+          ? ""
+          : formatStructuredReportValue(nature.value);
+      const automationValue = automationVariants
+        ? automationVariants.all || automationVariants.high
+        : isMissingReportValue(automation.value)
+          ? ""
+          : formatStructuredReportValue(automation.value);
+
+      if (!natureValue && !automationValue) return null;
+
+      return {
+        id: `${table.data_path}.${rowConfig.field}`,
+        operation: rowConfig.label || reportLabelFromKey(rowConfig.field),
+        fields: [
+          {
+            id: "nature",
+            label: "Nature Of Operation",
+            value: natureValue,
+            confidence: hideConfidence ? null : nature.confidence,
+            variants: natureVariants,
+          },
+          {
+            id: "automation",
+            label: "Automation",
+            value: automationValue,
+            confidence: hideConfidence ? null : automation.confidence,
+            variants: automationVariants,
+          },
+        ].filter((field) => field.value),
+        hideConfidence,
+      };
+    })
+    .filter(Boolean);
+}
+
 function structuredReportItemFromConfig(reportData, config, id, number, description) {
   if (config.tables?.length) {
     const children = config.tables.map((table, index) =>
@@ -459,6 +549,8 @@ function structuredReportItemFromConfig(reportData, config, id, number, descript
     rows:
       config.table_type === "records"
         ? structuredReportRecordsFromConfig(reportData, config)
+        : config.table_type === "operational_snapshot"
+          ? structuredOperationalSnapshotRowsFromConfig(reportData, config)
         : structuredReportRowsFromConfig(reportData, config),
   };
 }
@@ -475,12 +567,43 @@ function filterStructuredReportItem(item, activeFilter, keepUnfiltered) {
     };
   }
 
+  if (item.tableType === "operational_snapshot") {
+    return {
+      ...item,
+      rows: item.rows
+        .map((row) => ({
+          ...row,
+          fields: (row.fields || [])
+            .map((field) => sourceReportItemForFilter(field, activeFilter))
+            .filter(
+              (field) =>
+                field &&
+                (field.variants ||
+                  row.hideConfidence ||
+                  (field.confidence !== "Low" &&
+                    (activeFilter === "All" || field.confidence === activeFilter))),
+            ),
+        }))
+        .filter((row) => row.fields.length > 0),
+    };
+  }
+
   return {
     ...item,
     rows:
       activeFilter === "All" || keepUnfiltered
         ? item.rows
-        : item.rows.filter((row) => !row.hideConfidence && row.confidence === activeFilter),
+            .map((row) => sourceReportItemForFilter(row, activeFilter))
+            .filter((row) => row && (row.variants || row.hideConfidence || row.confidence !== "Low"))
+        : item.rows
+            .map((row) => sourceReportItemForFilter(row, activeFilter))
+            .filter(
+              (row) =>
+                row &&
+                !row.hideConfidence &&
+                row.confidence === activeFilter &&
+                row.confidence !== "Low",
+            ),
   };
 }
 
@@ -498,7 +621,31 @@ function collectStructuredConfidenceCounts(item, counts) {
   }
 
   item.rows.forEach((row) => {
-    if (!row.hideConfidence && row.confidence && counts[row.confidence] !== undefined) {
+    if (item.tableType === "operational_snapshot") {
+      (row.fields || []).forEach((field) => {
+        if (field.variants) {
+          if (field.variants.high && counts.High !== undefined) {
+            counts.High += 1;
+          }
+        } else if (
+          !row.hideConfidence &&
+          field.confidence &&
+          field.confidence !== "Low" &&
+          counts[field.confidence] !== undefined
+        ) {
+          counts[field.confidence] += 1;
+        }
+      });
+    } else if (row.variants) {
+      if (row.variants.high && counts.High !== undefined) {
+        counts.High += 1;
+      }
+    } else if (
+      !row.hideConfidence &&
+      row.confidence &&
+      row.confidence !== "Low" &&
+      counts[row.confidence] !== undefined
+    ) {
       counts[row.confidence] += 1;
     }
   });
@@ -640,6 +787,42 @@ function StructuredReportRecordsTable({ columns, rows, hideConfidenceColumn }) {
   );
 }
 
+function StructuredOperationalSnapshotTable({ rows }) {
+  return (
+    <div className="structured-report-table-wrap">
+      <table className="structured-report-table structured-report-records-table structured-report-operational-snapshot-table">
+        <thead>
+          <tr>
+            <th>Operations</th>
+            <th>Value</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.flatMap((row) =>
+            row.fields.map((field, index) => (
+              <tr key={`${row.id}.${field.id}`}>
+                {index === 0 ? (
+                  <td data-label="Operations" rowSpan={row.fields.length}>{row.operation}</td>
+                ) : null}
+                <td data-label="Value">
+                  <strong className="structured-report-operational-value-label">{field.label}</strong>
+                  <span>{field.value}</span>
+                </td>
+                <td data-label="Confidence">
+                  {!row.hideConfidence && field.confidence ? (
+                    <ReportConfidenceBadge label={field.confidence} />
+                  ) : null}
+                </td>
+              </tr>
+            )),
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function toggleIdInList(list, id) {
   return list.includes(id) ? list.filter((itemId) => itemId !== id) : [...list, id];
 }
@@ -698,6 +881,8 @@ function StructuredReportItem({ item, open, openChildIds, onToggle, onToggleChil
                             rows={child.rows}
                             hideConfidenceColumn={child.hideConfidence}
                           />
+                        ) : child.tableType === "operational_snapshot" ? (
+                          <StructuredOperationalSnapshotTable rows={child.rows} />
                         ) : (
                           <StructuredReportKeyValueTable rows={child.rows} hideConfidenceColumn={child.hideConfidence} />
                         )}
@@ -713,6 +898,8 @@ function StructuredReportItem({ item, open, openChildIds, onToggle, onToggleChil
               rows={item.rows}
               hideConfidenceColumn={item.hideConfidence}
             />
+          ) : item.tableType === "operational_snapshot" ? (
+            <StructuredOperationalSnapshotTable rows={item.rows} />
           ) : (
             <StructuredReportKeyValueTable rows={item.rows} hideConfidenceColumn={item.hideConfidence} />
           )}
@@ -772,7 +959,7 @@ function StructuredPreAssessmentReport({ reportData }) {
   const [openItemsBySection, setOpenItemsBySection] = useState({});
   const [openChildrenByItem, setOpenChildrenByItem] = useState({});
   const availableFilters = useMemo(() => {
-    const counts = { High: 0, Medium: 0, Low: 0 };
+    const counts = { High: 0 };
     sections.forEach((section) => {
       section.items.forEach((item) => collectStructuredConfidenceCounts(item, counts));
     });
