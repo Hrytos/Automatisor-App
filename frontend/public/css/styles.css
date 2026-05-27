@@ -4020,11 +4020,22 @@ footer {
 .structured-report-header-meta {
   margin-left: auto;
   max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   color: #334155;
   font-size: 13px;
   font-weight: 650;
   text-align: right;
   flex: 0 0 320px;
+}
+
+.structured-report-generated-date {
+  color: #f25c19;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .structured-report-menu-button {
@@ -4315,35 +4326,50 @@ footer {
   border-bottom: 0;
 }
 
-.structured-report-table th:nth-child(1),
-.structured-report-table td:nth-child(1) {
-  width: 28%;
+.structured-report-key-value-table th:nth-child(1),
+.structured-report-key-value-table td:nth-child(1) {
+  width: 22%;
   font-weight: 650;
 }
 
-.structured-report-table th:nth-child(2),
-.structured-report-table td:nth-child(2) {
-  width: 54%;
+.structured-report-key-value-table th:nth-child(2),
+.structured-report-key-value-table td:nth-child(2) {
+  width: 22%;
 }
 
-.structured-report-table th:nth-child(3),
-.structured-report-table td:nth-child(3) {
+.structured-report-key-value-table th:nth-child(3),
+.structured-report-key-value-table td:nth-child(3) {
+  width: 42%;
+}
+
+.structured-report-key-value-table th:nth-child(4),
+.structured-report-key-value-table td:nth-child(4) {
+  width: 14%;
+}
+
+.structured-report-records-table th:nth-child(3),
+.structured-report-records-table td:nth-child(3) {
   width: 18%;
 }
 
 .structured-report-operational-snapshot-table th:nth-child(1),
 .structured-report-operational-snapshot-table td:nth-child(1) {
-  width: 22%;
+  width: 18%;
 }
 
 .structured-report-operational-snapshot-table th:nth-child(2),
 .structured-report-operational-snapshot-table td:nth-child(2) {
-  width: 60%;
+  width: 22%;
 }
 
 .structured-report-operational-snapshot-table th:nth-child(3),
 .structured-report-operational-snapshot-table td:nth-child(3) {
-  width: 18%;
+  width: 44%;
+}
+
+.structured-report-operational-snapshot-table th:nth-child(4),
+.structured-report-operational-snapshot-table td:nth-child(4) {
+  width: 16%;
 }
 
 .structured-report-operational-value-label {

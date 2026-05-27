@@ -178,6 +178,19 @@ function formatDateTime(value) {
   }).format(date);
 }
 
+function formatReportDate(value) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return "";
+  const [, year, month, day] = match;
+  const monthNumber = Number(month);
+  const dayNumber = Number(day);
+  if (monthNumber < 1 || monthNumber > 12 || dayNumber < 1 || dayNumber > 31) return "";
+  const monthName = new Intl.DateTimeFormat("en-US", { month: "long" }).format(
+    new Date(Date.UTC(Number(year), monthNumber - 1, 1)),
+  );
+  return `${dayNumber} ${monthName} ${year}`;
+}
+
 function renderReportValue(value) {
   if (value === null || value === undefined || value === "") {
     return <span className="report-empty-value">Not available</span>;
@@ -214,7 +227,11 @@ function isWrappedReportField(value) {
     typeof value === "object" &&
     !Array.isArray(value) &&
     "value" in value &&
-    ("fetch_confidence" in value || "confidence_score" in value || isSourceVariantReportValue(value.value))
+    ("fetch_confidence" in value ||
+      "confidence_score" in value ||
+      "description" in value ||
+      isSourceVariantReportValue(value.value) ||
+      isSourceVariantReportValue(value.description))
   );
 }
 
@@ -265,6 +282,10 @@ function shouldHideReportConfidence(path) {
   );
 }
 
+function shouldPersistReportAcrossConfidenceFilters(path) {
+  return shouldHideReportConfidence(path);
+}
+
 function formatStructuredReportValue(value) {
   if (Array.isArray(value)) {
     return value
@@ -294,25 +315,31 @@ function unwrapReportField(data) {
   if (isWrappedReportField(data)) {
     return {
       value: data.value,
+      description: data.description,
       confidence: reportConfidenceLabel(data.fetch_confidence, data.confidence_score),
     };
   }
 
   return {
     value: data,
+    description: "",
     confidence: reportConfidenceLabel(),
   };
 }
 
-function sourceReportValueVariants(value) {
-  if (isSourceVariantReportValue(value)) {
-    const high = isMissingReportValue(value.high) ? "" : formatStructuredReportValue(value.high);
-    const all = isMissingReportValue(value.all) ? "" : formatStructuredReportValue(value.all);
+function sourceReportValueVariants(value, description) {
+  if (isSourceVariantReportValue(value) || isSourceVariantReportValue(description)) {
+    const high = isMissingReportValue(value?.high) ? "" : formatStructuredReportValue(value.high);
+    const all = isMissingReportValue(value?.all) ? "" : formatStructuredReportValue(value.all);
+    const highDescription = isMissingReportValue(description?.high) ? "" : formatStructuredReportValue(description.high);
+    const allDescription = isMissingReportValue(description?.all) ? "" : formatStructuredReportValue(description.all);
     return {
       high,
       all,
-      highConfidence: high ? "High" : "",
-      allConfidence: all ? "Medium" : high ? "High" : "",
+      highDescription,
+      allDescription,
+      highConfidence: high || highDescription ? "High" : "",
+      allConfidence: all || allDescription ? "Medium" : high || highDescription ? "High" : "",
     };
   }
   return null;
@@ -321,27 +348,39 @@ function sourceReportValueVariants(value) {
 function sourceReportItemForFilter(item, activeFilter) {
   if (!item.variants) return item;
 
-  const variant = activeFilter === "High" ? "high" : item.variants.all ? "all" : "high";
+  const variant =
+    activeFilter === "High"
+      ? "high"
+      : item.variants.all || item.variants.allDescription
+        ? "all"
+        : "high";
   const value = item.variants[variant];
-  if (isMissingReportValue(value)) return null;
+  const description = item.variants[`${variant}Description`];
+  if (isMissingReportValue(value) && isMissingReportValue(description)) return null;
 
   return {
     ...item,
     value,
+    description,
     confidence: variant === "high" ? item.variants.highConfidence : item.variants.allConfidence,
   };
 }
 
 function flattenStructuredReportRows(data, prefix = [], inheritedConfidence = {}) {
   if (isWrappedReportField(data)) {
-    if (isMissingReportValue(data.value)) return [];
+    if (isMissingReportValue(data.value) && isMissingReportValue(data.description)) return [];
     const id = prefix.join(".");
-    const variants = sourceReportValueVariants(data.value);
+    const variants = sourceReportValueVariants(data.value, data.description);
     return [
       {
         id,
         field: prefix.map(reportLabelFromKey).join(" / "),
         value: variants ? variants.all || variants.high : formatStructuredReportValue(data.value),
+        description: variants
+          ? variants.allDescription || variants.highDescription
+          : isMissingReportValue(data.description)
+            ? ""
+            : formatStructuredReportValue(data.description),
         confidence: variants
           ? variants.allConfidence || variants.highConfidence
           : reportConfidenceLabel(
@@ -364,6 +403,7 @@ function flattenStructuredReportRows(data, prefix = [], inheritedConfidence = {}
           id: prefix.join("."),
           field: prefix.map(reportLabelFromKey).join(" / "),
           value,
+          description: "",
           confidence: reportConfidenceLabel(
             inheritedConfidence.fetch_confidence,
             inheritedConfidence.confidence_score,
@@ -389,6 +429,7 @@ function flattenStructuredReportRows(data, prefix = [], inheritedConfidence = {}
       id,
       field: prefix.map(reportLabelFromKey).join(" / "),
       value: formatStructuredReportValue(data),
+      description: "",
       confidence: reportConfidenceLabel(
         inheritedConfidence.fetch_confidence,
         inheritedConfidence.confidence_score,
@@ -414,6 +455,7 @@ function structuredReportRowsFromConfig(reportData, table) {
         id: `${table.data_path}.${rowConfig.field}.${index}`,
         confidence: hideConfidence ? null : row.confidence,
         hideConfidence,
+        persistAcrossFilters: shouldPersistReportAcrossConfidenceFilters(fullPath),
         field:
           row.field === generatedLabel
             ? configuredLabel
@@ -438,6 +480,7 @@ function structuredReportRecordsFromConfig(reportData, table) {
           id: column.field,
           label: column.label,
           value: isMissingReportValue(cell.value) ? "" : formatStructuredReportValue(cell.value),
+          description: isMissingReportValue(cell.description) ? "" : formatStructuredReportValue(cell.description),
           confidence: hideConfidence ? null : cell.confidence,
         };
       });
@@ -474,20 +517,30 @@ function structuredOperationalSnapshotRowsFromConfig(reportData, table) {
       const operationData = getReportValueByPath(tableData, rowConfig.field);
       const nature = unwrapReportField(operationData?.nature);
       const automation = unwrapReportField(operationData?.automation);
-      const natureVariants = sourceReportValueVariants(nature.value);
-      const automationVariants = sourceReportValueVariants(automation.value);
+      const natureVariants = sourceReportValueVariants(nature.value, nature.description);
+      const automationVariants = sourceReportValueVariants(automation.value, automation.description);
       const natureValue = natureVariants
         ? natureVariants.all || natureVariants.high
         : isMissingReportValue(nature.value)
           ? ""
           : formatStructuredReportValue(nature.value);
+      const natureDescription = natureVariants
+        ? natureVariants.allDescription || natureVariants.highDescription
+        : isMissingReportValue(nature.description)
+          ? ""
+          : formatStructuredReportValue(nature.description);
       const automationValue = automationVariants
         ? automationVariants.all || automationVariants.high
         : isMissingReportValue(automation.value)
           ? ""
           : formatStructuredReportValue(automation.value);
+      const automationDescription = automationVariants
+        ? automationVariants.allDescription || automationVariants.highDescription
+        : isMissingReportValue(automation.description)
+          ? ""
+          : formatStructuredReportValue(automation.description);
 
-      if (!natureValue && !automationValue) return null;
+      if (!natureValue && !natureDescription && !automationValue && !automationDescription) return null;
 
       return {
         id: `${table.data_path}.${rowConfig.field}`,
@@ -497,6 +550,7 @@ function structuredOperationalSnapshotRowsFromConfig(reportData, table) {
             id: "nature",
             label: "Nature Of Operation",
             value: natureValue,
+            description: natureDescription,
             confidence: hideConfidence ? null : nature.confidence,
             variants: natureVariants,
           },
@@ -504,10 +558,11 @@ function structuredOperationalSnapshotRowsFromConfig(reportData, table) {
             id: "automation",
             label: "Automation",
             value: automationValue,
+            description: automationDescription,
             confidence: hideConfidence ? null : automation.confidence,
             variants: automationVariants,
           },
-        ].filter((field) => field.value),
+        ].filter((field) => field.value || field.description),
         hideConfidence,
       };
     })
@@ -600,9 +655,10 @@ function filterStructuredReportItem(item, activeFilter, keepUnfiltered) {
             .filter(
               (row) =>
                 row &&
+                (row.persistAcrossFilters ||
                 !row.hideConfidence &&
                 row.confidence === activeFilter &&
-                row.confidence !== "Low",
+                row.confidence !== "Low"),
             ),
   };
 }
@@ -624,7 +680,7 @@ function collectStructuredConfidenceCounts(item, counts) {
     if (item.tableType === "operational_snapshot") {
       (row.fields || []).forEach((field) => {
         if (field.variants) {
-          if (field.variants.high && counts.High !== undefined) {
+          if ((field.variants.high || field.variants.highDescription) && counts.High !== undefined) {
             counts.High += 1;
           }
         } else if (
@@ -637,7 +693,7 @@ function collectStructuredConfidenceCounts(item, counts) {
         }
       });
     } else if (row.variants) {
-      if (row.variants.high && counts.High !== undefined) {
+      if ((row.variants.high || row.variants.highDescription) && counts.High !== undefined) {
         counts.High += 1;
       }
     } else if (
@@ -723,11 +779,12 @@ function StructuredReportKeyValueTable({ rows, hideConfidenceColumn }) {
 
   return (
     <div className="structured-report-table-wrap">
-      <table className="structured-report-table">
+      <table className="structured-report-table structured-report-key-value-table">
         <thead>
           <tr>
             <th>Field</th>
             <th>Value</th>
+            <th>Description</th>
             {showConfidenceColumn && <th>Confidence</th>}
           </tr>
         </thead>
@@ -736,6 +793,7 @@ function StructuredReportKeyValueTable({ rows, hideConfidenceColumn }) {
             <tr key={row.id}>
               <td data-label="Field">{row.field}</td>
               <td data-label="Value">{row.value}</td>
+              <td data-label="Description">{row.description}</td>
               {showConfidenceColumn && (
                 <td data-label="Confidence">
                   {!row.hideConfidence && <ReportConfidenceBadge label={row.confidence} />}
@@ -795,6 +853,7 @@ function StructuredOperationalSnapshotTable({ rows }) {
           <tr>
             <th>Operations</th>
             <th>Value</th>
+            <th>Description</th>
             <th>Confidence</th>
           </tr>
         </thead>
@@ -809,6 +868,7 @@ function StructuredOperationalSnapshotTable({ rows }) {
                   <strong className="structured-report-operational-value-label">{field.label}</strong>
                   <span>{field.value}</span>
                 </td>
+                <td data-label="Description">{field.description}</td>
                 <td data-label="Confidence">
                   {!row.hideConfidence && field.confidence ? (
                     <ReportConfidenceBadge label={field.confidence} />
@@ -951,7 +1011,7 @@ function StructuredReportSection({ section, open, openItemIds, openChildIdsByIte
   );
 }
 
-function StructuredPreAssessmentReport({ reportData }) {
+function StructuredPreAssessmentReport({ reportData, reportGeneratedDate = "" }) {
   const [activeFilter, setActiveFilter] = useState("All");
   const [menuOpen, setMenuOpen] = useState(false);
   const sections = useMemo(() => makeStructuredReportSections(reportData), [reportData]);
@@ -1068,9 +1128,14 @@ function StructuredPreAssessmentReport({ reportData }) {
             <h1>{reportStructure.report_ui?.report_title || "Warehouse Automation Pre-Assessment Report"}</h1>
             <p>{reportStructure.report_ui?.report_subtitle || "Operational Intelligence & Automation Fit Analysis"}</p>
           </div>
-          {facilityValue ? (
+          {facilityValue || reportGeneratedDate ? (
             <div className="structured-report-header-meta">
-              <span>{facilityValue}</span>
+              {reportGeneratedDate ? (
+                <span className="structured-report-generated-date">
+                  Report generated {reportGeneratedDate}
+                </span>
+              ) : null}
+              {facilityValue ? <span>{facilityValue}</span> : null}
             </div>
           ) : null}
           <button
@@ -4123,6 +4188,8 @@ function ReportPage() {
   const reportMarkedReady = Boolean(selectedSite?.is_report_ready);
   const reportHasMetadata = hasReportMetadata(reportMetadata);
   const requestedAt = selectedSite?.customer_site_metadata?.last_pre_assessment_requested_at || "";
+  const generatedAt = selectedSite?.customer_site_metadata?.last_pre_assessment_generated_at || "";
+  const reportGeneratedDate = formatReportDate(generatedAt);
 
   useEffect(() => {
     setNotesDraft(selectedSite?.notes || "");
@@ -4290,7 +4357,10 @@ function ReportPage() {
               <div className="tab-panel report-tab-panel" role="tabpanel">
                 {reportMarkedReady ? (
                   reportHasMetadata ? (
-                    <StructuredPreAssessmentReport reportData={reportMetadata} />
+                    <StructuredPreAssessmentReport
+                      reportData={reportMetadata}
+                      reportGeneratedDate={reportGeneratedDate}
+                    />
                   ) : (
                     <StructuredReportUnavailable />
                   )
