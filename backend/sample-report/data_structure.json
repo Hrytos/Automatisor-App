@@ -384,8 +384,8 @@
       "storage": {
         "nature": {
           "value": {
-            "all": "341,250 square feet.",
-            "high": "341,250 square feet."
+            "all": "The facility provides organized, heated warehouse storage for palletized food-grade, automotive, and Department of Defense materials.",
+            "high": "Heated pallet storage for food-grade, automotive, and Department of Defense materials."
           },
           "description": {
             "all": "The operation involves a well-organized storage process characterized by a 341,250-square-foot heated facility at BR Williams' Anniston West Distribution Center, which is equipped to handle food-grade, automotive, and Department of Defense materials. The facility features tall racks filled with pallets, various equipment, and 35 dock doors, all indicating systematic material handling practices and efficient logistics management for inventory fulfillment.",
@@ -929,7 +929,7 @@
       "it_infrastructure_signals": {
         "wifi_infrastructure_evidence": {
           "value": {
-            "high": "Absent: There is no mention of wifi infrastructure evidence in the description."
+            "high": "Absent: There is no mention of wifi infrastructure evidence."
           },
           "description": {
             "high": "The Anniston West Distribution Center, a significant facility for BR Williams, spans 341,250 square feet and features 35 docks and 2 drive-in bays. Established in 1994, it caters to a diverse range of customers, including those in the food and defense sectors."
