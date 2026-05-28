@@ -6,7 +6,7 @@
           "high": "341,250 square feet"
         },
         "description": {
-          "high": "The Anniston West Distribution Center operated by BR Williams spans a total of 341,250 square feet and serves as a critical hub for the company's supply chain management, offering extensive logistics services."
+          "high": "The site size is 341,250 square feet, featuring a heated metal frame warehouse."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
@@ -64,16 +64,12 @@
     },
     "operation_type": {
       "value": {
-        "all": "The facility operates primarily as a distribution center with a total area of 341,250 square feet.",
-        "high": "341,250 square feet"
+        "high": "The facility operates primarily as a distribution and fulfillment center, focusing on logistics operations such as shipping, receiving, and material handling."
       },
       "description": {
-        "all": "The facility operates primarily as a distribution center, focusing on shipping, receiving, and order fulfillment activities, while also engaging in cross-dock operations that enhance rapid loading and unloading capabilities. With a total area of 341,250 square feet and 35 trailer docks, it serves as a major logistics hub, streamlining supply chain operations for various commercial industries.",
-        "high": "The Anniston West Distribution Center, covering 341,250 square feet, serves as a major logistics hub with 35 trailer docks, supporting various logistics functions and streamlining supply chain operations for multiple commercial industries."
+        "high": "The facility operates primarily as a distribution center and fulfillment center, specializing in logistics operations with a focus on shipping, receiving, and material handling, which is essential for maintaining supply chain fluidity."
       },
-      "all_contradiction_flag": null,
       "high_contradiction_flag": null,
-      "all_contradiction_reason": null,
       "high_contradiction_reason": null
     },
     "automation_maturity": {
@@ -99,40 +95,40 @@
     "operation_type": {
       "customer_base": {
         "value": {
-          "all": "Key clients include Honda Manufacturing of Alabama, General Dynamics Land Systems, and the Department of Defense.",
-          "high": "Key customers include Honda Manufacturing of Alabama, General Dynamics Land Systems Anniston Operations, and the Department of Defense."
+          "all": "Key customers include Honda Manufacturing of Alabama and the U.S. Department of Defense, with services in storage, delivery, and logistics support.",
+          "high": "Key customers include Honda Manufacturing of Alabama and the U.S. Department of Defense."
         },
         "description": {
-          "all": "BR Williams actively collaborates with external companies, providing essential logistics services such as receiving, stocking, picking, and delivering products, which are crucial to their customers' supply chain operations. Key clients include Honda Manufacturing of Alabama, General Dynamics Land Systems Anniston Operations, and the Department of Defense, showcasing the company's extensive experience in logistics and fulfillment within critical industries like automotive and defense.",
-          "high": "Key customers include Honda Manufacturing of Alabama, General Dynamics Land Systems Anniston Operations, and the Department of Defense, showcasing extensive experience in logistics and fulfillment within critical industries such as automotive and defense."
-        },
-        "all_contradiction_flag": false,
-        "high_contradiction_flag": null,
-        "all_contradiction_reason": null,
-        "high_contradiction_reason": null
-      },
-      "primary_warehouse_operation_types": {
-        "value": {
-          "all": "The primary warehouse operation type is a distribution center with logistics capabilities including shipping, receiving, and order fulfillment.",
-          "high": "3PL warehouse, distribution center, fulfillment center, and food-grade warehouse."
-        },
-        "description": {
-          "all": "The facility operates primarily as a distribution center, characterized by its focus on shipping, receiving, and order fulfillment activities, supported by efficient packing processes and multiple dock doors. Additionally, it engages in cross-dock operations, emphasizing rapid loading and unloading capabilities, which are crucial for maintaining logistics efficiency. The Anniston West Distribution Center serves as a major logistics hub with a total area of 341,250 square feet, equipped with 35 trailer docks, and is classified as a 3PL warehouse, indicating its broad logistics capabilities, including direct-to-consumer fulfillment and specialized storage for food and automotive sectors.",
-          "high": "The Anniston West Distribution Center, covering 341,250 square feet, serves as a major logistics hub with 35 trailer docks, supporting various logistics functions. It is classified as a 3PL warehouse, distribution center, fulfillment center, and food-grade warehouse, showcasing the company's extensive logistics capabilities, including direct-to-consumer fulfillment and specialized storage for food and automotive sectors."
+          "all": "BR Williams has established strong relationships with key customers, including Honda Manufacturing of Alabama and the U.S. Department of Defense, by providing essential services such as storage, delivery, and logistics support. The mention of staff names in reviews highlights their commitment to operational efficiency as a logistics provider.",
+          "high": "Key customers of BR Williams include Honda Manufacturing of Alabama and the U.S. Department of Defense."
         },
         "all_contradiction_flag": null,
         "high_contradiction_flag": null,
         "all_contradiction_reason": null,
         "high_contradiction_reason": null
       },
-      "primary_warehouse_product_categories": {
+      "primary_warehouse_operation_types": {
         "value": {
-          "high": "Automotive parts, food-grade products, and defense industry cargo."
+          "high": "The facility primarily operates as a distribution center, also functioning as a fulfillment center and a 3PL service provider, focusing on efficient shipping, receiving, and material handling."
         },
         "description": {
-          "high": "The Anniston West Distribution Center operates as a 3PL facility with a diverse inventory capability, handling automotive parts, food-grade products, and defense industry cargo. Spanning 341,250 square feet and featuring 35 dock doors and 2 drive-in bays, this facility, established in 1994, serves as a critical logistics hub for various sectors, including automotive, defense, and food raw materials."
+          "high": "The facility primarily operates as a distribution center, with indications of functioning as a fulfillment center and a 3PL (Third-Party Logistics) service provider. It is designed for efficient shipping, receiving, and material handling, facilitating quick turnaround times in the distribution and handling of goods."
         },
         "high_contradiction_flag": null,
+        "high_contradiction_reason": null
+      },
+      "primary_warehouse_product_categories": {
+        "value": {
+          "all": "The facility manages a diverse range of inventory categories, including consumer products, industrial items, food-grade goods, automotive parts, and defense equipment.",
+          "high": "The primary warehouse product categories include commercial, industrial, and government supplies such as food and beverage, automotive parts, defense products, and general merchandise."
+        },
+        "description": {
+          "all": "The facility manages a diverse range of inventory categories, including consumer products, industrial items, food-grade goods, automotive parts, and defense equipment. The operational setup, characterized by the storage of boxed goods on pallets, indicates a focus on effective inventory management and the handling of various goods across commercial, industrial, and government sectors.",
+          "high": "The flagship facility manages a diverse inventory, primarily focusing on commercial, industrial, and government supplies, including food and beverage, automotive parts, defense products, and general merchandise. It supports a regional network that encompasses automotive parts, home improvement goods, and industrial materials, while also providing third-party logistics warehousing for food-grade and defense industry inventory."
+        },
+        "all_contradiction_flag": null,
+        "high_contradiction_flag": null,
+        "all_contradiction_reason": null,
         "high_contradiction_reason": null
       }
     },
@@ -142,59 +138,67 @@
           "high": "1958"
         },
         "description": {
-          "high": "Founded in 1958, the company began as a one-man, one-truck operation in Oxford, Alabama, and has since evolved into a comprehensive logistics and trucking provider, demonstrating significant growth from its humble beginnings."
+          "high": "Founded in 1958 by Bill Williams in Oxford, Alabama, the operation started as a local business with just two trucks."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
       },
       "trading_names": {
         "value": {
-          "high": "BR Williams is the trading name associated with the company."
+          "all": "BRW",
+          "high": "BR Williams operates primarily under the brand name BRW."
         },
         "description": {
-          "high": "In 2025, BR Williams was designated as a fully approved Department of Defense (DoD) Transportation Service Provider and DoD Freight Carrier, highlighting the company's compliance with military logistics standards and enhancing its position as a trusted partner in defense transportation and logistics."
-        },
-        "high_contradiction_flag": null,
-        "high_contradiction_reason": null
-      },
-      "company_legal_name": {
-        "value": {
-          "all": "B.R. Williams"
-        },
-        "description": {
-          "all": "B.R. Williams, originally founded in 1958, underwent significant restructuring in 2024 when its operations were consolidated under the brand BRW after being acquired by Haney and White Enterprise. This strategic move indicates the company's commitment to growth and expanding its logistics capabilities, now operating with over 300 employees and a fleet of 175 tractors."
+          "all": "The entity conducts its business under the operational name associated with a strong reputation for quality service in logistics and warehousing, primarily operating under the brand name BRW.",
+          "high": "BR Williams operates primarily under the brand name BRW."
         },
         "all_contradiction_flag": null,
         "high_contradiction_flag": null,
         "all_contradiction_reason": null,
         "high_contradiction_reason": null
       },
-      "industry_naics_code": {
+      "company_legal_name": {
         "value": {
-          "high": "484121, 488510"
+          "high": "BR Williams Trucking LLC"
         },
         "description": {
-          "high": "BR Williams operates within two primary NAICS classifications: 484121 for General Freight Trucking, Long-Distance, Truckload, indicating a focus on large freight transport, and 488510 for Freight Transportation Arrangement, reflecting their role as a logistics broker. This structure suggests a strong emphasis on asset-backed transport and freight brokerage services."
+          "high": "The company has multiple legal names including BR Williams Trucking LLC, which is a registered asset carrier, and BR Williams Logistics LLC, a wholly owned subsidiary that operates as a registered freight broker. Additionally, B.R. Williams LTL Logistics, LLC is also listed as a limited liability company."
         },
         "high_contradiction_flag": null,
+        "high_contradiction_reason": null
+      },
+      "industry_naics_code": {
+        "value": {
+          "all": "Warehousing and transportation industry, focusing on logistics and distribution activities."
+        },
+        "description": {
+          "all": "The job listings indicate a strong involvement in the warehousing and transportation industry, highlighted by positions such as 'Warehouse Position' and various driver roles, which reflect a focus on logistics and distribution activities. Additionally, the facility is likely classified within the warehousing and logistics sector, as evidenced by the presence of trucks, forklifts, and an emphasis on shipping and receiving operations."
+        },
+        "all_contradiction_flag": null,
+        "high_contradiction_flag": null,
+        "all_contradiction_reason": null,
         "high_contradiction_reason": null
       },
       "ownership_structure": {
         "value": {
-          "high": "The ownership structure is now under Haney and White Enterprise, which acquired BR Williams in 2024."
+          "all": "B.R. Williams is a privately held subsidiary of Haney and White Enterprise.",
+          "high": "B.R. Williams is a privately held subsidiary of Haney and White Enterprise."
         },
         "description": {
-          "high": "The ownership of BR Williams transitioned to Haney and White Enterprise, which acquired the company along with its subsidiaries, BR Williams Trucking and BR Williams LTL Logistics, in 2024. This acquisition led to the formation of a consolidated entity named BRW, merging four major transportation companies to enhance logistics operations and expand service offerings. The integration is projected to generate immediate annual revenues nearing $100 million, with a goal of reaching $250 million by 2030, indicating a significant growth trajectory for the new entity."
+          "all": "B.R. Williams is a privately held subsidiary of Haney and White Enterprise following its acquisition in 2024, which included B.R. Williams Trucking and B.R. Williams LTL Logistics. Additionally, B.R. Williams has partnered with the non-profit organization Women in Trucking to promote gender diversity in the transportation industry.",
+          "high": "B.R. Williams is a privately held subsidiary of Haney and White Enterprise following its acquisition, which was finalized in 2024."
         },
+        "all_contradiction_flag": null,
         "high_contradiction_flag": null,
+        "all_contradiction_reason": null,
         "high_contradiction_reason": null
       },
       "headquarters_address": {
         "value": {
-          "high": "190 Victory Lane, Eastaboga, Alabama"
+          "high": "190 Victory Lane, Eastaboga, AL 36260."
         },
         "description": {
-          "high": "The corporate headquarters of BR Williams is located at 190 Victory Lane, Eastaboga, Alabama, serving as the central office for the company's operations in the trucking and logistics sector."
+          "high": "The headquarters address is located at 190 Victory Lane, Eastaboga, AL 36260."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
@@ -229,16 +233,12 @@
       },
       "dock_door_count": {
         "value": {
-          "all": "35 dock-high trailer doors and 2 drive-in bays.",
-          "high": "The Anniston West Distribution Center has 35 dock-high trailer doors."
+          "high": "35 dock doors."
         },
         "description": {
-          "all": "The facility is designed for high-volume shipping and receiving operations, featuring 35 dock-high trailer doors and 2 drive-in bays, which indicates efficiency in logistics and robust capabilities for freight shipping and cross-docking.",
-          "high": "The Anniston West Distribution Center operated by BR Williams has 35 dock-high trailer doors and 2 drive-in bays, demonstrating its capacity for high-volume freight shipping and cross-docking, which supports robust logistics operations."
+          "high": "The facility is designed for high-volume operations, featuring 35 trailer docks, which indicates a significant shipping and receiving capacity."
         },
-        "all_contradiction_flag": null,
         "high_contradiction_flag": null,
-        "all_contradiction_reason": null,
         "high_contradiction_reason": null
       },
       "building_age_year": {
@@ -246,7 +246,7 @@
           "high": "1994"
         },
         "description": {
-          "high": "The Anniston West Distribution Center, established in 1994, originally featured 131,250 square feet and was expanded by an additional 210,000 square feet within six months, reaching a total size of 341,250 square feet."
+          "high": "BR Williams constructed this flagship warehouse from the ground up, beginning operations in 1994 with an initial footprint of 131,250 square feet. Due to high demand, the site was expanded within six months by adding an additional 210,000 square feet, resulting in a total size of 341,250 square feet."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
@@ -256,21 +256,21 @@
           "high": "341,250 square feet"
         },
         "description": {
-          "high": "The Anniston West Distribution Center operated by BR Williams spans a total of 341,250 square feet and serves as a critical hub for the company's supply chain management, offering extensive logistics services."
+          "high": "The warehouse has a size of 341,250 square feet, featuring a heated metal frame."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
       },
       "yard_configuration": {
         "value": {
-          "all": "The yard configuration is well-organized for shipping and receiving, supporting efficient logistics operations.",
-          "high": "The yard configuration supports efficient high-volume truck transit with 35 trailer docks and 2 drive-in bays."
+          "all": "The facility yard features a well-organized layout with 35 trailer docks and 2 drive-in bays for efficient shipping and receiving activities.",
+          "high": "The facility has a well-organized yard layout with 35 trailer docks and 2 drive-in bays."
         },
         "description": {
-          "all": "The facility at 1535 Hillyer Robinson Parkway, Anniston, AL, spans 341,250 square feet and includes 35 trailer docks and 2 drive-in bays, which support efficient logistics operations. The presence of numerous trucks parked alongside the warehouse and multiple dock doors indicates a well-organized yard configuration for shipping and receiving, reflecting effective logistics management to meet transportation needs.",
-          "high": "The facility at 1535 Hillyer Robinson Parkway, Anniston, AL, spans 341,250 square feet and includes 35 trailer docks and 2 drive-in bays, supporting efficient high-volume truck transit and outdoor storage for logistics operations."
+          "all": "The facility yard is designed for efficient operations, featuring a well-organized layout that allows for quick entrance and unloading processes. It includes multiple dock doors and a loading dock area with trucks parked nearby, supporting effective shipping and receiving activities. The Anniston West site spans 341,250 sq. ft. and is equipped with 35 trailer docks and 2 drive-in bays, making it suitable for large-scale industrial operations.",
+          "high": "The facility features a well-organized yard layout that supports efficient operations, with quick entrance and unloading processes, as reported by drivers. The Anniston West site serves as a flagship warehouse for large-scale industrial operations, encompassing 341,250 sq. ft. and equipped with 35 trailer docks and 2 drive-in bays."
         },
-        "all_contradiction_flag": false,
+        "all_contradiction_flag": null,
         "high_contradiction_flag": null,
         "all_contradiction_reason": null,
         "high_contradiction_reason": null
@@ -296,12 +296,10 @@
       "packing": {
         "nature": {
           "value": {
-            "all": "The nature of operation involves climate-regulated packing for food-grade, automotive, and defense components.",
-            "high": "The Anniston West facility specializes in climate-regulated packing for food-grade, automotive, and defense components."
+            "all": "The operation involves systematically packing boxes to prepare items for shipment."
           },
           "description": {
-            "all": "The operation involves packing, with indications of workers handling boxes and preparing shipments, highlighting a robust order fulfillment process essential for timely delivery. The facility specializes in climate-regulated packing for food-grade, automotive, and defense components, including kitting, de-kitting, and private-label packaging, while adhering to ISO 9001:2015 standards for quality and compliance.",
-            "high": "The Anniston West facility specializes in climate-regulated packing for food-grade, automotive, and defense components, including kitting, de-kitting, and private-label packaging, while adhering to ISO 9001:2015 standards for quality and compliance."
+            "all": "The operation involves packing, with workers systematically handling boxes to prepare items for shipment, indicating a structured approach to packaging goods for distribution."
           },
           "all_contradiction_flag": null,
           "high_contradiction_flag": null,
@@ -309,19 +307,73 @@
           "high_contradiction_reason": null
         },
         "automation": {
-          "value": "",
-          "description": ""
+          "value": {
+            "high": "Automation is absent as there is no mention of automated systems in the packing operations."
+          },
+          "description": {
+            "high": "Active packing operations are underway, with workers handling boxes as part of order fulfillment, indicating a well-established logistics process that may enhance efficiency in shipping."
+          },
+          "high_contradiction_flag": null,
+          "high_contradiction_reason": null
         }
       },
       "picking": {
         "nature": {
           "value": {
-            "all": "The nature of operation involves active picking, packing, and handling boxes for order fulfillment.",
-            "high": "The nature of operation involves a WMS-routed, API-integrated system supporting piece picking, break-bulk, and kitting for automotive and military clients."
+            "all": "The facility is engaged in picking operations for order fulfillment, including automotive, food, and industrial packaging.",
+            "high": "Picking operations for automotive, food, and industrial packaging using WMS-driven, high-capacity workflows."
           },
           "description": {
-            "all": "The operation involves active picking activities, with workers engaged in packing and handling boxes for order fulfillment, indicating an effective logistics operation. This process is supported by a WMS-routed, API-integrated system that enables piece picking, break-bulk, and kitting, utilizing mobile barcode scanning to enhance inventory accuracy and provide real-time tracking for automotive and military clients before packing.",
-            "high": "The picking process is driven by a WMS-routed, API-integrated system that supports piece picking, break-bulk, and kitting, utilizing mobile barcode scanning for improved inventory accuracy. This operation facilitates services for automotive and military clients, ensuring real-time tracking for end-to-end visibility before packing."
+            "all": "The facility at 1535 Hillyer Robinson Parkway in Anniston, AL, is actively engaged in picking operations, which have transitioned to Metro Supply Chain. This involves WMS-driven, high-capacity workflows for order fulfillment, including automotive, food, and industrial packaging, as evidenced by workers engaged in packing activities.",
+            "high": "At the 1535 Hillyer Robinson Parkway facility in Anniston, AL, picking operations transitioned to Metro Supply Chain, utilizing WMS-driven, high-capacity industrial workflows for automotive, food, and industrial packaging."
+          },
+          "all_contradiction_flag": null,
+          "high_contradiction_flag": null,
+          "all_contradiction_reason": null,
+          "high_contradiction_reason": null
+        },
+        "automation": {
+          "value": {
+            "all": "Automation is present due to the implementation of an automated picking system for inventory management."
+          },
+          "description": {
+            "all": "An automated picking system is in place, as workers are engaged in scanning processes related to inventory management, indicating a systematic approach to efficiently manage order fulfillment."
+          },
+          "all_contradiction_flag": null,
+          "high_contradiction_flag": null,
+          "all_contradiction_reason": null,
+          "high_contradiction_reason": null
+        }
+      },
+      "putaway": {
+        "nature": {
+          "value": "",
+          "description": ""
+        },
+        "automation": {
+          "value": "",
+          "description": ""
+        }
+      },
+      "staging": {
+        "nature": {
+          "value": "",
+          "description": ""
+        },
+        "automation": {
+          "value": "",
+          "description": ""
+        }
+      },
+      "storage": {
+        "nature": {
+          "value": {
+            "all": "Efficient storage capabilities with strong inventory management, including receiving, stocking, and picking activities.",
+            "high": "The facility provides heated storage space for goods."
+          },
+          "description": {
+            "all": "The operation demonstrates efficient storage capabilities, supported by good staff assistance in receiving, stocking, and picking, which indicates strong inventory management. The warehouse features a structured layout with palletized storage and tall racks, effectively utilizing space for efficient management. Additionally, the facility offers 341,250 square feet of heated storage under one roof.",
+            "high": "The facility offers 341,250 square feet of heated storage space under one roof."
           },
           "all_contradiction_flag": null,
           "high_contradiction_flag": null,
@@ -333,101 +385,23 @@
           "description": ""
         }
       },
-      "putaway": {
-        "nature": {
-          "value": {
-            "high": "The nature of operation at the facility is now Metro Supply Chain as of 2026."
-          },
-          "description": {
-            "high": "As of 2026, the operation at the facility located at 1535 Hillyer Robinson Parkway, Anniston, AL, transitioned from BR Williams to Metro Supply Chain, indicating that BR Williams is concentrating more on its core business of trucking and logistics."
-          },
-          "high_contradiction_flag": null,
-          "high_contradiction_reason": null
-        },
-        "automation": {
-          "value": {
-            "all": "Automation is present due to the implementation of wearable barcode scanners and labor analytics software in 2023."
-          },
-          "description": {
-            "all": "The implementation of wearable barcode scanners and labor analytics software at BR Williams in 2023 has led to a 30% increase in productivity and annual savings of approximately $50,000 in labor costs, reflecting a significant commitment to enhancing warehouse efficiency through advanced technologies."
-          },
-          "all_contradiction_flag": null,
-          "high_contradiction_flag": null,
-          "all_contradiction_reason": null,
-          "high_contradiction_reason": null
-        }
-      },
-      "staging": {
-        "nature": {
-          "value": {
-            "all": "The Anniston West Distribution Center operates a rapid cross-docking and consolidation staging process for food-grade and defense materials."
-          },
-          "description": {
-            "all": "The Anniston West Distribution Center employs a rapid cross-docking and consolidation staging process for food-grade and defense materials, enabling immediate verification and compliance auditing of inbound goods, facilitating direct-to-dock sorting, and minimizing long-term storage."
-          },
-          "all_contradiction_flag": null,
-          "high_contradiction_flag": null,
-          "all_contradiction_reason": null,
-          "high_contradiction_reason": null
-        },
-        "automation": {
-          "value": {
-            "high": "Automation is present due to the implementation of a comprehensive Warehouse Management System (WMS) that automates key logistics functions."
-          },
-          "description": {
-            "high": "The implementation of a comprehensive Warehouse Management System (WMS) at BR Williams signifies a significant advancement in logistics operations, automating key functions such as receiving, inventory management, order picking, and shipping, which enhances efficiency and accuracy in warehousing processes."
-          },
-          "high_contradiction_flag": null,
-          "high_contradiction_reason": null
-        }
-      },
-      "storage": {
-        "nature": {
-          "value": {
-            "all": "The facility provides organized, heated warehouse storage for palletized food-grade, automotive, and Department of Defense materials.",
-            "high": "Heated pallet storage for food-grade, automotive, and Department of Defense materials."
-          },
-          "description": {
-            "all": "The operation involves a well-organized storage process characterized by a 341,250-square-foot heated facility at BR Williams' Anniston West Distribution Center, which is equipped to handle food-grade, automotive, and Department of Defense materials. The facility features tall racks filled with pallets, various equipment, and 35 dock doors, all indicating systematic material handling practices and efficient logistics management for inventory fulfillment.",
-            "high": "A 341,250-square-foot heated facility at the Anniston West Distribution Center is fully equipped to handle food-grade, automotive, and Department of Defense materials, featuring 35 dock doors to efficiently manage logistics and fulfill storage needs."
-          },
-          "all_contradiction_flag": null,
-          "high_contradiction_flag": null,
-          "all_contradiction_reason": null,
-          "high_contradiction_reason": null
-        },
-        "automation": {
-          "value": {
-            "all": "Automation is present due to the implementation of advanced technologies like a Warehouse Management System (WMS) for real-time inventory tracking."
-          },
-          "description": {
-            "all": "Advanced automation technologies have been implemented in warehousing and distribution operations, including a Warehouse Management System (WMS) for real-time inventory tracking and the use of wireless RF devices to streamline item identification and location within facilities."
-          },
-          "all_contradiction_flag": null,
-          "high_contradiction_flag": null,
-          "all_contradiction_reason": null,
-          "high_contradiction_reason": null
-        }
-      },
       "palletization": {
         "nature": {
           "value": {
-            "all": "The nature of operation involves palletized storage with processes like cross-docking and manual pallet re-stacking, managed by a Warehouse Management System."
+            "high": "The operation focuses on palletization, emphasizing efficient storage and handling practices with visible stacks of pallets and forklift operations."
           },
           "description": {
-            "all": "The warehouse environment emphasizes palletized storage, featuring tall racks filled with stacked pallets, which supports efficient inventory organization for retrieval and distribution. Operations at the Anniston West Distribution Center involve palletization processes such as cross-docking and manual pallet re-stacking, adhering to food-grade and military specifications, all managed by a central Warehouse Management System that tracks pallet movements and maintains ISO 9001:2015 certification."
+            "high": "The operation focuses on palletization, highlighting efficient storage and handling practices within the warehouse, as evidenced by visible stacks of pallets and forklift operations."
           },
-          "all_contradiction_flag": null,
           "high_contradiction_flag": null,
-          "all_contradiction_reason": null,
           "high_contradiction_reason": null
         },
         "automation": {
           "value": {
-            "all": "Automation is present due to the upgrade to the Synapse WMS by Zethcon in 2014, which automated various warehouse processes."
+            "all": "Automation is absent as there is no mention of automated systems."
           },
           "description": {
-            "all": "In 2014, BR Williams upgraded to the Synapse WMS by Zethcon, automating various warehouse processes including receiving, inventory management, order picking, quality control, and shipping, reflecting a commitment to enhancing operational efficiency that likely includes improvements in palletization processes."
+            "all": "Observations suggest the presence of palletized storage and material handling operations, indicating a focus on organized logistics that may improve efficiency in inventory management."
           },
           "all_contradiction_flag": null,
           "high_contradiction_flag": null,
@@ -437,87 +411,43 @@
       },
       "replenishment": {
         "nature": {
-          "value": {
-            "high": "BR Williams is now focused on logistics rather than warehouse management."
-          },
-          "description": {
-            "high": "BR Williams has transitioned away from operating the fulfillment and replenishment processes at 1535 Hillyer Robinson Parkway, having sold the warehouse assets to Metro Supply Chain, indicating a strategic shift towards a focus on logistics rather than warehouse management."
-          },
-          "high_contradiction_flag": null,
-          "high_contradiction_reason": null
+          "value": "",
+          "description": ""
         },
         "automation": {
-          "value": {
-            "high": "Automation is present due to the implementation of wearable barcode scanners and labor analytics software across three facilities."
-          },
-          "description": {
-            "high": "In 2023, a commitment to modernization resulted in the implementation of Rufus WorkHero wearable barcode scanners and labor analytics software across three facilities in Alabama, leading to a 30% increase in productivity and approximately $1,400 in monthly savings per facility, demonstrating the effectiveness of automated processes in enhancing replenishment and inventory management."
-          },
-          "high_contradiction_flag": null,
-          "high_contradiction_reason": null
+          "value": "",
+          "description": ""
         }
       },
       "returns_handling": {
         "nature": {
-          "value": {
-            "all": "The Anniston West Distribution Center processed returns for food-grade and defense products."
-          },
-          "description": {
-            "all": "The Anniston West Distribution Center, which was operated by BR Williams until its sale in 2026, processed returns for food-grade and defense products, employing a gatekeeping process to ensure compliance and proper handling of returns."
-          },
-          "all_contradiction_flag": null,
-          "high_contradiction_flag": null,
-          "all_contradiction_reason": null,
-          "high_contradiction_reason": null
+          "value": "",
+          "description": ""
         },
         "automation": {
-          "value": {
-            "all": "Automation is present due to the upgrade to the Synapse WMS by Zethcon, which automated inventory management and shipping processes."
-          },
-          "description": {
-            "all": "Approximately nine years ago, BR Williams upgraded to the Synapse WMS by Zethcon, automating processes such as inventory management and shipping, indicating a commitment to efficient operations that likely extends to their returns processing as well."
-          },
-          "all_contradiction_flag": null,
-          "high_contradiction_flag": null,
-          "all_contradiction_reason": null,
-          "high_contradiction_reason": null
+          "value": "",
+          "description": ""
         }
       },
       "inbound_sortation": {
         "nature": {
-          "value": {
-            "all": "Inbound sortation at the Anniston West facility operates Monday through Friday from 7:00 a.m. to 2:30 p.m. CST."
-          },
-          "description": {
-            "all": "Inbound sortation at the Anniston West facility operates Monday through Friday from 7:00 a.m. to 2:30 p.m. CST, featuring a structured schedule for receiving goods that includes SKU-level breakdown, automotive sequencing, and immediate cross-docking for high-priority shipments."
-          },
-          "all_contradiction_flag": null,
-          "high_contradiction_flag": null,
-          "all_contradiction_reason": null,
-          "high_contradiction_reason": null
+          "value": "",
+          "description": ""
         },
         "automation": {
-          "value": {
-            "high": "Automation is present due to the implementation of wearable barcode scanners in 2023."
-          },
-          "description": {
-            "high": "In 2023, BR Williams implemented Rufus WorkHero wearable barcode scanners across three facilities, achieving a 30% productivity boost and saving approximately $1,400 per facility each month, indicating active enhancements in automation capabilities within its warehousing and logistics operations."
-          },
-          "high_contradiction_flag": null,
-          "high_contradiction_reason": null
+          "value": "",
+          "description": ""
         }
       },
       "outbound_sortation": {
         "nature": {
           "value": {
-            "all": "The nature of operation involves outbound sortation with a focus on efficient shipping operations."
+            "high": "The operation involves outbound sortation processes with trucks loading and unloading at a warehouse, supported by loading docks and material handling activities for active shipping."
           },
           "description": {
-            "all": "The operation involves outbound sortation, characterized by multiple trucks parked alongside a warehouse and various dock doors, indicating a focus on efficient shipping operations. This setup supports rapid distribution of goods, while the logistics processes include order validation, replenishment to pick zones, custom packing, carrier-specific sortation, and final staging for loading, enhancing the efficiency and accuracy of operations."
+            "high": "The operation focuses on outbound sortation processes, indicated by trucks loading and unloading at a warehouse, along with the presence of loading docks and material handling activities that support active shipping operations."
           },
-          "all_contradiction_flag": false,
           "high_contradiction_flag": null,
-          "all_contradiction_reason": null,
           "high_contradiction_reason": null
         },
         "automation": {
@@ -528,12 +458,12 @@
       "trailer_loading_unloading": {
         "nature": {
           "value": {
-            "all": "The facility operates efficiently with a trailer loading and unloading process, active operations from 7:00 a.m. to 2:30 p.m. CST, Monday through Friday.",
-            "high": "Operations at the facility in Anniston, AL, are scheduled for trailer loading and unloading from 7:00 a.m. to 2:30 p.m. CST, Monday through Friday."
+            "all": "The facility operates efficient trailer loading and unloading processes with quick turnaround times of around 15 to 30 minutes.",
+            "high": "The nature of operation involves efficient trailer loading and unloading processes with quick turnaround times of 15 to 30 minutes."
           },
           "description": {
-            "all": "The facility demonstrates a highly efficient trailer loading and unloading process, with drivers reporting fast unloading times often under 30 minutes, which enhances logistics efficiency and turnaround times. Active operations are evident, as images show trucks at loading areas and equipment for loading shipping containers, underscoring the facility's logistical capabilities. Additionally, operations are conducted on a strict schedule from 7:00 a.m. to 2:30 p.m. CST, Monday through Friday, which helps streamline freight logistics and optimize warehouse operations.",
-            "high": "Operations at the facility in Anniston, AL, follow a strict schedule for trailer loading and unloading, occurring exclusively between 7:00 a.m. and 2:30 p.m. CST, Monday through Friday. This structured timing helps streamline freight logistics and optimize warehouse operations."
+            "all": "The trailer loading and unloading processes at the facility are notably efficient, with many reviews highlighting quick turnaround times of around 15 to 30 minutes. This efficiency, supported by the presence of trucks at loading areas and the necessary equipment, contributes to improved operational flow and driver satisfaction.",
+            "high": "The trailer loading and unloading processes at the facility are notably efficient, with reviews indicating quick turnaround times of around 15 to 30 minutes, contributing to improved operational flow and driver satisfaction."
           },
           "all_contradiction_flag": null,
           "high_contradiction_flag": null,
@@ -541,8 +471,16 @@
           "high_contradiction_reason": null
         },
         "automation": {
-          "value": "",
-          "description": ""
+          "value": {
+            "all": "Automation is present in the loading and unloading process with specialized equipment."
+          },
+          "description": {
+            "all": "There is evidence of automation in the loading and unloading process, indicating an organized approach to managing incoming and outgoing shipments with the use of specialized equipment."
+          },
+          "all_contradiction_flag": null,
+          "high_contradiction_flag": null,
+          "all_contradiction_reason": null,
+          "high_contradiction_reason": null
         }
       }
     },
@@ -604,38 +542,20 @@
     },
     "financial_capacity_intelligence": {
       "revenue_estimate": {
-        "value": {
-          "high": "$100 million"
-        },
-        "description": {
-          "high": "In 2024, BR Williams' revenue is estimated to approach $100 million following its acquisition by Haney and White Enterprise, indicating a strategic consolidation in the logistics sector as the newly formed company, BRW, aims to leverage combined resources for further growth."
-        },
-        "high_contradiction_flag": null,
-        "high_contradiction_reason": null
+        "value": "",
+        "description": ""
       },
       "recent_capital_investments": {
-        "value": {
-          "high": "BR Williams executed a major merger in 2024 and divested warehousing assets in 2026, reducing operational footprint from over 1.7 million square feet."
-        },
-        "description": {
-          "high": "In 2024, BR Williams executed a major merger that integrated four transportation entities into a single company, BRW, involving high-value assets and a fleet of around 175 tractors and over 700 trailers. Subsequently, in 2026, the company divested its warehousing assets in Alabama and Florida to Metro Supply Chain Group, significantly reducing its operational footprint from over 1.7 million square feet of warehouse space."
-        },
-        "high_contradiction_flag": null,
-        "high_contradiction_reason": null
+        "value": "",
+        "description": ""
       },
       "private_equity_venture_backed": {
         "value": "",
         "description": ""
       },
       "government_incentives_received": {
-        "value": {
-          "high": "No government incentives received as there is no mention of any incentives in the description."
-        },
-        "description": {
-          "high": "BRW currently manages over one million square feet of warehouse space across Kentucky, Georgia, Alabama, and Florida, indicating significant operational expansion following its acquisition and reinforcing its position in the logistics and warehousing industry."
-        },
-        "high_contradiction_flag": null,
-        "high_contradiction_reason": null
+        "value": "",
+        "description": ""
       }
     },
     "operational_performance_signals": {
@@ -710,16 +630,8 @@
         "fetch_confidence": ""
       },
       "food_safety_or_regulatory_compliance": {
-        "value": {
-          "all": "Absent: No records indicate FDA inspections at the facility."
-        },
-        "description": {
-          "all": "No records indicate that BR Williams has undergone FDA inspections at its facility located at 1535 Hillyer Robinson Parkway, Anniston, AL, suggesting that the facility may not have been inspected by the FDA, or such records are not publicly available."
-        },
-        "all_contradiction_flag": null,
-        "high_contradiction_flag": null,
-        "all_contradiction_reason": null,
-        "high_contradiction_reason": null
+        "value": "",
+        "description": ""
       },
       "customer_facing_performance_indicators": {
         "value": [],
@@ -788,8 +700,16 @@
     },
     "wage_and_labour_cost_intelligence": {
       "recent_wage_increases": {
-        "value": "",
-        "description": ""
+        "value": {
+          "all": "Employees have reported no recent wage increases."
+        },
+        "description": {
+          "all": "Employees have reported no raises over an extended period, indicating stagnation in pay despite their tenure, which reflects poorly on the company's compensation strategy and may lead to higher turnover rates."
+        },
+        "all_contradiction_flag": null,
+        "high_contradiction_flag": null,
+        "all_contradiction_reason": null,
+        "high_contradiction_reason": null
       },
       "current_posted_wage_rates": [
         {
@@ -827,37 +747,25 @@
       ],
       "signing_or_retention_bonuses": {
         "value": {
-          "high": "Signing or retention bonuses are provided, but they fluctuate based on seasonal demand and shift requirements."
+          "all": "$5,000 sign-on bonus is offered for transportation roles.",
+          "high": "$5,000 sign-on bonus for regional and local Class-A CDL drivers."
         },
         "description": {
-          "high": "Recruitment at BR Williams encompasses various roles, including warehouse associates, forklift operators, and material handlers at their Anniston West Distribution Center, which spans 341,250 square feet and has 35 trailer docks. The company provides specific sign-on and hiring bonuses that fluctuate based on seasonal demand and shift requirements."
+          "all": "A $5,000 sign-on bonus is offered in job listings for transportation roles, indicating a competitive hiring strategy likely aimed at addressing labor shortages in the warehousing sector.",
+          "high": "BRW actively recruits for transportation roles and offers a $5,000 sign-on bonus for regional and local Class-A CDL drivers."
         },
+        "all_contradiction_flag": null,
         "high_contradiction_flag": null,
+        "all_contradiction_reason": null,
         "high_contradiction_reason": null
       },
       "wage_deviation_from_msa_min_wage": {
-        "value": {
-          "all": "Wage deviation from MSA minimum wage is between $15.00 and $25.50 per hour."
-        },
-        "description": {
-          "all": "Hourly pay rates for warehouse and fulfillment operations at BR Williams range from $15.00 to $25.50, reflecting the company's commitment to attracting skilled labor in the logistics sector."
-        },
-        "all_contradiction_flag": null,
-        "high_contradiction_flag": null,
-        "all_contradiction_reason": null,
-        "high_contradiction_reason": null
+        "value": "",
+        "description": ""
       },
       "estimated_fully_loaded_annual_cost": {
-        "value": {
-          "all": "The estimated fully loaded annual cost is not specified in the description."
-        },
-        "description": {
-          "all": "Labor costs for material movement personnel at the Anniston West Distribution Center range from $15.50 to $26.00 per hour, reflecting the competitive pay scale for positions such as forklift operators and material handlers in the logistics sector."
-        },
-        "all_contradiction_flag": null,
-        "high_contradiction_flag": null,
-        "all_contradiction_reason": null,
-        "high_contradiction_reason": null
+        "value": "",
+        "description": ""
       }
     },
     "technology_and_systems_intelligence": {
@@ -875,10 +783,10 @@
         },
         "identified_system": {
           "value": {
-            "high": "The WMS in use is Synapse 3PLExpert provided by Made4net."
+            "high": "The WMS in use is Synapse 3PL WMS."
           },
           "description": {
-            "high": "The Anniston West Distribution Center, operated by BR Williams, utilizes the Synapse WMS platform, specifically Synapse 3PLExpert, provided by Made4net. This system enables real-time RF tracking and integrates barcode technology, showcasing a commitment to advanced warehousing solutions."
+            "high": "The WMS age/upgrade history indicates that the exact software in use is Synapse 3PL WMS, also known as the Synapse system."
           },
           "high_contradiction_flag": null,
           "high_contradiction_reason": null
@@ -886,16 +794,8 @@
       },
       "other_systems": {
         "erp": {
-          "value": {
-            "all": "The ERP system is absent as the focus is on a Warehouse Management System (WMS) instead."
-          },
-          "description": {
-            "all": "In 2014, a Warehouse Management System (WMS) was upgraded by BR Williams with the adoption of Synapse WMS from Zethcon, automating various processes within the warehouse and indicating a focus on enhancing specific operational efficiencies rather than a comprehensive Enterprise Resource Planning (ERP) system."
-          },
-          "all_contradiction_flag": null,
-          "high_contradiction_flag": null,
-          "all_contradiction_reason": null,
-          "high_contradiction_reason": null
+          "value": "",
+          "description": ""
         },
         "lms": {
           "value": "",
@@ -906,14 +806,8 @@
           "description": ""
         },
         "tms": {
-          "value": {
-            "high": "BR Williams uses McLeod Software as its sole Transportation Management System."
-          },
-          "description": {
-            "high": "BR Williams relies heavily on McLeod Software as its sole Transportation Management System, facilitating all trucking, logistics, and fleet operations across its entire supply chain network, which enhances their operational efficiency and service delivery capabilities."
-          },
-          "high_contradiction_flag": null,
-          "high_contradiction_reason": null
+          "value": "",
+          "description": ""
         },
         "wcs": {
           "value": "",
@@ -928,14 +822,8 @@
       },
       "it_infrastructure_signals": {
         "wifi_infrastructure_evidence": {
-          "value": {
-            "high": "Absent: There is no mention of wifi infrastructure evidence."
-          },
-          "description": {
-            "high": "The Anniston West Distribution Center, a significant facility for BR Williams, spans 341,250 square feet and features 35 docks and 2 drive-in bays. Established in 1994, it caters to a diverse range of customers, including those in the food and defense sectors."
-          },
-          "high_contradiction_flag": null,
-          "high_contradiction_reason": null
+          "value": "",
+          "description": ""
         }
       }
     },
@@ -958,29 +846,19 @@
       },
       "job_posting_frequency": {
         "material_handler": {
+          "value": "",
+          "description": ""
+        },
+        "forklift_operator": {
           "value": {
-            "all": "The job posting frequency for material handler positions is consistent, indicating continuous demand for operational staff."
+            "all": "BR Williams offers a Driver Finishing Program to equip new drivers with essential skills for safe driving, addressing the hiring needs for warehouse pickers and skilled forklift drivers."
           },
           "description": {
-            "all": "The BR Williams Anniston West Distribution Center has a consistent hiring history for logistics positions, such as Forklift Operator and Material Handler, indicating a continuous demand for operational staff to support their warehousing and distribution services. Additionally, the company has shown adaptability to labor challenges by collaborating with a Tier 1 automotive supplier in 2016, enhancing their capabilities in repackaging, quality inspections, and shipping to meet client needs."
+            "all": "BR Williams offers a Driver Finishing Program aimed at equipping new drivers with the essential skills needed for safe driving, addressing the hiring needs for warehouse pickers and the scarcity of skilled forklift drivers."
           },
           "all_contradiction_flag": null,
           "high_contradiction_flag": null,
           "all_contradiction_reason": null,
-          "high_contradiction_reason": null
-        },
-        "forklift_operator": {
-          "value": {
-            "all": "Job posting frequency for Forklift Operator is currently absent due to the company's exit from the warehousing business.",
-            "high": "Job posting frequency for forklift operator: Absent, as BR Williams no longer employs forklift operators."
-          },
-          "description": {
-            "all": "BR Williams has a history of regularly hiring for logistics positions, including Forklift Operators, at its Anniston West Distribution Center. However, the company has since exited the warehousing business entirely, selling its warehouse assets and shifting its focus to truck drivers and fleet logistics, indicating a current lack of need for forklift operators at that site.",
-            "high": "BR Williams has exited the warehousing business entirely, selling their warehouse assets and no longer employing forklift operators at the former Anniston West Distribution Center. The company's current focus is on truck drivers and fleet logistics, rather than material-handling roles."
-          },
-          "all_contradiction_flag": true,
-          "high_contradiction_flag": null,
-          "all_contradiction_reason": "The sources contradict each other regarding the employment of forklift operators at the Anniston West Distribution Center; one source indicates ongoing hiring while the other states that the company no longer employs forklift operators.",
           "high_contradiction_reason": null
         },
         "supervisor_or_lead": {
@@ -990,16 +868,8 @@
           "fetch_confidence": ""
         },
         "warehouse_associate": {
-          "value": {
-            "all": "The job posting frequency for warehouse associates is consistent, indicating continuous demand for operational staff."
-          },
-          "description": {
-            "all": "The BR Williams Anniston West Distribution Center has a consistent hiring history for logistics positions, indicating a continuous demand for operational staff to support warehousing and distribution services. Additionally, the company has shown adaptability to labor challenges by collaborating with a Tier 1 automotive supplier in 2016, enhancing their capabilities in repackaging, quality inspections, and shipping to meet client needs."
-          },
-          "all_contradiction_flag": null,
-          "high_contradiction_flag": null,
-          "all_contradiction_reason": null,
-          "high_contradiction_reason": null
+          "value": "",
+          "description": ""
         }
       },
       "employee_reviews_summary": {
@@ -1011,16 +881,16 @@
         },
         "negative_themes": {
           "value": {
-            "all": "Employee reviews indicate a positive experience for drivers but a toxic workplace culture for warehouse workers due to poor management and stagnant pay rates around $11.50 to $11.75 per hour.",
-            "high": "Employee reviews summary indicate a mixed work environment with concerns about management behaviors."
+            "all": "Employee reviews reflect a mixed environment with both positive aspects, like a supportive culture, and significant concerns about management and compensation.",
+            "high": "Largely positive employee reviews highlight efficient unloading, friendly staff, and fast service."
           },
           "description": {
-            "all": "While reviews from drivers at the facility highlight a positive experience with fast unloading times and friendly staff, warehouse workers at the Anniston facility report a mixed environment. They describe the work as \"easy\" but express concerns about management prioritizing their interests over those of the team. Additionally, employee feedback indicates significant issues with management, characterizing the workplace culture as toxic due to poor supervisor attitudes and a lack of respect for employees, along with stagnant pay rates capped around $11.50 to $11.75 per hour.",
-            "high": "Warehouse workers at the Anniston facility report a mixed work environment, describing the role as \"easy\" but expressing concerns about management behaviors, suggesting that supervisory staff prioritize their own interests over those of the warehouse team. Pay rates for these positions are capped around $11.50 to $11.75 per hour."
+            "all": "Employee reviews indicate a complex workplace dynamic, with some warehouse workers and pickers expressing dissatisfaction with management and compensation, particularly regarding raises and attitudes of supervisors. While some feedback highlights a supportive, family-oriented culture and efficient service, there are significant concerns about management's lack of support and appreciation, suggesting a negative impact on employee morale. Overall, the environment appears to be mixed, with both positive and negative experiences reported.",
+            "high": "Reviews indicate a largely positive experience for warehouse workers and truck drivers at the facility, emphasizing efficient unloading, friendly staff, and fast service, which contribute to a supportive work environment that is crucial for attracting and retaining talent."
           },
-          "all_contradiction_flag": true,
+          "all_contradiction_flag": null,
           "high_contradiction_flag": null,
-          "all_contradiction_reason": "The sources present conflicting views on the overall management and work environment; while drivers report a positive experience, warehouse workers describe significant issues with management and a toxic culture.",
+          "all_contradiction_reason": null,
           "high_contradiction_reason": null
         },
         "positive_themes": {
@@ -1150,12 +1020,10 @@
       },
       "labour_market_trend": {
         "value": {
-          "all": "The labor market trend indicates challenges with labor retention due to capped pay scales and low starting wages around $11.50 to $11.75 per hour.",
-          "high": "Labour market trend indicates a scarcity of skilled warehouse workers and forklift drivers at the site."
+          "all": "The labor market trend indicates challenges in finding skilled drivers, addressed by BR Williams' Driver Finishing Program."
         },
         "description": {
-          "all": "BR Williams has adapted to labor challenges by collaborating with a Tier 1 automotive supplier, focusing on repackaging, quality inspections, and shipping since 2016. However, the company has exited the warehousing business, no longer employing forklift operators at the former Anniston West Distribution Center, which now prioritizes truck drivers and fleet logistics. Labor retention issues at this site are exacerbated by capped pay scales and low starting wages, historically around $11.50 to $11.75 per hour, making it a temporary job location rather than a long-term career opportunity, thus affecting workforce stability.",
-          "high": "BR Williams has exited the warehousing business entirely, no longer employing forklift operators at its former Anniston West Distribution Center. The company has shifted its focus to truck drivers and fleet logistics, indicating a scarcity of skilled warehouse workers and forklift drivers at this site."
+          "all": "BR Williams offers a Driver Finishing Program aimed at equipping new drivers with the essential skills needed for safe driving, highlighting the challenges in the labor market related to skilled drivers."
         },
         "all_contradiction_flag": null,
         "high_contradiction_flag": null,
@@ -1163,27 +1031,17 @@
         "high_contradiction_reason": null
       },
       "chronically_open_roles": {
-        "value": {
-          "all": "BR Williams has a persistent need for operational staff, regularly hiring for logistics positions.",
-          "high": "The company relies on staffing agencies for workforce needs, particularly for temporary roles."
-        },
-        "description": {
-          "all": "BR Williams has consistently engaged in hiring temporary workers, particularly through collaborations with staffing agencies like TempForce Staffing, as seen in their November 2020 job fair for forklift operators. The Anniston West Distribution Center has a history of regularly hiring for logistics positions, indicating a persistent need for operational staff to support warehousing and distribution services. Additionally, the implementation of the Synapse Warehouse Management System in 2014 reflects the company's commitment to enhancing automation and operational efficiency, alongside a focus on employee satisfaction and retention strategies.",
-          "high": "In 2020, collaboration with TempForce Staffing highlighted the company's strategy to hire temporary workers, particularly during a job fair for forklift operators, indicating a reliance on staffing agencies for workforce needs."
-        },
-        "all_contradiction_flag": false,
-        "high_contradiction_flag": null,
-        "all_contradiction_reason": null,
-        "high_contradiction_reason": null
+        "value": "",
+        "description": ""
       },
       "attrition_signals_summary": {
         "value": {
-          "all": "The attrition signals summary indicates a mixed work environment with significant management issues contributing to a toxic culture, despite some operational strengths.",
-          "high": "The attrition signals summary indicates mixed feelings among warehouse workers at the Anniston facility regarding management behaviors."
+          "all": "Employee reviews reflect a supportive environment among some staff, but significant concerns exist regarding management dissatisfaction and inadequate compensation.",
+          "high": "Positive reviews highlight a supportive work environment for warehouse workers and truck drivers, emphasizing efficient unloading and friendly staff."
         },
         "description": {
-          "all": "Warehouse workers at the Anniston facility report a mixed work environment, describing the role as \"easy\" but expressing concerns about management behaviors, which prioritize supervisory interests over those of the warehouse team. Reviews indicate significant issues with management, including poor supervisor attitudes and a lack of respect for employees, contributing to a toxic workplace culture characterized by dishonest communication and stagnant compensation. Despite these challenges, there are positive aspects noted, such as fast unloading times and friendly staff, suggesting some operational strengths. In 2014, the implementation of the Synapse Warehouse Management System enhanced real-time tracking and automation, indicating a focus on technological innovation and proactive staffing strategies, alongside a family-oriented company culture that values employee satisfaction.",
-          "high": "Warehouse workers at the Anniston facility report a mixed work environment, describing the role as \"easy\" but expressing concerns about management behaviors, suggesting that supervisory staff prioritize their own interests over those of the warehouse team. Pay rates for these positions are capped around $11.50 to $11.75 per hour."
+          "all": "Employee reviews indicate a complex workplace dynamic, with some warehouse workers and truck drivers reporting a supportive environment characterized by friendly staff and efficient service. However, there are significant concerns regarding management, with multiple sources highlighting dissatisfaction over attitudes, lack of support, and inadequate compensation. While some employees appreciate the family-oriented culture and work-life balance, others express frustration over unclear targets and poor management practices, suggesting a need for improvement in leadership and employee relations.",
+          "high": "Reviews indicate a positive experience for warehouse workers and truck drivers, emphasizing efficient unloading, friendly staff, and fast service, which contribute to a supportive work environment that is crucial for attracting and retaining talent."
         },
         "all_contradiction_flag": null,
         "high_contradiction_flag": null,
@@ -1237,14 +1095,8 @@
         "fetch_confidence": ""
       },
       "new_investment_round": {
-        "value": {
-          "high": "The new investment round occurred in 2024 with the acquisition of B.R. Williams Trucking and B.R. Williams LTL Logistics."
-        },
-        "description": {
-          "high": "B.R. Williams Trucking and B.R. Williams LTL Logistics were acquired by Haney and White Enterprise on 2024, resulting in the formation of a consolidated logistics brand named BRW. This acquisition combined four entities to leverage substantial assets and enhance service offerings across the Southeast logistics market, with an expected revenue growth from approximately $100 million to $250 million by 2030."
-        },
-        "high_contradiction_flag": null,
-        "high_contradiction_reason": null
+        "value": "",
+        "description": ""
       },
       "budget_cycle_timing_raw": {
         "value": "",
@@ -1252,20 +1104,20 @@
       },
       "recent_ownership_change": {
         "value": {
-          "high": "Recent ownership change occurred in 2024 with the acquisition of B.R. Williams Trucking and B.R. Williams LTL Logistics by Haney and White Enterprise."
+          "high": "B.R. Williams Trucking and B.R. Williams LTL Logistics were recently acquired by Haney and White Enterprise."
         },
         "description": {
-          "high": "The acquisition of B.R. Williams Trucking and B.R. Williams LTL Logistics by Haney and White Enterprise was completed in 2024, indicating a significant ownership change that merges BR Williams into a larger logistical operation, with plans for substantial expansion of its revenue and service capabilities."
+          "high": "B.R. Williams Trucking and B.R. Williams LTL Logistics were acquired by Haney and White Enterprise."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
       },
       "recent_investment_change": {
         "value": {
-          "high": "BR Williams sold approximately 1.5 million square feet of warehousing assets in 2026."
+          "high": "No specific recent investment change details are provided."
         },
         "description": {
-          "high": "In 2026, BR Williams sold approximately 1.5 million square feet of warehousing assets in Alabama and Florida to Metro Supply Chain Group Inc., aligning with its strategic pivot towards the trucking and logistics sector."
+          "high": "Following the formation of BRW, the enterprise executed further strategic optimization."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
@@ -1276,10 +1128,10 @@
       },
       "private_equity_acquisition": {
         "value": {
-          "high": "Haney and White Enterprise acquired four logistics operations in 2024, forming BRW, with expected annual revenues of $100 million."
+          "high": "B.R. Williams was acquired by Haney and White Enterprise in 2024."
         },
         "description": {
-          "high": "In 2024, Haney and White Enterprise acquired four logistics operations, including B.R. Williams Trucking and B.R. Williams LTL Logistics, consolidating them into a new entity named BRW. This merger is expected to generate immediate annual revenues nearing $100 million, with ambitions to expand to $250 million by 2030."
+          "high": "B.R. Williams was acquired by Haney and White Enterprise in 2024."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
@@ -1292,20 +1144,20 @@
       },
       "new_c_suite_leadership_appointment": {
         "value": {
-          "high": "Derek Walcott and Tim Comstock were appointed as Executive Vice Presidents in 2024."
+          "high": "Derek Walcott and Tim Comstock have been appointed as Executive Vice Presidents."
         },
         "description": {
-          "high": "Recent appointments at BRW include Derek Walcott as Executive Vice President of Strategy and Administration and Tim Comstock as Executive Vice President of Operations, both announced in 2024. Their extensive leadership experience is expected to enhance operational efficiency and strategic initiatives in the logistics sector."
+          "high": "BRW has appointed Derek Walcott as Executive Vice President of Strategy & Administration and Tim Comstock as Executive Vice President of Operations."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
       },
       "new_operations_leadership_appointment": {
         "value": {
-          "high": "Tim Comstock has been appointed as Executive Vice President of Operations at BR Williams."
+          "high": "Craig Burgess has been appointed as the Executive Vice President of Operations at BR Williams in 2025."
         },
         "description": {
-          "high": "The appointment of Tim Comstock as Executive Vice President of Operations signifies a strategic shift in leadership at BR Williams, with Comstock set to oversee daily operations in logistics and trucking, highlighting a focus on enhancing efficiency and innovation within the company's integrated supply chain."
+          "high": "Craig Burgess has been appointed as the Executive Vice President (EVP) of Operations at BR Williams following his promotion in 2025."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
@@ -1324,10 +1176,10 @@
       },
       "new_supply_chain_leadership_appointment": {
         "value": {
-          "high": "Derek Walcott and Tim Comstock appointed as Executive Vice Presidents at BR Williams in 2024."
+          "high": "Tim Comstock has been appointed as the Executive Vice President of Operations."
         },
         "description": {
-          "high": "Derek Walcott and Tim Comstock have been appointed as Executive Vice President of Strategy and Administration, and Executive Vice President of Operations, respectively, at BR Williams in 2024, which is expected to strengthen the leadership team and enhance operational and strategic capabilities."
+          "high": "Tim Comstock has been appointed as the Executive Vice President of Operations, overseeing corporate operations across the company's consolidated service footprint, while Derek Walcott serves as the Executive Vice President of Strategy and Administration, leading corporate administrative functions such as safety, marketing, finance, and human resources."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
@@ -1422,32 +1274,40 @@
     "growth_and_network_change_signals": {
       "new_customer_win": {
         "value": {
-          "high": "The new customer win is the selected status as a fully approved Department of Defense Transportation Service Provider."
+          "all": "2016, new customer relationship established with a Tier 1 automotive supplier."
         },
         "description": {
-          "high": "Securing selected status as a fully approved Department of Defense Transportation Service Provider highlights a commitment to government logistics, involving the provision of secure, GPS-tracked defense logistics and transportation solutions."
+          "all": "In 2016, BR Williams collaborated with a Tier 1 automotive supplier to address logistics challenges, resulting in a new customer relationship."
         },
+        "all_contradiction_flag": null,
         "high_contradiction_flag": null,
+        "all_contradiction_reason": null,
         "high_contradiction_reason": null
       },
       "new_facility_opening": {
         "value": {
-          "high": "The new facility in Atlanta, Georgia has been announced but does not specify an opening year or size."
+          "all": "The new logistics branch in Atlanta, Georgia, is set to open in 2024."
         },
         "description": {
-          "high": "A new logistics branch in Atlanta, Georgia has been announced, marking a strategic expansion for BR Williams in the logistics sector. This inaugural branch aims to improve logistics offerings and enhance service delivery across key markets nationwide."
+          "all": "BR Williams has recently expanded its operations by opening a new logistics branch in Atlanta, Georgia, with a grand opening and ribbon-cutting ceremony held in 2024."
         },
+        "all_contradiction_flag": null,
         "high_contradiction_flag": null,
+        "all_contradiction_reason": null,
         "high_contradiction_reason": null
       },
       "volume_growth_signal": {
         "value": {
-          "high": "The volume growth signal indicates projected revenue scaling to $250 million by 2030."
+          "all": "The presence of multiple job listings and the opening of a new logistics branch in Atlanta, Georgia, indicate potential growth in operational capacity.",
+          "high": "BR Williams expanded its logistics branch in Atlanta, Georgia, to meet increasing regional demand."
         },
         "description": {
-          "high": "The combined entity of BR Williams reported annual revenues approaching $100 million upon consolidation in 2024, reflecting increased demand and operational synergies, with projections to scale revenue to $250 million by 2030, indicating a significant volume growth signal for the company."
+          "all": "The presence of multiple job listings, including roles like 'Warehouse Position' and 'Driver Success Manager', along with the opening of a new logistics branch in Atlanta, Georgia, indicates a potential growth in operational capacity and suggests an increase in demand for logistics services.",
+          "high": "BR Williams expanded its physical footprint by opening a new logistics branch in Atlanta, Georgia, to meet the increasing regional demand."
         },
+        "all_contradiction_flag": null,
         "high_contradiction_flag": null,
+        "all_contradiction_reason": null,
         "high_contradiction_reason": null
       },
       "volume_growth_signals": {
@@ -1458,14 +1318,12 @@
       },
       "peak_season_demand_spike": {
         "value": {
-          "all": "The peak season demand spike is effectively managed through strategic capacity management and technology integration."
+          "high": "The peak season demand spike is effectively managed through advanced warehouse technology and proactive supply chain planning."
         },
         "description": {
-          "all": "During peak shipping periods, effective mitigation of order backlogs and capacity constraints is achieved through strategic capacity management and technology integration, which includes offering scalable fulfillment capacity and utilizing automated processes for order entry and freight matching, enabling businesses to efficiently handle increased holiday order surges."
+          "high": "BR Williams effectively manages peak season demand spikes through the integration of advanced warehouse technology, proactive supply chain planning, and scalable fulfillment operations."
         },
-        "all_contradiction_flag": null,
         "high_contradiction_flag": null,
-        "all_contradiction_reason": null,
         "high_contradiction_reason": null
       },
       "facility_expansion_permit": {
@@ -1480,33 +1338,27 @@
       },
       "new_contract_announcement": {
         "value": {
-          "high": "New contract announcement achieved in 2025 as a fully approved DoD Transportation Service Provider."
+          "high": "BRW is a fully approved Department of Defense Transportation Service Provider and freight carrier."
         },
         "description": {
-          "high": "BR Williams has achieved designation as a fully approved Department of Defense (DoD) Transportation Service Provider in 2025, indicating compliance with stringent standards for government logistics and enhancing its capacity to secure federal transportation contracts."
+          "high": "BRW has formally announced its status as a fully approved Department of Defense Transportation Service Provider and freight carrier."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
       },
       "public_growth_recognition": {
         "value": {
-          "high": "BR Williams achieved public growth recognition as a fully approved DoD Transportation Service Provider and Freight Carrier in 2025."
+          "high": "BR Williams has been recognized as a Top 100 Trucker for operational excellence."
         },
         "description": {
-          "high": "In 2025, BR Williams achieved designation as a fully approved Department of Defense (DoD) Transportation Service Provider and DoD Freight Carrier, highlighting its extensive experience and compliance with rigorous defense standards, and solidifying its role in the government and defense logistics sector."
+          "high": "BR Williams has been recognized as a Top 100 Trucker for its operational excellence, fleet optimization, and supply chain continuity."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
       },
       "revenue_growth_disclosure": {
-        "value": {
-          "high": "Estimated revenue for 2024 is $100 million."
-        },
-        "description": {
-          "high": "In 2024, BR Williams' revenue is estimated to approach $100 million following its acquisition by Haney and White Enterprise, indicating a strategic consolidation in the logistics sector as the newly formed company, BRW, aims to leverage combined resources for further growth."
-        },
-        "high_contradiction_flag": null,
-        "high_contradiction_reason": null
+        "value": "",
+        "description": ""
       },
       "peak_volume_management_signals": {
         "value": [],
@@ -1516,12 +1368,14 @@
       },
       "hiring_for_new_city_or_new_site": {
         "value": {
-          "high": "The hiring is not for a new city or new site, as the focus is on existing locations in Alabama, Kentucky, and Florida."
+          "all": "Hiring is actively taking place for roles in a warehouse and logistics environment."
         },
         "description": {
-          "high": "The active regional hubs and terminal networks for BR Williams include locations in Alabama, Kentucky, and Florida, indicating a commitment to strengthening logistics operations in these states."
+          "all": "Hiring is actively taking place for roles in a warehouse and logistics environment, indicating that the company may be expanding its workforce to meet growing operational needs."
         },
+        "all_contradiction_flag": null,
         "high_contradiction_flag": null,
+        "all_contradiction_reason": null,
         "high_contradiction_reason": null
       },
       "new_customer_or_contract_signals": {
@@ -1532,52 +1386,48 @@
       },
       "peak_volume_management_challenge": {
         "value": {
-          "high": "The company utilizes over 5,200 contract freight carriers to manage peak volume challenges."
+          "high": "The peak volume management challenge is related to the strategic pivot to focus exclusively on trucking and logistics solutions."
         },
         "description": {
-          "high": "The company utilizes over 5,200 contract freight carriers to manage peak volume challenges in supply chain logistics, which helps resolve capacity constraints and order surges during peak seasons as demand fluctuates."
+          "high": "In 2026, BR Williams completed a strategic pivot to focus exclusively on trucking and logistics solutions, selling its warehouse assets at this location to Metro Supply Chain."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
       },
       "expanded_partnership_announcement": {
         "value": {
-          "all": "The expanded partnership announcement is set for 2026."
+          "high": "BRW has expanded its freight, brokerage, and advanced LTL services to support volume growth for partners in automotive, e-commerce, and government defense sectors."
         },
         "description": {
-          "all": "A significant contract expansion has been announced, enhancing the ability to deliver integrated logistics and supply chain solutions. This expansion aims to meet the increasing demand from enterprise shippers for high-performance third-party logistics services by leveraging an extensive fleet and advanced operational capabilities in 2026."
+          "high": "BRW has expanded its end-to-end freight, brokerage, and advanced Less-than-Truckload (LTL) services to support rapid volume growth for key partners in the automotive, e-commerce, and government defense sectors."
+        },
+        "high_contradiction_flag": null,
+        "high_contradiction_reason": null
+      },
+      "network_expansion_signal_business": {
+        "value": {
+          "all": "B.R. Williams Trucking and B.R. Williams LTL Logistics were acquired by Haney and White Enterprise on August 14, 2024.",
+          "high": "Haney and White Enterprise acquired B.R. Williams Trucking and B.R. Williams LTL Logistics in 2024 to enhance network expansion."
+        },
+        "description": {
+          "all": "B.R. Williams Trucking and B.R. Williams LTL Logistics were acquired by Haney and White Enterprise on August 14, 2024. Additionally, B.R. Williams has partnered with the non-profit organization Women in Trucking to promote gender diversity in the transportation industry.",
+          "high": "In 2024, Haney and White Enterprise completed the acquisition of B.R. Williams Trucking and B.R. Williams LTL Logistics, enhancing their network expansion efforts."
         },
         "all_contradiction_flag": null,
         "high_contradiction_flag": null,
         "all_contradiction_reason": null,
         "high_contradiction_reason": null
       },
-      "network_expansion_signal_business": {
-        "value": {
-          "high": "The network expansion signal for business indicates a projected annual revenue of $100 million with a target of $250 million by 2030."
-        },
-        "description": {
-          "high": "In 2024, B.R. Williams Trucking and B.R. Williams LTL Logistics were acquired by Haney and White Enterprise, resulting in the formation of a unified entity called BRW. This merger integrated four major transportation companies, enhancing service offerings and operational efficiency in the logistics sector. The acquisition aims to combine asset-light logistics with a physical fleet and regional warehousing capabilities, with projected annual revenues approaching $100 million and a target of $250 million by 2030, indicating a significant growth trajectory for the newly formed entity."
-        },
-        "high_contradiction_flag": null,
-        "high_contradiction_reason": null
-      },
       "linkedin_employee_count_growth_trend": {
-        "value": {
-          "high": "The company employs over 300 people."
-        },
-        "description": {
-          "high": "The recent merger of B.R. Williams Trucking and B.R. Williams LTL Logistics has resulted in the company employing over 300 people across various locations in Kentucky, Georgia, Alabama, and Florida, highlighting its strategy to consolidate resources and improve service capacity in the logistics and transportation sectors."
-        },
-        "high_contradiction_flag": false,
-        "high_contradiction_reason": null
+        "value": "",
+        "description": ""
       },
       "economic_development_job_creation_announcement": {
         "value": {
-          "high": "The economic development job creation announcement reflects ongoing efforts to support job creation in the logistics sector through workforce development programs."
+          "high": "Active women in Trucking partnership supports workforce growth and leadership advancement in transportation."
         },
         "description": {
-          "high": "BR Williams is committed to workforce development through its Driver Finishing Program, which trains new drivers for four weeks and integrates them into the local fleet, reflecting ongoing efforts to support job creation in the logistics sector."
+          "high": "An active partnership with the Women in Trucking Association is maintained to aggressively recruit, support, and advance women into driving and executive leadership roles within the transportation industry."
         },
         "high_contradiction_flag": null,
         "high_contradiction_reason": null
