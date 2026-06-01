@@ -4423,6 +4423,613 @@ footer {
   text-align: center;
 }
 
+/* ============================================================
+   Account pages (Credits & Usage / Payments & Invoices)
+   — scoped under .account-page to avoid touching other pages
+   ============================================================ */
+
+/* ── Page shell: slightly tighter top padding ── */
+.account-page.workspace-page {
+  max-width: 1100px;
+}
+
+/* ── Header area with a clean dividing rule ── */
+.account-page .workspace-topbar {
+  padding-bottom: 28px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid rgba(2, 5, 63, 0.08);
+  align-items: center;
+}
+
+.account-page .workspace-topbar-copy {
+  padding-right: 24px;
+}
+
+.account-page .workspace-topbar-copy .workspace-eyebrow {
+  margin-bottom: 4px;
+}
+
+/* ── Nav buttons: compact auto-width instead of forced 142px ── */
+.account-page .workspace-topbar-actions {
+  gap: 8px;
+  padding-top: 0;
+}
+
+.account-page .workspace-topbar-actions .btn-secondary {
+  min-width: unset;
+  width: auto;
+  min-height: 38px;
+  padding: 7px 14px;
+  font-size: 13px;
+  border-radius: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: #475569;
+  background: rgba(248, 250, 252, 0.9);
+  border-color: rgba(2, 5, 63, 0.1);
+  box-shadow: 0 1px 4px rgba(2, 5, 63, 0.05);
+  white-space: nowrap;
+}
+
+.account-page .workspace-topbar-actions .btn-secondary:hover {
+  color: #02053f;
+  background: #fff;
+  border-color: rgba(2, 5, 63, 0.18);
+  box-shadow: 0 2px 8px rgba(2, 5, 63, 0.08);
+  transform: none;
+}
+
+/* back button gets a subtle ← arrow via pseudo-element */
+.account-page .workspace-topbar-actions .btn-secondary:last-child::before {
+  content: "←";
+  margin-right: 5px;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+/* ============================================================
+   Credits & Usage Page
+   ============================================================ */
+
+.credits-period-summary {
+  margin-bottom: 28px;
+}
+
+/* ── Summary card ── */
+.credits-summary-card {
+  background: linear-gradient(140deg, #02053f 0%, #0a0f5c 55%, #1a0a3f 100%);
+  border-radius: 20px;
+  padding: 32px 36px;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(2, 5, 63, 0.22), 0 2px 8px rgba(2, 5, 63, 0.12);
+}
+
+/* subtle radial accent top-right */
+.credits-summary-card::before {
+  content: "";
+  position: absolute;
+  top: -60px;
+  right: -60px;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(242, 92, 25, 0.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.credits-summary-card .workspace-eyebrow {
+  color: rgba(255, 255, 255, 0.45);
+  margin-bottom: 20px;
+  letter-spacing: 0.1em;
+}
+
+.credits-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 36px;
+  flex-wrap: wrap;
+}
+
+.credits-summary-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 100px;
+}
+
+.credits-summary-value {
+  font-family: "DM Serif Display", Georgia, serif;
+  font-size: 64px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: #f25c19;
+  text-shadow: 0 2px 16px rgba(242, 92, 25, 0.35);
+}
+
+.credits-summary-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.credits-summary-divider {
+  width: 1px;
+  height: 60px;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.credits-summary-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.credits-period-range {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.credits-period-note {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.02em;
+}
+
+/* ── History section ── */
+.credits-history-section {
+  margin-top: 8px;
+}
+
+.credits-history-heading {
+  font-family: "DM Serif Display", Georgia, serif;
+  font-size: 21px;
+  letter-spacing: -0.01em;
+  color: #02053f;
+  margin-bottom: 14px;
+}
+
+/* ── Filter bar ── */
+.credits-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.credits-filter-select,
+.credits-filter-date {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #1e2a4a;
+  background: #fff;
+  border: 1px solid rgba(2, 5, 63, 0.15);
+  border-radius: 8px;
+  padding: 6px 10px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  height: 34px;
+}
+
+.credits-filter-select:focus,
+.credits-filter-date:focus {
+  border-color: rgba(2, 5, 63, 0.35);
+  box-shadow: 0 0 0 3px rgba(2, 5, 63, 0.06);
+}
+
+.credits-filter-clear {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f25c19;
+  background: rgba(242, 92, 25, 0.06);
+  border: 1px solid rgba(242, 92, 25, 0.2);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  height: 34px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.credits-filter-clear:hover {
+  background: rgba(242, 92, 25, 0.1);
+  border-color: rgba(242, 92, 25, 0.35);
+}
+
+.credits-period-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── Period accordion block ── */
+.credits-period-block {
+  background: #fff;
+  border: 1px solid rgba(2, 5, 63, 0.09);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: box-shadow 0.18s ease;
+}
+
+.credits-period-block:hover {
+  box-shadow: 0 2px 12px rgba(2, 5, 63, 0.07);
+}
+
+.credits-period-block--current {
+  border-color: rgba(242, 92, 25, 0.28);
+  box-shadow: 0 0 0 1px rgba(242, 92, 25, 0.1), 0 2px 12px rgba(242, 92, 25, 0.06);
+}
+
+.credits-period-block--current:hover {
+  box-shadow: 0 0 0 1px rgba(242, 92, 25, 0.18), 0 4px 18px rgba(242, 92, 25, 0.1);
+}
+
+.credits-period-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  gap: 16px;
+  color: #1e2a4a;
+  transition: background 0.15s ease;
+}
+
+.credits-period-toggle:hover {
+  background: rgba(2, 5, 63, 0.025);
+}
+
+.credits-period-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.credits-period-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #f25c19;
+  background: rgba(242, 92, 25, 0.08);
+  border: 1px solid rgba(242, 92, 25, 0.2);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+
+.credits-period-range-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e2a4a;
+}
+
+.credits-period-toggle-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.credits-period-credits {
+  font-size: 13px;
+  font-weight: 700;
+  color: #02053f;
+  background: rgba(2, 5, 63, 0.05);
+  border: 1px solid rgba(2, 5, 63, 0.1);
+  border-radius: 999px;
+  padding: 2px 11px;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.credits-chevron {
+  width: 15px;
+  height: 15px;
+  color: #94a3b8;
+  transition: transform 0.22s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.credits-period-toggle:hover .credits-chevron {
+  color: #475569;
+}
+
+.credits-chevron--open {
+  transform: rotate(180deg);
+}
+
+/* ── Expanded table rows ── */
+.credits-period-rows {
+  border-top: 1px solid rgba(2, 5, 63, 0.07);
+  padding: 0 0 4px;
+}
+
+.credits-empty-period {
+  padding: 16px 20px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.credits-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 0;
+}
+
+.credits-history-table th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  padding: 10px 20px 8px;
+  border-bottom: 1px solid rgba(2, 5, 63, 0.06);
+  background: rgba(248, 249, 252, 0.8);
+}
+
+.credits-history-table td {
+  padding: 11px 20px;
+  border-bottom: 1px solid rgba(2, 5, 63, 0.045);
+  color: #0f172a;
+  vertical-align: top;
+}
+
+.credits-history-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.credits-history-table tbody tr:hover td {
+  background: rgba(248, 249, 252, 0.7);
+}
+
+.credits-col-right {
+  text-align: right;
+}
+
+.credits-site-name {
+  display: block;
+  font-weight: 600;
+  color: #02053f;
+  font-size: 13px;
+}
+
+.credits-site-address {
+  display: block;
+  font-size: 11.5px;
+  color: #94a3b8;
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+.credits-timestamp {
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.credits-history-table td:last-child {
+  font-weight: 700;
+  font-size: 13px;
+  color: #02053f;
+}
+
+@media (max-width: 768px) {
+  .credits-summary-card {
+    padding: 24px 22px;
+  }
+
+  .credits-summary-value {
+    font-size: 48px;
+  }
+
+  .credits-summary-divider {
+    display: none;
+  }
+
+  .credits-summary-row {
+    gap: 18px;
+  }
+
+  .credits-history-table th:nth-child(3),
+  .credits-history-table td:nth-child(3) {
+    display: none;
+  }
+}
+
+/* ============================================================
+   Payments & Invoices Page
+   ============================================================ */
+
+.invoices-section {
+  margin-top: 8px;
+}
+
+.invoices-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 16px;
+  border: 1px solid rgba(2, 5, 63, 0.09);
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(2, 5, 63, 0.06);
+}
+
+.invoices-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.invoices-table thead tr {
+  border-bottom: 1px solid rgba(2, 5, 63, 0.08);
+}
+
+.invoices-table th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  padding: 14px 20px;
+  white-space: nowrap;
+  background: rgba(248, 249, 252, 0.9);
+}
+
+.invoices-table th:first-child {
+  border-radius: 16px 0 0 0;
+}
+
+.invoices-table th:last-child {
+  border-radius: 0 16px 0 0;
+}
+
+.invoices-table td {
+  padding: 15px 20px;
+  border-bottom: 1px solid rgba(2, 5, 63, 0.05);
+  color: #0f172a;
+  vertical-align: middle;
+}
+
+.invoices-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.invoices-table tbody tr {
+  transition: background 0.14s ease;
+}
+
+.invoices-table tbody tr:hover td {
+  background: rgba(248, 249, 252, 0.75);
+}
+
+.invoices-col-right {
+  text-align: right;
+}
+
+.invoices-number {
+  font-weight: 600;
+  color: #02053f;
+  white-space: nowrap;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+.invoices-period {
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.invoices-amount {
+  font-family: "DM Serif Display", Georgia, serif;
+  font-size: 15px;
+  font-weight: 400;
+  color: #02053f;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+
+/* ── Status badges ── */
+.invoice-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+  padding: 3px 10px 3px 8px;
+  white-space: nowrap;
+}
+
+.invoice-status-badge::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.invoice-status-paid {
+  background: rgba(22, 163, 74, 0.08);
+  color: #15803d;
+  border: 1px solid rgba(22, 163, 74, 0.18);
+}
+
+.invoice-status-paid::before {
+  background: #22c55e;
+}
+
+.invoice-status-pending {
+  background: rgba(242, 92, 25, 0.07);
+  color: #c2410c;
+  border: 1px solid rgba(242, 92, 25, 0.18);
+}
+
+.invoice-status-pending::before {
+  background: #f25c19;
+}
+
+.invoice-status-void {
+  background: rgba(100, 116, 139, 0.07);
+  color: #64748b;
+  border: 1px solid rgba(100, 116, 139, 0.15);
+}
+
+.invoice-status-void::before {
+  background: #94a3b8;
+}
+
+/* ── Action links ── */
+.invoices-action-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #f25c19;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.14s ease, opacity 0.14s ease;
+  padding: 3px 0;
+}
+
+.invoices-action-link:hover {
+  color: #d44a0a;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.invoices-na {
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .invoices-table th:nth-child(3),
+  .invoices-table td:nth-child(3) {
+    display: none;
+  }
+}
+
 @media (max-width: 1120px) {
   .report-page {
     max-width: 100%;

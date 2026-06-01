@@ -2,7 +2,7 @@ import os
 import re
 from pathlib import Path
 from typing import Any
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from dotenv import load_dotenv
@@ -82,6 +82,8 @@ SERVICE_API_PREFIXES = (
     "/account-sites",
     "/accounts",
     "/address-validation",
+    "/billing",
+    "/credits",
     "/customer-sites",
     "/debug",
     "/frontend-config",
@@ -89,6 +91,10 @@ SERVICE_API_PREFIXES = (
     "/pre-assessment",
     "/signup",
 )
+
+USAGE_TYPE_LABELS: dict[str, str] = {
+    "pre_assessment_request": "Pre-Assessment Request",
+}
 
 
 @app.middleware("http")
@@ -1630,6 +1636,149 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
         }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/credits/usage")
+async def get_credits_usage(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email is required.")
+    db = get_admin_db()
+    customer = await find_customer_by_email(db, email)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+
+    billing_rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_billing",
+        params={
+            "select": "site_id,usage_type,credits_used,created_at",
+            "customer_id": f"eq.{customer['customer_id']}",
+            "order": "created_at.desc",
+        },
+    )
+    billing_rows = billing_rows or []
+
+    site_ids = list({row["site_id"] for row in billing_rows if row.get("site_id")})
+    site_map: dict[str, dict[str, str]] = {}
+    if site_ids:
+        site_rows = await db.request(
+            "GET",
+            "/rest/v1/account_sites",
+            params={
+                "select": "site_id,company_name,full_address",
+                "site_id": f"in.({','.join(site_ids)})",
+            },
+        )
+        for row in site_rows or []:
+            site_map[row["site_id"]] = {
+                "company_name": row.get("company_name") or "",
+                "full_address": row.get("full_address") or "",
+            }
+
+    signup_date: datetime | None = None
+    raw_anchor = customer.get("email_verified_at")
+    if raw_anchor:
+        try:
+            signup_date = datetime.fromisoformat(str(raw_anchor).replace("Z", "+00:00"))
+        except ValueError:
+            signup_date = None
+    # Use earliest billing row if it predates the anchor (or if no anchor)
+    if billing_rows:
+        oldest_raw = min((r.get("created_at") or "" for r in billing_rows), default="")
+        try:
+            oldest_billing = datetime.fromisoformat(str(oldest_raw).replace("Z", "+00:00"))
+            if signup_date is None or oldest_billing < signup_date:
+                signup_date = oldest_billing
+        except ValueError:
+            pass
+    if not signup_date:
+        signup_date = datetime.now(timezone.utc)
+
+    now = datetime.now(timezone.utc)
+
+    def month_key(ts: datetime) -> str:
+        # Convert to EST for month grouping
+        est_offset = timedelta(hours=-5)
+        local_ts = ts + est_offset
+        return f"{local_ts.year}-{local_ts.month:02d}"
+
+    def month_bounds(key: str) -> tuple[datetime, datetime]:
+        import calendar as cal_mod
+        year, month = int(key.split("-")[0]), int(key.split("-")[1])
+        last_day = cal_mod.monthrange(year, month)[1]
+        est_offset = timedelta(hours=-5)
+        start = datetime(year, month, 1, 0, 0, 0, tzinfo=timezone.utc) - est_offset
+        end = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc) - est_offset
+        return start, end
+
+    current_key = month_key(now)
+    periods: dict[str, list[dict[str, Any]]] = {}
+    for row in billing_rows:
+        raw_ts = row.get("created_at") or ""
+        try:
+            ts = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        key = month_key(ts)
+        if key not in periods:
+            periods[key] = []
+        site_id = row.get("site_id") or ""
+        site_info = site_map.get(site_id, {})
+        usage_type = row.get("usage_type") or ""
+        task_label = USAGE_TYPE_LABELS.get(usage_type, usage_type.replace("_", " ").title())
+        periods[key].append({
+            "site_name": site_info.get("company_name") or "—",
+            "site_address": site_info.get("full_address") or "—",
+            "task_label": task_label,
+            "timestamp_utc": raw_ts,
+            "credits_used": int(row.get("credits_used") or 0),
+        })
+
+    if current_key not in periods:
+        periods[current_key] = []
+
+    result_periods = []
+    for key in sorted(periods.keys(), reverse=True):
+        start, end = month_bounds(key)
+        rows = periods[key]
+        result_periods.append({
+            "period_index": key,
+            "period_start": start.isoformat(),
+            "period_end": end.isoformat(),
+            "is_current": key == current_key,
+            "total_credits_used": sum(r["credits_used"] for r in rows),
+            "rows": rows,
+        })
+
+    return {
+        "billing_anchor_date": signup_date.isoformat(),
+        "billing_periods": result_periods,
+    }
+
+
+@app.post("/api/billing/invoices")
+async def get_billing_invoices(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email is required.")
+    db = get_admin_db()
+    customer = await find_customer_by_email(db, email)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    try:
+        invoice_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_invoices",
+            params={
+                "select": "invoice_id,invoice_number,invoice_date,amount_usd,status,pdf_url,payment_url,period_start,period_end",
+                "customer_id": f"eq.{customer['customer_id']}",
+                "order": "invoice_date.desc",
+            },
+        )
+    except HTTPException:
+        invoice_rows = []
+    return {"invoices": invoice_rows or []}
 
 
 @app.post("/api/signup/request-otp")

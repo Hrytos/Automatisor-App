@@ -18,6 +18,8 @@ import {
 
 import brWilliamsSampleReport from "../../backend/sample-report/data_structure.json";
 import reportStructure from "./report_section_structure.json";
+import CreditsPage from "./CreditsPage.jsx";
+import BillingPage from "./BillingPage.jsx";
 
 const SESSION_KEY = "automatisor_auth_workspace_v2";
 const REPORT_CONTEXT_KEY = "automatisor_selected_report_v1";
@@ -2441,6 +2443,23 @@ function WorkspaceMobileActions({ creditsUsed, onLogout }) {
         </svg>
         <span>Add facility</span>
       </Link>
+      <Link to="/workspace/credits" className="workspace-mobile-action">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h10A2.5 2.5 0 0 1 19 7.5V9h-2.75A3.25 3.25 0 0 0 13 12.25v.5A3.25 3.25 0 0 0 16.25 16H19v.5A2.5 2.5 0 0 1 16.5 19h-10A2.5 2.5 0 0 1 4 16.5v-9Z" />
+          <path d="M14 12.25A1.75 1.75 0 0 1 15.75 10.5H20v4h-4.25A1.75 1.75 0 0 1 14 12.75v-.5Z" />
+        </svg>
+        <span>Credits</span>
+      </Link>
+      <Link to="/workspace/billing" className="workspace-mobile-action">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <path d="M14 2v6h6" />
+          <path d="M16 13H8" />
+          <path d="M16 17H8" />
+          <path d="M10 9H8" />
+        </svg>
+        <span>Billing</span>
+      </Link>
       <div className="workspace-mobile-action workspace-mobile-credits" aria-label="Credits used">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
           <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h10A2.5 2.5 0 0 1 19 7.5V9h-2.75A3.25 3.25 0 0 0 13 12.25v.5A3.25 3.25 0 0 0 16.25 16H19v.5A2.5 2.5 0 0 1 16.5 19h-10A2.5 2.5 0 0 1 4 16.5v-9Z" />
@@ -3372,6 +3391,12 @@ function WorkspacePage() {
           <div className="workspace-topbar-actions">
             <Link to="/workspace/sites/new" className="btn-primary">
               Add new facility
+            </Link>
+            <Link to="/workspace/credits" className="btn-secondary">
+              Credits
+            </Link>
+            <Link to="/workspace/billing" className="btn-secondary">
+              Billing
             </Link>
             <button type="button" className="btn-secondary" onClick={logout}>
               Logout
@@ -4507,6 +4532,8 @@ function App() {
       <Route path="/workspace/sites/new" element={<NewSitePage />} />
       <Route path="/workspace/pre-assessment" element={<PreAssessmentPage />} />
       <Route path="/workspace/report" element={<ReportPage />} />
+      <Route path="/workspace/credits" element={<CreditsPage />} />
+      <Route path="/workspace/billing" element={<BillingPage />} />
       <Route path="/sample-reports/br-williams" element={<SampleReportPage />} />
       <Route path="*" element={<Navigate to="/auth" replace />} />
     </Routes>
