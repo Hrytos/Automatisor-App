@@ -1299,38 +1299,30 @@ async def handle_complete_onboarding(request: Request, body: dict[str, Any] = Bo
         email = assert_work_email(body.get("email") or body.get("work_email"))
         first_name = clean_required(body.get("first_name"), "First name")
         last_name = clean_required(body.get("last_name"), "Last name")
-        designation = clean_required(body.get("designation"), "Designation")
         customer_company_name = clean_required(
             body.get("customer_company_name") or body.get("company_name"),
             "Company name",
         )
-        customer_company_domain = normalize_domain(
-            body.get("customer_company_domain") or body.get("company_domain")
-        )
         dry_run = is_dry_run_request(request, body)
 
-        account = {"accountId": None, "companyName": customer_company_name, "domain": customer_company_domain}
         customer = {"customerId": None}
         site_result = {"status": "pending_confirmation", "siteId": None}
 
         if not dry_run:
             db = get_admin_db()
-            account = await upsert_account(db, customer_company_name, customer_company_domain)
             customer = await upsert_customer(
                 db,
                 {
                     "email": email,
                     "firstName": first_name,
                     "lastName": last_name,
-                    "designation": designation,
                     "companyName": customer_company_name,
-                    "companyDomain": customer_company_domain,
                     "isVerified": True,
                     "touchLogin": True,
                 },
             )
             await mark_customer_verified(db, email)
-            workspace = await build_workspace_payload(db, email, account["accountId"])
+            workspace = await build_workspace_payload(db, email)
             return {
                 "status": "onboarding_complete",
                 **workspace,
@@ -1345,9 +1337,9 @@ async def handle_complete_onboarding(request: Request, body: dict[str, Any] = Bo
             "user_mode": "existing_user",
             "next_step": "workspace",
             "customer_id": customer["customerId"],
-            "account_id": account["accountId"],
+            "account_id": None,
             "company_name": customer_company_name,
-            "company_domain": customer_company_domain,
+            "company_domain": "",
             "credits_used_total": 0,
             "credits_used_this_month": 0,
             "site_status": site_result["status"],

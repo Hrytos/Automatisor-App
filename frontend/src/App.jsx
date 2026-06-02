@@ -1272,6 +1272,81 @@ function SampleReportPage() {
   );
 }
 
+function AuthExplainerPanel() {
+  const steps = [
+    {
+      title: "Add a Facility",
+      paragraphs: [
+        "A facility is a warehouse site where intralogistics operations take place.",
+        "Create a facility to start an automation project. Once added, you can request assessments, discover opportunities, and manage automation initiatives for that site.",
+      ],
+    },
+    {
+      title: "Request a Site Pre-Assessment",
+      paragraphs: [
+        "A Site Pre-Assessment is a comprehensive research report about a warehouse site.",
+        "Before a site visit or sales meeting, Automatisor analyzes the facility across multiple operational dimensions to help you:",
+      ],
+      bullets: [
+        "Understand how the site operates",
+        "Quickly determine whether it is a good fit for your solutions",
+        "Identify automation opportunities",
+        "Discover valuable talking points for customer conversations",
+        "Prepare more effective sales pitches and site visits",
+      ],
+      closing: "Think of it as your automated discovery and qualification process.",
+    },
+    {
+      title: "Discover More Sites",
+      paragraphs: [
+        "Expand your pipeline by discovering additional warehouse sites.",
+        "You can:",
+      ],
+      bullets: [
+        "Find other facilities operated by the same company",
+        "Discover nearby warehouses in the area",
+        "Build targeted prospecting lists faster",
+        "Uncover new automation opportunities",
+      ],
+      closing: "Use these insights to continuously grow and prioritize your sales pipeline.",
+    },
+  ];
+
+  return (
+    <aside className="auth-explainer-panel" aria-label="Automatisor overview">
+      <p className="auth-panel-label">Welcome to Automatisor</p>
+      <h1>Automatisor</h1>
+      <p className="auth-explainer-lede">
+        Automatisor is a decision intelligence platform for warehouse automation. It performs
+        the research, analysis, and planning work needed to help you automate warehouses with
+        lower risk, faster decisions, higher trust, and better ROI.
+      </p>
+      <p className="auth-explainer-intro">You can get started in three simple steps:</p>
+      <div className="auth-explainer-steps">
+        {steps.map((step, index) => (
+          <article className="auth-explainer-step" key={step.title}>
+            <span className="auth-explainer-step-number">{index + 1}</span>
+            <div>
+              <h2>{step.title}</h2>
+              {step.paragraphs.map((paragraph) => (
+                <p key={paragraph}>{paragraph}</p>
+              ))}
+              {step.bullets?.length ? (
+                <ul>
+                  {step.bullets.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {step.closing ? <p>{step.closing}</p> : null}
+            </div>
+          </article>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
 function normalizeAuthFeedback(rawMessage) {
   const message = String(rawMessage || "").trim();
   if (!message) return { tone: "error", title: "", message: "" };
@@ -1666,6 +1741,7 @@ function AddressValidationPanel({
   onJustificationChange,
   hasValidationInputs,
   domain,
+  addressLabel = "Site address",
 }) {
   if (!hasValidationInputs) {
     if (selectedCandidate) {
@@ -1722,7 +1798,7 @@ function AddressValidationPanel({
           <div className="address-validation-option-content">
             <h4>Edit the address</h4>
             <p>
-              Please edit the address in the <strong>Site address</strong> field above.
+              Please edit the address in the <strong>{addressLabel}</strong> field above.
             </p>
           </div>
         </div>
@@ -1808,7 +1884,13 @@ function AddressValidationPanel({
   );
 }
 
-function CandidateConfirmationModal({ candidate, loading, onCancel, onConfirm }) {
+function CandidateConfirmationModal({
+  candidate,
+  loading,
+  onCancel,
+  onConfirm,
+  addressLabel = "Site Address",
+}) {
   if (!candidate) return null;
   const domain = normalizeCandidateDomain(candidate);
   return (
@@ -1826,7 +1908,7 @@ function CandidateConfirmationModal({ candidate, loading, onCancel, onConfirm })
           </h2>
         </div>
         <p className="workspace-copy">
-          Confirming will update the company name, domain, site address, and map pin for this
+          Confirming will update the company name, domain, {addressLabel.toLowerCase()}, and map pin for this
           request.
         </p>
         <div className="pre-assessment-summary-grid review-summary-grid">
@@ -1835,7 +1917,7 @@ function CandidateConfirmationModal({ candidate, loading, onCancel, onConfirm })
             <span className="workspace-summary-value">{candidate.name || "-"}</span>
           </div>
           <div className="workspace-summary-chip">
-            <span className="workspace-summary-label">Site Address</span>
+            <span className="workspace-summary-label">{addressLabel}</span>
             <span className="workspace-summary-value">{candidate.address || "-"}</span>
           </div>
           <div className="workspace-summary-chip">
@@ -1865,6 +1947,8 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
     onResolvedChange,
     mapLabel,
     initialResolvedAddress,
+    addressLabel = "Site address",
+    addressPlaceholder = "Start typing a site address",
   },
   ref,
 ) {
@@ -2178,7 +2262,7 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
             requestedRegion: "us",
             requestedLanguage: "en",
           });
-          placeAutocomplete.setAttribute("placeholder", "Start typing a site address");
+          placeAutocomplete.setAttribute("placeholder", addressPlaceholder);
           placeAutocomplete.className = "place-autocomplete-host-element";
           placeAutocomplete.style.width = "100%";
           placeAutocomplete.style.backgroundColor = "#ffffff";
@@ -2326,7 +2410,7 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
   return (
     <>
       <label className="modern-field modern-field-wide workspace-field workspace-field-wide">
-        <span>Site address</span>
+        <span>{addressLabel}</span>
         {useLegacyAutocomplete ? (
           <div className="workspace-search-stack">
             <input
@@ -2334,7 +2418,7 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
               ref={inputRef}
               type="text"
               className="place-autocomplete-legacy-input"
-              placeholder="Start typing a site address"
+              placeholder={addressPlaceholder}
               autoComplete="off"
               defaultValue={selectedAddress}
               onChange={() => {
@@ -2834,9 +2918,7 @@ function NewUserPage() {
   const [onboarding, setOnboarding] = useState({
     first_name: "",
     last_name: "",
-    designation: "",
     customer_company_name: "",
-    customer_company_domain: "",
     site_company_name: "",
     site_company_domain: "",
     hasAddress: false,
@@ -2903,7 +2985,6 @@ function NewUserPage() {
       setOnboarding((current) => ({
         ...current,
         customer_company_name: saved.companyName || "",
-        customer_company_domain: saved.companyDomain || "",
       }));
     } else {
       setStage("email");
@@ -2924,9 +3005,7 @@ function NewUserPage() {
   const onboardingReady = Boolean(
     onboarding.first_name &&
       onboarding.last_name &&
-      onboarding.designation &&
       onboarding.customer_company_name &&
-      onboarding.customer_company_domain &&
       onboarding.site_company_name &&
       onboarding.site_company_domain &&
       onboarding.hasAddress &&
@@ -2999,7 +3078,6 @@ function NewUserPage() {
         setOnboarding((current) => ({
           ...current,
           customer_company_name: sessionState.companyName || "",
-          customer_company_domain: sessionState.companyDomain || "",
         }));
       }
     } catch (error) {
@@ -3037,9 +3115,7 @@ function NewUserPage() {
           email: sessionState.email || email,
           first_name: onboarding.first_name,
           last_name: onboarding.last_name,
-          designation: onboarding.designation,
           customer_company_name: onboarding.customer_company_name,
-          customer_company_domain: onboarding.customer_company_domain,
         }),
       });
       const nextState = buildSessionFromPayload(sessionState, payload);
@@ -3067,7 +3143,8 @@ function NewUserPage() {
     <div className="signup-body">
       <AppNav backToHome />
       <main className="signup-page signup-page-modern">
-        <section className="auth-shell-modern">
+        <section className={`auth-shell-modern ${stage === "onboarding" ? "" : "auth-shell-with-explainer"}`}>
+          {stage === "onboarding" ? null : <AuthExplainerPanel />}
           <section id="signupShell" className="auth-panel-modern">
             <div className="auth-panel-head">
               <h2 id="signupPageTitle">
@@ -3082,7 +3159,7 @@ function NewUserPage() {
                   ? ""
                   : stage === "otp"
                     ? "Use the one-time password to continue into your workspace."
-                    : "Account does not exist. Sign up first to create your workspace."}
+                    : "Account does not exist. Finish the onboarding to create your workspace."}
               </p>
             </div>
 
@@ -3183,63 +3260,54 @@ function NewUserPage() {
               <section className="auth-stage-card auth-stage-card-wide">
                 <div className="auth-stage-header">
                   <h3>Finish your onboarding</h3>
-                  <p>Set up your user profile, company, and first site before requesting the first pre-assessment.</p>
+                  <p>Complete these steps to create your workspace and request your first pre-assessment.</p>
                 </div>
 
-                <div className="modern-form-grid">
-                  {[
-                    ["First name", "first_name"],
-                    ["Last name", "last_name"],
-                    ["Designation", "designation"],
-                  ].map(([label, key]) => (
-                    <label key={key} className="modern-field">
-                      <span>{label}</span>
+                <section className="onboarding-section">
+                  <div className="onboarding-section-head">
+                    <span className="onboarding-step-label">Step 1</span>
+                    <h4>Add your details</h4>
+                  </div>
+                  <div className="modern-form-grid">
+                    {[
+                      ["First name", "first_name"],
+                      ["Last name", "last_name"],
+                    ].map(([label, key]) => (
+                      <label key={key} className="modern-field">
+                        <span>{label}</span>
+                        <input
+                          value={onboarding[key]}
+                          onChange={(event) =>
+                            setOnboarding((current) => ({ ...current, [key]: event.target.value }))
+                          }
+                          placeholder={label}
+                        />
+                      </label>
+                    ))}
+                    <label className="modern-field modern-field-wide">
+                      <span>Company name</span>
                       <input
-                        value={onboarding[key]}
+                        value={onboarding.customer_company_name}
                         onChange={(event) =>
-                          setOnboarding((current) => ({ ...current, [key]: event.target.value }))
+                          setOnboarding((current) => ({
+                            ...current,
+                            customer_company_name: event.target.value,
+                          }))
                         }
-                        placeholder={label}
+                        placeholder="Company name"
                       />
                     </label>
-                  ))}
-                  <label className="modern-field">
-                    <span>Your company name</span>
-                    <input
-                      value={onboarding.customer_company_name}
-                      onChange={(event) =>
-                        setOnboarding((current) => ({
-                          ...current,
-                          customer_company_name: event.target.value,
-                        }))
-                      }
-                      placeholder="Your company name"
-                    />
-                  </label>
-                  <label className="modern-field modern-field-wide">
-                    <span>Your company domain</span>
-                    <input
-                      value={onboarding.customer_company_domain}
-                      onChange={(event) =>
-                        setOnboarding((current) => ({
-                          ...current,
-                          customer_company_domain: event.target.value,
-                        }))
-                      }
-                      placeholder="Your company domain"
-                    />
-                  </label>
-                </div>
+                  </div>
+                </section>
 
-                <section className="site-card-modern">
-                  <div className="site-card-head">
-                    <div>
-                      <p className="workspace-card-label">Add your first site</p>
-                    </div>
+                <section className="site-card-modern onboarding-section">
+                  <div className="onboarding-section-head">
+                    <span className="onboarding-step-label">Step 2</span>
+                    <h4>Add your first facility</h4>
                   </div>
                   <div className="modern-form-grid">
                     <label className="modern-field">
-                      <span>Site company name</span>
+                      <span>Facility name</span>
                       <input
                         value={onboarding.site_company_name}
                         onChange={(event) => {
@@ -3249,11 +3317,11 @@ function NewUserPage() {
                             site_company_name: event.target.value,
                           }));
                         }}
-                        placeholder="Company name for this site"
+                        placeholder="Facility name"
                       />
                     </label>
                     <label className="modern-field">
-                      <span>Site company domain</span>
+                      <span>Facility domain</span>
                       <input
                         value={onboarding.site_company_domain}
                         onChange={(event) => {
@@ -3269,7 +3337,7 @@ function NewUserPage() {
                             site_company_domain: event.target.value,
                           }));
                         }}
-                        placeholder="Company domain for this site"
+                        placeholder="Facility domain"
                       />
                     </label>
                   </div>
@@ -3280,6 +3348,8 @@ function NewUserPage() {
                     mapId="onboardingSiteMap"
                     messageId="onboardingSiteMessage"
                     mapLabel="Interactive site map for onboarding"
+                    addressLabel="Facility address"
+                    addressPlaceholder="Start typing a facility address"
                     onResolvedChange={({ resolvedAddress, inputValue }) => {
                       if (!applyingOnboardingCandidateRef.current) {
                         resetOnboardingValidationOverrides();
@@ -3301,12 +3371,14 @@ function NewUserPage() {
                     onJustificationChange={onboardingValidation.setJustification}
                     hasValidationInputs={onboardingValidation.hasValidationInputs}
                     domain={onboarding.site_company_domain}
+                    addressLabel="Facility address"
                   />
                   <CandidateConfirmationModal
                     candidate={onboardingCandidateToConfirm}
                     loading={confirmingOnboardingCandidate}
                     onCancel={() => setOnboardingCandidateToConfirm(null)}
                     onConfirm={confirmOnboardingCandidate}
+                    addressLabel="Facility address"
                   />
                 </section>
 

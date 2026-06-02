@@ -2473,6 +2473,110 @@ footer {
   margin: 0 auto;
 }
 
+.auth-shell-with-explainer {
+  max-width: 1280px;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(420px, 1fr);
+  gap: clamp(44px, 6vw, 92px);
+  align-items: start;
+}
+
+.auth-explainer-panel {
+  padding: 16px 10px;
+}
+
+.auth-explainer-panel h1 {
+  margin: 0 0 14px;
+  color: #081229;
+  font-size: 36px;
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+}
+
+.auth-explainer-lede,
+.auth-explainer-intro {
+  margin: 0;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.72;
+}
+
+.auth-explainer-intro {
+  margin-top: 18px;
+  color: #172033;
+  font-weight: 700;
+}
+
+.auth-explainer-steps {
+  display: grid;
+  gap: 18px;
+  margin: 22px 0 0;
+}
+
+.auth-explainer-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.auth-explainer-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 15px;
+  top: 38px;
+  bottom: -10px;
+  width: 1px;
+  background: rgba(242, 92, 25, 0.18);
+}
+
+.auth-explainer-step-number {
+  position: relative;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(242, 92, 25, 0.22);
+  background: #ffffff;
+  color: #cf4d14;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.auth-explainer-step h2 {
+  margin: 1px 0 7px;
+  color: #0f172a;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.auth-explainer-step p,
+.auth-explainer-step li {
+  margin: 0;
+  color: #3f4a5f;
+  font-size: 13px;
+  line-height: 1.58;
+}
+
+.auth-explainer-step li::marker {
+  color: #cf4d14;
+}
+
+.auth-explainer-step p + p,
+.auth-explainer-step ul + p {
+  margin-top: 7px;
+}
+
+.auth-explainer-step ul {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
 .auth-panel-modern {
   border: 1px solid rgba(17, 24, 39, 0.08);
   border-radius: 32px;
@@ -2484,6 +2588,18 @@ footer {
     radial-gradient(circle at top left, rgba(242, 92, 25, 0.11), transparent 22%),
     linear-gradient(180deg, #ffffff 0%, #fffaf8 58%, #fff7f1 100%);
   padding: 34px;
+}
+
+.auth-shell-with-explainer .auth-panel-modern {
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin-top: 32px;
+}
+
+.auth-shell-with-explainer .auth-stage-card {
+  width: 100%;
 }
 
 .auth-panel-head {
@@ -2664,6 +2780,32 @@ footer {
 .site-card-modern {
   padding: 24px;
   margin-bottom: 20px;
+}
+
+.onboarding-section {
+  margin-bottom: 20px;
+}
+
+.onboarding-section-head {
+  margin-bottom: 18px;
+}
+
+.onboarding-step-label {
+  display: inline-flex;
+  margin-bottom: 8px;
+  color: #f25c19;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.onboarding-section-head h4 {
+  margin: 0;
+  color: #081229;
+  font-size: 22px;
+  line-height: 1.14;
+  letter-spacing: -0.01em;
 }
 
 .workspace-header-modern {
@@ -5234,6 +5376,26 @@ footer {
 @media (max-width: 768px) {
   .signup-page-modern {
     padding: 18px 10px 40px;
+  }
+
+  .auth-shell-with-explainer {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .auth-explainer-panel {
+    padding: 8px 4px;
+  }
+
+  .auth-explainer-panel h1 {
+    font-size: 28px;
+    line-height: 1.05;
+  }
+
+  .auth-explainer-steps {
+    gap: 12px;
+    margin: 20px 0;
   }
 
   .auth-panel-modern {
