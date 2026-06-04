@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import {
   Link,
+  Outlet,
   useLocation,
   Navigate,
   Route,
@@ -91,6 +92,7 @@ function loadSession() {
 function saveSession(nextState) {
   try {
     window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(nextState));
+    window.dispatchEvent(new CustomEvent("sessionUpdated", { detail: nextState }));
   } catch {
     // Ignore.
   }
@@ -2555,6 +2557,77 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
   );
 });
 
+// ── Profile menu (avatar circle + dropdown) ────────────────
+function ProfileMenu({ session, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    function handleOutsideClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    if (open) document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [open]);
+
+  const initials = (session?.email || "?").charAt(0).toUpperCase();
+
+  return (
+    <div className="profile-menu" ref={menuRef}>
+      <button
+        type="button"
+        className="profile-avatar-btn"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Open profile menu"
+        aria-expanded={open}
+      >
+        {initials}
+      </button>
+
+      {open && (
+        <div className="profile-dropdown" role="dialog" aria-label="Profile">
+          {/* User info */}
+          <div className="profile-dropdown-header">
+            <div className="profile-dropdown-avatar">{initials}</div>
+            <div className="profile-dropdown-info">
+              <p className="profile-dropdown-email">{session?.email}</p>
+            </div>
+          </div>
+
+          <div className="profile-dropdown-divider" />
+
+          {/* Payment method */}
+          <div className="profile-dropdown-section">
+            <div className="profile-payment-row">
+              <span className="profile-section-label">Payment method</span>
+              <Link
+                to="/workspace/billing"
+                className="btn-secondary btn-sm"
+                onClick={() => setOpen(false)}
+              >
+                Manage card
+              </Link>
+            </div>
+          </div>
+
+          <div className="profile-dropdown-divider" />
+
+          {/* Logout */}
+          <button
+            type="button"
+            className="profile-logout-btn"
+            onClick={() => { setOpen(false); onLogout(); }}
+          >
+            Log out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CreditsUsedChip({ creditsUsed }) {
   return (
     <div className="wallet-chip" aria-label="Credits used">
@@ -3485,8 +3558,59 @@ function useRequireSession() {
   return [session, setSession];
 }
 
-function WorkspacePage() {
+function WorkspaceLayout() {
   const navigate = useNavigate();
+  const [session, setSession] = useRequireSession();
+
+  // Keep the chip in sync whenever any child page calls saveSession
+  useEffect(() => {
+    function onSessionUpdated(e) {
+      if (e.detail?.creditsUsedTotal !== undefined) {
+        setSession((prev) => ({ ...prev, creditsUsedTotal: e.detail.creditsUsedTotal }));
+      }
+    }
+    window.addEventListener("sessionUpdated", onSessionUpdated);
+    return () => window.removeEventListener("sessionUpdated", onSessionUpdated);
+  }, []);
+
+  async function logout() {
+    try {
+      await fetchJson("/api/auth/logout", { method: "POST", body: JSON.stringify({}) });
+    } catch {
+      // Ignore logout failure.
+    }
+    clearSession();
+    navigate("/auth");
+  }
+
+  if (!session?.email) return null;
+
+  return (
+    <>
+      <div className="workspace-sticky-bar">
+        <div className="workspace-sticky-bar-inner">
+          <Link to="/workspace/sites/new" className="btn-primary">
+            Add new facility
+          </Link>
+          <Link to="/workspace" className="btn-secondary">
+            Workspace
+          </Link>
+          <Link to="/workspace/credits" className="btn-secondary">
+            Credits
+          </Link>
+          <Link to="/workspace/billing" className="btn-secondary">
+            Billing
+          </Link>
+          <CreditsUsedChip creditsUsed={session?.creditsUsedTotal || 0} />
+          <ProfileMenu session={session} onLogout={logout} />
+        </div>
+      </div>
+      <Outlet />
+    </>
+  );
+}
+
+function WorkspacePage() {
   const [session, setSession] = useRequireSession();
   const [error, setError] = useState("");
   const [workspace, setWorkspace] = useState(() => session || loadSession());
@@ -3512,46 +3636,19 @@ function WorkspacePage() {
       .finally(() => setLoadingWorkspace(false));
   }, [session?.email]);
 
-  async function logout() {
-    try {
-      await fetchJson("/api/auth/logout", { method: "POST", body: JSON.stringify({}) });
-    } catch {
-      // Ignore logout failure.
-    }
-    clearSession();
-    navigate("/auth");
-  }
-
   if (!session?.email) return null;
 
   const sites = workspace?.sites || [];
   return (
     <main className="workspace-page-shell signup-body workspace-body">
       <section className="workspace-page">
-        <header className="workspace-topbar">
+        <header className="workspace-topbar workspace-topbar-titleonly">
           <div className="workspace-topbar-copy">
             <p className="workspace-eyebrow">Workspace</p>
             <h1 className="workspace-page-title">Saved facilities</h1>
           </div>
-          <div className="workspace-topbar-actions">
-            <Link to="/workspace/sites/new" className="btn-primary">
-              Add new facility
-            </Link>
-            <Link to="/workspace/credits" className="btn-secondary">
-              Credits
-            </Link>
-            <Link to="/workspace/billing" className="btn-secondary">
-              Billing
-            </Link>
-            <button type="button" className="btn-secondary" onClick={logout}>
-              Logout
-            </button>
-            <CreditsUsedChip
-              creditsUsed={workspace?.creditsUsedTotal || 0}
-            />
-          </div>
         </header>
-        <WorkspaceMobileActions creditsUsed={workspace?.creditsUsedTotal || 0} onLogout={logout} />
+        <WorkspaceMobileActions creditsUsed={workspace?.creditsUsedTotal || 0} onLogout={() => {}} />
 
         <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
 
@@ -3970,7 +4067,12 @@ function PreAssessmentPage() {
       setReviewOpen(false);
       setMode("success");
     } catch (nextError) {
-      const message = nextError.message || "Could not request the pre-assessment.";
+      const detail = nextError.payload?.detail;
+      const errorCode = (typeof detail === "object" ? detail?.code : null) || nextError.code || "";
+      const message =
+        errorCode === "payment_method_required"
+          ? "A payment method is required to add more sites. Please add a card on the Payments & Invoices page."
+          : (typeof detail === "object" ? detail?.message : null) || nextError.message || "Could not request the pre-assessment.";
       if (reviewOpen) {
         setReviewError(message);
       } else {
@@ -4832,12 +4934,14 @@ function App() {
       <Route path="/" element={<Navigate to="/auth" replace />} />
       <Route path="/auth" element={<NewUserPage />} />
       <Route path="/new-user" element={<Navigate to="/auth" replace />} />
-      <Route path="/workspace" element={<WorkspacePage />} />
-      <Route path="/workspace/sites/new" element={<NewSitePage />} />
-      <Route path="/workspace/pre-assessment" element={<PreAssessmentPage />} />
-      <Route path="/workspace/report" element={<ReportPage />} />
-      <Route path="/workspace/credits" element={<CreditsPage />} />
-      <Route path="/workspace/billing" element={<BillingPage />} />
+      <Route element={<WorkspaceLayout />}>
+        <Route path="/workspace" element={<WorkspacePage />} />
+        <Route path="/workspace/sites/new" element={<NewSitePage />} />
+        <Route path="/workspace/pre-assessment" element={<PreAssessmentPage />} />
+        <Route path="/workspace/report" element={<ReportPage />} />
+        <Route path="/workspace/credits" element={<CreditsPage />} />
+        <Route path="/workspace/billing" element={<BillingPage />} />
+      </Route>
       <Route path="/sample-reports/br-williams" element={<SampleReportPage />} />
       <Route path="*" element={<Navigate to="/auth" replace />} />
     </Routes>

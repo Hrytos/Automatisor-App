@@ -5139,7 +5139,16 @@ footer {
   width: 100%;
   border-collapse: collapse;
   font-size: 13.5px;
+  table-layout: fixed;
 }
+
+/* Column widths — percentage-based so they always fill the card */
+.invoices-table th:nth-child(1) { width: 20%; }   /* Invoice # */
+.invoices-table th:nth-child(2) { width: 13%; }   /* Date */
+.invoices-table th:nth-child(3) { width: 28%; }   /* Billing period */
+.invoices-table th:nth-child(4) { width: 13%; }   /* Amount */
+.invoices-table th:nth-child(5) { width: 13%; }   /* Status */
+.invoices-table th:nth-child(6) { width: 13%; }   /* Action */
 
 .invoices-table thead tr {
   border-bottom: 1px solid rgba(2, 5, 63, 0.08);
@@ -5152,54 +5161,58 @@ footer {
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: #94a3b8;
-  padding: 14px 20px;
+  padding: 13px 20px;
   white-space: nowrap;
   background: rgba(248, 249, 252, 0.9);
 }
 
-.invoices-table th:first-child {
-  border-radius: 16px 0 0 0;
-}
+.invoices-table th:first-child { border-radius: 16px 0 0 0; }
+.invoices-table th:last-child  { border-radius: 0 16px 0 0; }
 
-.invoices-table th:last-child {
-  border-radius: 0 16px 0 0;
-}
+/* Amount col — right-align header */
+.invoices-table th:nth-child(4) { text-align: right; }
+
+/* Status col — center */
+.invoices-table th:nth-child(5),
+.invoices-table td:nth-child(5) { text-align: center; }
+
+/* Action col — right-align */
+.invoices-table th:nth-child(6),
+.invoices-table td:nth-child(6) { text-align: right; }
 
 .invoices-table td {
-  padding: 15px 20px;
+  padding: 14px 20px;
   border-bottom: 1px solid rgba(2, 5, 63, 0.05);
   color: #0f172a;
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.invoices-table tbody tr:last-child td {
-  border-bottom: none;
-}
+.invoices-table tbody tr:last-child td { border-bottom: none; }
 
-.invoices-table tbody tr {
-  transition: background 0.14s ease;
-}
+.invoices-table tbody tr { transition: background 0.14s ease; }
 
-.invoices-table tbody tr:hover td {
-  background: rgba(248, 249, 252, 0.75);
-}
+.invoices-table tbody tr:hover td { background: rgba(248, 249, 252, 0.75); }
 
-.invoices-col-right {
-  text-align: right;
-}
+.invoices-col-right { text-align: right; }
 
 .invoices-number {
   font-weight: 600;
   color: #02053f;
-  white-space: nowrap;
   font-size: 13px;
   letter-spacing: 0.01em;
 }
 
-.invoices-period {
-  font-size: 12px;
+.invoices-date {
+  font-size: 13px;
   color: #64748b;
-  white-space: nowrap;
+}
+
+.invoices-period {
+  font-size: 13px;
+  color: #64748b;
 }
 
 .invoices-amount {
@@ -5207,7 +5220,6 @@ footer {
   font-size: 15px;
   font-weight: 400;
   color: #02053f;
-  white-space: nowrap;
   letter-spacing: -0.01em;
 }
 
@@ -6078,4 +6090,412 @@ footer {
     background: rgba(242, 92, 25, 0.11);
     color: #f25c19;
   }
+}
+
+/* ── Stripe card setup ───────────────────────────────────────────────────────── */
+.payment-method-section {
+  margin-bottom: 24px;
+  padding: 24px;
+}
+
+.payment-method-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.workspace-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e2a4a;
+  margin: 0 0 4px;
+}
+
+.workspace-section-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+.payment-method-saved {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: #15803d;
+}
+
+/* ── Saved card row ──────────────────────────────────────────────────────────── */
+.pm-saved-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding: 16px 20px;
+  background: #f8f9fb;
+  border: 1px solid rgba(17, 24, 39, 0.09);
+  border-radius: 12px;
+}
+
+.pm-card-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.pm-card-brand-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #fff;
+  background: #1a1a2e;
+  flex-shrink: 0;
+}
+
+.pm-brand-visa        { background: #1a1f71; }
+.pm-brand-mastercard  { background: #eb001b; }
+.pm-brand-amex        { background: #007bc1; }
+.pm-brand-discover    { background: #e65c00; }
+.pm-brand-jcb         { background: #003087; }
+
+.pm-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pm-card-number {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e2a4a;
+  letter-spacing: 0.04em;
+}
+
+.pm-card-expiry {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.pm-loading {
+  margin-top: 16px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+/* ── Invoice section header ──────────────────────────────────────────────────── */
+.invoices-section-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.invoices-open-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 10px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(234, 88, 12, 0.08);
+  color: #c2410c;
+  border: 1px solid rgba(234, 88, 12, 0.2);
+  vertical-align: middle;
+}
+
+/* ── Open invoice row highlight ──────────────────────────────────────────────── */
+.invoices-table tbody tr.invoice-row-open {
+  background: rgba(234, 88, 12, 0.025);
+}
+
+/* ── Pay now button ──────────────────────────────────────────────────────────── */
+.invoice-pay-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 14px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: #1a1a2e;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+}
+
+.invoice-pay-btn:hover:not(:disabled) {
+  background: #2d2d50;
+}
+
+.invoice-pay-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ── invoice-status-open / draft (Stripe "open" and "draft" statuses) ─────── */
+.invoice-status-open,
+.invoice-status-draft {
+  background: rgba(234, 88, 12, 0.08);
+  color: #c2410c;
+  border: 1px solid rgba(234, 88, 12, 0.2);
+}
+
+.invoice-status-open::before,
+.invoice-status-draft::before {
+  background: #ea580c;
+}
+
+.card-setup-form {
+  margin-top: 20px;
+  max-width: 480px;
+}
+
+.card-element-wrap {
+  border: 1px solid rgba(17, 24, 39, 0.14);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #fafafa;
+}
+
+.card-setup-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+/* ── Credits free period badge ───────────────────────────────────────────────── */
+.credits-free-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: rgba(22, 163, 74, 0.08);
+  color: #15803d;
+  border: 1px solid rgba(22, 163, 74, 0.18);
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
+.credits-free-row-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.08);
+  border-radius: 100px;
+  padding: 1px 7px;
+  margin-left: 6px;
+  border: 1px solid rgba(22, 163, 74, 0.18);
+}
+
+/* ── Sticky top action bar ────────────────────────────────── */
+.workspace-sticky-bar {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  /* pull out of shell padding to span full width */
+  margin: -40px -32px 0;
+  padding: 0 32px;
+  background: rgba(255, 247, 240, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(17, 24, 39, 0.07);
+}
+
+.workspace-sticky-bar-inner {
+  max-width: 1360px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.workspace-sticky-bar-inner .btn-primary,
+.workspace-sticky-bar-inner .btn-secondary {
+  min-width: 0;
+  width: auto;
+  min-height: 40px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.workspace-sticky-bar-inner .wallet-chip {
+  min-height: 40px;
+  border-radius: 10px;
+  white-space: nowrap;
+  font-size: 13.5px;
+}
+
+/* Title-only topbar (no action buttons, just eyebrow + title) */
+.workspace-topbar-titleonly {
+  margin-top: 28px;
+  margin-bottom: 24px;
+  gap: 0;
+}
+
+/* ── Profile menu ─────────────────────────────────────────── */
+.profile-menu {
+  position: relative;
+}
+
+.profile-avatar-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #1a1a1a;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+  letter-spacing: 0;
+}
+.profile-avatar-btn:hover {
+  background: #333;
+}
+
+.profile-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 300px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.profile-dropdown-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+}
+
+.profile-dropdown-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #1a1a1a;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.profile-dropdown-info {
+  min-width: 0;
+}
+
+.profile-dropdown-email {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-dropdown-company {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 2px 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-dropdown-divider {
+  height: 1px;
+  background: #f3f4f6;
+  margin: 0;
+}
+
+.profile-dropdown-section {
+  padding: 14px 18px;
+}
+
+.profile-payment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.profile-section-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.profile-card-saved {
+  font-size: 13px;
+  color: #15803d;
+  margin: 0;
+  font-weight: 500;
+}
+
+.profile-card-form .card-element-wrap {
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #f9fafb;
+  margin-bottom: 8px;
+}
+
+.profile-card-form .card-setup-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.profile-logout-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 18px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: #dc2626;
+  transition: background 0.12s;
+}
+.profile-logout-btn:hover {
+  background: #fef2f2;
+}
+
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 7px;
 }

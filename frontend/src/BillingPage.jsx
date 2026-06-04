@@ -1,5 +1,47 @@
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
+
+// ── Brand display map ────────────────────────────────────────
+const BRAND_LABELS = {
+  visa:       "Visa",
+  mastercard: "Mastercard",
+  amex:       "Amex",
+  discover:   "Discover",
+  jcb:        "JCB",
+  diners:     "Diners",
+  unionpay:   "UnionPay",
+};
+
+// ── Saved payment method display ─────────────────────────────
+function SavedPaymentMethod({ paymentMethod, onOpenPortal, openingPortal }) {
+  const brand = (paymentMethod.brand || "").toLowerCase();
+  const label = BRAND_LABELS[brand] || paymentMethod.brand || "Card";
+  const expMonth = String(paymentMethod.exp_month).padStart(2, "0");
+  const expYear = String(paymentMethod.exp_year).slice(-2);
+
+  return (
+    <div className="pm-saved-card">
+      <div className="pm-card-left">
+        <span className={`pm-card-brand-pill pm-brand-${brand}`}>{label}</span>
+        <div className="pm-card-meta">
+          <span className="pm-card-number">•••• •••• •••• {paymentMethod.last4}</span>
+          <span className="pm-card-expiry">Expires {expMonth}/{expYear}</span>
+        </div>
+      </div>
+      <button
+        className="btn-secondary btn-sm"
+        onClick={onOpenPortal}
+        disabled={openingPortal}
+      >
+        {openingPortal ? "Opening…" : "Manage card →"}
+      </button>
+    </div>
+  );
+}
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
 
 // ── Shared session utilities ─────────────────────────────────
 const SESSION_KEY = "automatisor_auth_workspace_v2";
@@ -64,47 +106,200 @@ function formatCurrency(amount) {
   }).format(Number(amount));
 }
 
+// ── Card setup form (rendered inside Stripe Elements) ────────
+function CardSetupForm({ email, onSuccess, onCancel }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [busy, setBusy] = useState(false);
+  const [cardError, setCardError] = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+    setBusy(true);
+    setCardError("");
+    try {
+      const { client_secret } = await fetchJson("/api/stripe/setup-intent", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+      const { setupIntent, error } = await stripe.confirmCardSetup(client_secret, {
+        payment_method: { card: elements.getElement(CardElement) },
+      });
+      if (error) {
+        setCardError(error.message || "Card setup failed.");
+        return;
+      }
+      await fetchJson("/api/stripe/confirm-payment-method", {
+        method: "POST",
+        body: JSON.stringify({ email, payment_method_id: setupIntent.payment_method }),
+      });
+      onSuccess();
+    } catch (err) {
+      setCardError(err.message || "Something went wrong.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="card-setup-form">
+      <div className="card-element-wrap">
+        <CardElement
+          options={{
+            style: {
+              base: { fontSize: "15px", color: "#1a1a1a", "::placeholder": { color: "#999" } },
+              invalid: { color: "#e53935" },
+            },
+          }}
+        />
+      </div>
+      {cardError && <p className="form-error" style={{ marginTop: "8px" }}>{cardError}</p>}
+      <div className="card-setup-actions">
+        <button type="submit" className="btn-primary" disabled={busy || !stripe}>
+          {busy ? "Saving…" : "Save card"}
+        </button>
+        <button type="button" className="btn-secondary" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 // ── Page component ───────────────────────────────────────────
 export default function BillingPage() {
   const [session] = useRequireSession();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [invoices, setInvoices] = useState([]);
+  const [paymentMethod, setPaymentMethod] = useState(null);
+  const [showCardSetup, setShowCardSetup] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
+  const [payingInvoiceId, setPayingInvoiceId] = useState(null);
+  const [payError, setPayError] = useState("");
 
-  useEffect(() => {
+  function loadData() {
     if (!session?.email) return;
     setLoading(true);
     fetchJson("/api/billing/invoices", {
       method: "POST",
       body: JSON.stringify({ email: session.email }),
     })
-      .then((payload) => setInvoices(payload.invoices || []))
+      .then((payload) => {
+        setInvoices(payload.invoices || []);
+        setPaymentMethod(payload.payment_method || null);
+      })
       .catch((err) => setError(err.message || "Could not load invoices."))
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => { loadData(); }, [session?.email]);
+
+  // Re-check payment method when user returns from the Stripe portal tab
+  useEffect(() => {
+    function onFocus() { loadData(); }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [session?.email]);
 
+  async function openPortal() {
+    setOpeningPortal(true);
+    setError("");
+    try {
+      const { url } = await fetchJson("/api/stripe/portal-session", {
+        method: "POST",
+        body: JSON.stringify({ email: session.email, return_url: window.location.href }),
+      });
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError(err.message || "Could not open billing portal.");
+    } finally {
+      setOpeningPortal(false);
+    }
+  }
+
+  async function handlePayInvoice(invoiceId) {
+    const inv = invoices.find((i) => i.invoice_id === invoiceId);
+
+    // Open invoices already have a hosted_invoice_url — go straight there
+    if (inv?.payment_url) {
+      window.open(inv.payment_url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    // Draft invoices need to be finalized on the backend first to get a URL
+    setPayingInvoiceId(invoiceId);
+    setPayError("");
+    try {
+      const { url } = await fetchJson("/api/billing/get-invoice-url", {
+        method: "POST",
+        body: JSON.stringify({ email: session.email, invoice_id: invoiceId }),
+      });
+      window.open(url, "_blank", "noopener,noreferrer");
+      // Reload so the draft now shows as open with its hosted URL
+      loadData();
+    } catch (err) {
+      setPayError(err.message || "Could not open payment page. Please try again.");
+    } finally {
+      setPayingInvoiceId(null);
+    }
+  }
+
   if (!session?.email) return null;
+
+  const openInvoiceCount = invoices.filter((inv) => inv.status === "open" || inv.status === "draft").length;
 
   return (
     <main className="workspace-page-shell signup-body workspace-body">
       <section className="workspace-page account-page">
-        <header className="workspace-topbar">
+        <header className="workspace-topbar workspace-topbar-titleonly">
           <div className="workspace-topbar-copy">
             <p className="workspace-eyebrow">Account</p>
             <h1 className="workspace-page-title">Payments &amp; Invoices</h1>
           </div>
-          <div className="workspace-topbar-actions">
-            <Link to="/workspace/credits" className="btn-secondary">
-              Credits &amp; Usage
-            </Link>
-            <Link to="/workspace" className="btn-secondary">
-              Back to workspace
-            </Link>
-          </div>
         </header>
+
+        {/* ── Payment method section ─────────────────────── */}
+        <section className="workspace-card workspace-card-modern payment-method-section">
+          <div className="payment-method-header">
+            <div>
+              <h2 className="workspace-section-title">Payment Method</h2>
+              <p className="workspace-section-subtitle">
+                {paymentMethod
+                  ? "Your card will be charged automatically at the end of each billing period."
+                  : "Add a card to enable automatic billing at the end of each period."}
+              </p>
+            </div>
+            {!loading && !paymentMethod && !showCardSetup && (
+              <button className="btn-primary" onClick={() => setShowCardSetup(true)}>
+                Add payment method
+              </button>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="pm-loading">Loading payment details…</div>
+          ) : paymentMethod ? (
+            <SavedPaymentMethod
+              paymentMethod={paymentMethod}
+              onOpenPortal={openPortal}
+              openingPortal={openingPortal}
+            />
+          ) : showCardSetup ? (
+            <Elements stripe={stripePromise}>
+              <CardSetupForm
+                email={session.email}
+                onSuccess={() => { setShowCardSetup(false); loadData(); }}
+                onCancel={() => setShowCardSetup(false)}
+              />
+            </Elements>
+          ) : null}
+        </section>
 
         <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
 
+        {/* ── Invoices section ───────────────────────────── */}
         {loading ? (
           <div className="workspace-loading-state">
             <p>Loading invoices…</p>
@@ -118,6 +313,17 @@ export default function BillingPage() {
           </div>
         ) : (
           <section className="invoices-section">
+            <div className="invoices-section-header">
+              <h2 className="workspace-section-title">
+                Invoices
+                {openInvoiceCount > 0 && (
+                  <span className="invoices-open-badge">{openInvoiceCount} due</span>
+                )}
+              </h2>
+            </div>
+            {payError && (
+              <p className="form-error" style={{ marginBottom: "12px" }}>{payError}</p>
+            )}
             <div className="invoices-table-wrap">
               <table className="invoices-table">
                 <thead>
@@ -127,15 +333,17 @@ export default function BillingPage() {
                     <th>Billing period</th>
                     <th className="invoices-col-right">Amount</th>
                     <th>Status</th>
-                    <th>Invoice</th>
-                    <th>Receipt</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {invoices.map((inv) => (
-                    <tr key={inv.invoice_id}>
+                    <tr
+                      key={inv.invoice_id}
+                      className={(inv.status === "open" || inv.status === "draft") ? "invoice-row-open" : ""}
+                    >
                       <td className="invoices-number">{inv.invoice_number || "—"}</td>
-                      <td>{formatInvoiceDate(inv.invoice_date)}</td>
+                      <td className="invoices-date">{formatInvoiceDate(inv.invoice_date)}</td>
                       <td className="invoices-period">
                         {inv.period_start && inv.period_end
                           ? `${formatInvoiceDate(inv.period_start)} – ${formatInvoiceDate(inv.period_end)}`
@@ -154,28 +362,22 @@ export default function BillingPage() {
                         </span>
                       </td>
                       <td>
-                        {inv.pdf_url ? (
-                          <a
-                            href={inv.pdf_url}
-                            className="invoices-action-link"
-                            target="_blank"
-                            rel="noopener noreferrer"
+                        {(inv.status === "open" || inv.status === "draft") ? (
+                          <button
+                            className="invoice-pay-btn"
+                            onClick={() => handlePayInvoice(inv.invoice_id)}
+                            disabled={payingInvoiceId === inv.invoice_id}
                           >
-                            Download
-                          </a>
-                        ) : (
-                          <span className="invoices-na">—</span>
-                        )}
-                      </td>
-                      <td>
-                        {inv.payment_url ? (
+                            {payingInvoiceId === inv.invoice_id ? "Opening…" : "Pay now"}
+                          </button>
+                        ) : inv.payment_url ? (
                           <a
                             href={inv.payment_url}
                             className="invoices-action-link"
                             target="_blank"
                             rel="noopener noreferrer"
                           >
-                            View
+                            Receipt ↗
                           </a>
                         ) : (
                           <span className="invoices-na">—</span>
