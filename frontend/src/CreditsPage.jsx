@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 // ── Shared session utilities ─────────────────────────────────
 const SESSION_KEY = "automatisor_auth_workspace_v2";
@@ -156,18 +156,10 @@ export default function CreditsPage() {
   return (
     <main className="workspace-page-shell signup-body workspace-body">
       <section className="workspace-page account-page">
-        <header className="workspace-topbar">
+        <header className="workspace-topbar workspace-topbar-titleonly">
           <div className="workspace-topbar-copy">
             <p className="workspace-eyebrow">Account</p>
             <h1 className="workspace-page-title">Credits &amp; Usage</h1>
-          </div>
-          <div className="workspace-topbar-actions">
-            <Link to="/workspace/billing" className="btn-secondary">
-              Payments &amp; Invoices
-            </Link>
-            <Link to="/workspace" className="btn-secondary">
-              Back to workspace
-            </Link>
           </div>
         </header>
 
@@ -252,6 +244,7 @@ export default function CreditsPage() {
                       const hasActiveFilter = !!(siteFilter || taskFilter);
                       if (hasActiveFilter && filteredRows.length === 0) return null;
                       const isExpanded = expandedPeriods.has(period.period_index) || hasActiveFilter;
+                      const isFreePeriod = period.rows.length > 0 && period.rows.every((r) => r.is_free);
                       return (
                         <div
                           key={period.period_index}
@@ -267,6 +260,9 @@ export default function CreditsPage() {
                               <span className="credits-period-range-text">
                                 {formatPeriodDate(period.period_start)} – {formatPeriodDate(period.period_end)}
                               </span>
+                              {isFreePeriod && (
+                                <span className="credits-free-badge">Free period</span>
+                              )}
                             </div>
                             <div className="credits-period-toggle-right">
                               <span className="credits-period-credits">
@@ -313,7 +309,12 @@ export default function CreditsPage() {
                                         </td>
                                         <td>{row.task_label}</td>
                                         <td className="credits-timestamp">{formatDateTimeEST(row.timestamp_utc)}</td>
-                                        <td className="credits-col-right">{row.credits_used}</td>
+                                        <td className="credits-col-right">
+                                          {row.credits_used}
+                                          {row.is_free && (
+                                            <span className="credits-free-row-tag" title="Not billed — free period"> free</span>
+                                          )}
+                                        </td>
                                       </tr>
                                     ))}
                                   </tbody>

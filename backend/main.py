@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import Any
 from datetime import datetime, timedelta, timezone
 
+import stripe
 import httpx
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,8 +21,11 @@ except ImportError:
     from address_normalization import canonical_zip, normalize_full_address, normalize_state, normalize_street_line
     from address_validator import validate_company_site
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(ROOT_DIR / ".env")
+BACKEND_DIR = Path(__file__).resolve().parent
+ROOT_DIR = BACKEND_DIR.parent
+
+# Ensure local development env vars are available when running uvicorn directly.
+load_dotenv(BACKEND_DIR / ".env")
 
 PORT = int(os.getenv("PORT", "3000"))
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
@@ -33,8 +38,14 @@ GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true") != "false"
 SERVER_DRY_RUN = "--dry" in os.sys.argv or os.getenv("AUTOMATISOR_DRY") == "1"
 
-SIGNUP_CREDITS = 1
-PRE_ASSESSMENT_PRICE = 1
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+PRICE_PER_CREDIT_USD_CENTS = 5000  # $50.00 per credit
+
+stripe.api_key = STRIPE_SECRET_KEY
+
+SIGNUP_CREDITS = 2
+PRE_ASSESSMENT_PRICE = 2
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 
 DISALLOWED_PERSONAL_EMAIL_DOMAINS = {
@@ -171,6 +182,7 @@ def _extract_supabase_error(response: httpx.Response) -> str:
         return (
             payload.get("msg")
             or payload.get("message")
+            or payload.get("detail")
             or payload.get("error_description")
             or payload.get("error")
             or payload.get("details")
@@ -376,7 +388,7 @@ async def find_customer_by_email(db: SupabaseAdmin, email: str) -> dict[str, Any
         "GET",
         "/rest/v1/automatisor_customer",
         params={
-            "select": "customer_id,email,first_name,last_name,full_name,designation,company_name,company_domain,email_verified,email_verified_at,last_login_at,metadata",
+            "select": "customer_id,email,first_name,last_name,full_name,designation,company_name,company_domain,email_verified,email_verified_at,last_login_at,metadata,stripe_customer_id,billing_period_start,billing_period_end,payment_method_id",
             "email": f"eq.{email}",
             "limit": 1,
         },
@@ -447,6 +459,51 @@ async def upsert_customer(db: SupabaseAdmin, data: dict[str, Any]) -> dict[str, 
     )
     row = created[0]
     return {"customerId": row["customer_id"], "email": row["email"]}
+
+
+async def create_stripe_customer(db: SupabaseAdmin, customer_id: str, email: str, full_name: str | None) -> str:
+    """
+    Creates a Stripe Customer and writes stripe_customer_id + billing period
+    back to automatisor_customer. Idempotent — if stripe_customer_id already
+    exists, returns it without calling Stripe again.
+    """
+    existing = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer",
+        params={
+            "select": "stripe_customer_id",
+            "customer_id": f"eq.{customer_id}",
+            "limit": 1,
+        },
+    )
+    row = existing[0] if existing else {}
+    if row.get("stripe_customer_id"):
+        return row["stripe_customer_id"]
+
+    stripe_customer = stripe.Customer.create(
+        email=email,
+        name=full_name or email,
+        metadata={"automatisor_customer_id": customer_id},
+    )
+
+    now = datetime.now(timezone.utc)
+    if now.month == 12:
+        period_end = datetime(now.year + 1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    else:
+        period_end = datetime(now.year, now.month + 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+    await db.request(
+        "PATCH",
+        "/rest/v1/automatisor_customer",
+        params={"customer_id": f"eq.{customer_id}"},
+        json_body={
+            "stripe_customer_id": stripe_customer.id,
+            "billing_period_start": now.isoformat(),
+            "billing_period_end": period_end.isoformat(),
+        },
+        headers={"Prefer": "return=minimal"},
+    )
+    return stripe_customer.id
 
 
 async def mark_customer_verified(db: SupabaseAdmin, email: str) -> str | None:
@@ -595,6 +652,152 @@ async def find_account_for_customer_site(db: SupabaseAdmin, customer_id: str | N
     }
 
 
+async def hydrate_recommendations_by_assignment(
+    db: SupabaseAdmin,
+    assignment_rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    refs_by_assignment: dict[str, dict[str, Any]] = {}
+    site_ids: list[str] = []
+    for assignment in assignment_rows:
+        customer_site_id = assignment.get("customer_site_id")
+        if not customer_site_id:
+            continue
+        recommendations = assignment.get("recommendations") or {}
+        if not isinstance(recommendations, dict):
+            recommendations = {}
+        refs_by_assignment[customer_site_id] = recommendations
+        for branch in ["company_sites", "nearby_sites"]:
+            for item in recommendations.get(branch) or []:
+                if not isinstance(item, dict):
+                    continue
+                site_id = clean_optional(item.get("site_id"))
+                if site_id and site_id not in site_ids:
+                    site_ids.append(site_id)
+    if not refs_by_assignment:
+        return result
+    site_map = await fetch_recommendation_site_map(db, site_ids)
+    for customer_site_id, recommendations in refs_by_assignment.items():
+        result[customer_site_id] = hydrate_recommendations_from_site_map(recommendations, site_map)
+    return result
+
+
+async def hydrate_recommendations(db: SupabaseAdmin, recommendations: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(recommendations, dict):
+        return {}
+    site_ids: list[str] = []
+    for branch in ["company_sites", "nearby_sites"]:
+        for item in recommendations.get(branch) or []:
+            if not isinstance(item, dict):
+                continue
+            site_id = clean_optional(item.get("site_id"))
+            if site_id and site_id not in site_ids:
+                site_ids.append(site_id)
+    site_map = await fetch_recommendation_site_map(db, site_ids)
+    return hydrate_recommendations_from_site_map(recommendations, site_map)
+
+
+async def fetch_recommendation_site_map(db: SupabaseAdmin, site_ids: list[str]) -> dict[str, dict[str, Any]]:
+    ids = [site_id for site_id in site_ids if site_id]
+    if not ids:
+        return {}
+    site_rows = await db.request(
+        "GET",
+        "/rest/v1/account_sites",
+        params={
+            "select": "site_id,account_id,full_address,company_name,metadata",
+            "site_id": f"in.({','.join(ids)})",
+            "is_archived": "eq.false",
+        },
+    )
+    account_ids: list[str] = []
+    for row in site_rows or []:
+        account_id = clean_optional(row.get("account_id"))
+        if account_id and account_id not in account_ids:
+            account_ids.append(account_id)
+    account_map: dict[str, dict[str, Any]] = {}
+    if account_ids:
+        account_rows = await db.request(
+            "GET",
+            "/rest/v1/accounts",
+            params={
+                "select": "account_id,company_name,account_domain",
+                "account_id": f"in.({','.join(account_ids)})",
+            },
+        )
+        account_map = {row["account_id"]: row for row in account_rows or [] if row.get("account_id")}
+    return {
+        row["site_id"]: hydrate_recommendation_site_row(row, account_map.get(row.get("account_id")) or {})
+        for row in site_rows or []
+        if row.get("site_id")
+    }
+
+
+def hydrate_recommendations_from_site_map(
+    recommendations: dict[str, Any],
+    site_map: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    hydrated = {
+        "status": clean_optional(recommendations.get("status")),
+        "company_sites": hydrate_recommendation_branch(
+            recommendations.get("company_sites"),
+            site_map,
+            "recommendation_site_discovery",
+        ),
+        "nearby_sites": hydrate_recommendation_branch(
+            recommendations.get("nearby_sites"),
+            site_map,
+            "recommendation_nearby_site",
+        ),
+    }
+    errors = recommendations.get("errors")
+    if isinstance(errors, dict) and errors:
+        hydrated["errors"] = errors
+    return hydrated
+
+
+def hydrate_recommendation_branch(
+    items: Any,
+    site_map: dict[str, dict[str, Any]],
+    metadata_key: str,
+) -> list[dict[str, Any]]:
+    hydrated: list[dict[str, Any]] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        site_id = clean_optional(item.get("site_id"))
+        if not site_id:
+            continue
+        site = site_map.get(site_id)
+        if not site:
+            hydrated.append({"site_id": site_id})
+            continue
+        metadata = site.get("metadata") if isinstance(site.get("metadata"), dict) else {}
+        recommendation_metadata = metadata.get(metadata_key) if isinstance(metadata.get(metadata_key), dict) else {}
+        hydrated.append(
+            {
+                **item,
+                "site_id": site_id,
+                "account_id": site.get("account_id") or "",
+                "company_name": recommendation_metadata.get("company_name") or site.get("company_name") or "",
+                "company_domain": site.get("company_domain") or "",
+                "website": site.get("company_domain") or "",
+                "site_address": recommendation_metadata.get("site_address") or site.get("full_address") or "",
+                "full_address": site.get("full_address") or "",
+                "google_maps_uri": recommendation_metadata.get("google_maps_uri") or "",
+            }
+        )
+    return hydrated
+
+
+def hydrate_recommendation_site_row(row: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **row,
+        "company_name": row.get("company_name") or account.get("company_name") or "",
+        "company_domain": account.get("account_domain") or "",
+    }
+
+
 async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, site_id: str | None, customer_id: str | None) -> dict[str, Any] | None:
     if not account_id or not site_id:
         return None
@@ -602,7 +805,7 @@ async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, sit
         "GET",
         "/rest/v1/automatisor_customer_sites",
         params={
-            "select": "customer_site_id,metadata,notes,report_metadata,rating_metadata,is_report_ready",
+            "select": "customer_site_id,metadata,recommendations,notes,report_metadata,rating_metadata,is_report_ready",
             "customer_id": f"eq.{customer_id}",
             "account_id": f"eq.{account_id}",
             "site_id": f"eq.{site_id}",
@@ -629,6 +832,7 @@ async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, sit
     if assignment:
         row["customer_site_id"] = assignment.get("customer_site_id")
         row["customer_site_metadata"] = assignment.get("metadata") or {}
+        row["recommendations"] = await hydrate_recommendations(db, assignment.get("recommendations") or {})
         row["notes"] = assignment.get("notes") or ""
         row["report_metadata"] = assignment.get("report_metadata") or {}
         row["rating_metadata"] = assignment.get("rating_metadata") or {}
@@ -643,7 +847,7 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
         "GET",
         "/rest/v1/automatisor_customer_sites",
         params={
-            "select": "customer_site_id,site_id,account_id,metadata,notes,report_metadata,rating_metadata,is_report_ready,created_at",
+            "select": "customer_site_id,site_id,account_id,metadata,recommendations,notes,report_metadata,rating_metadata,is_report_ready,created_at",
             "customer_id": f"eq.{customer_id}",
             "order": "created_at.desc",
         },
@@ -666,6 +870,7 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
         },
     )
     assignment_by_site = {row["site_id"]: row for row in assignment_rows or [] if row.get("site_id")}
+    hydrated_recommendations = await hydrate_recommendations_by_assignment(db, assignment_rows or [])
     sites = []
     for row in data or []:
         assignment = assignment_by_site.get(row.get("site_id"))
@@ -676,6 +881,7 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
                 **row,
                 "customer_site_id": assignment.get("customer_site_id"),
                 "customer_site_metadata": assignment.get("metadata") or {},
+                "recommendations": hydrated_recommendations.get(assignment.get("customer_site_id")) or {},
                 "notes": assignment.get("notes") or "",
                 "report_metadata": assignment.get("report_metadata") or {},
                 "rating_metadata": assignment.get("rating_metadata") or {},
@@ -1322,7 +1528,9 @@ async def handle_complete_onboarding(request: Request, body: dict[str, Any] = Bo
                 },
             )
             await mark_customer_verified(db, email)
-            workspace = await build_workspace_payload(db, email)
+            full_name = f"{first_name} {last_name}".strip()
+            await create_stripe_customer(db, customer["customerId"], email, full_name)
+            workspace = await build_workspace_payload(db, email, account["accountId"])
             return {
                 "status": "onboarding_complete",
                 **workspace,
@@ -1368,6 +1576,27 @@ async def handle_add_account_site(request: Request, body: dict[str, Any] = Body(
             existing_customer = await find_customer_by_email(db, email)
             if not existing_customer:
                 raise HTTPException(status_code=422, detail="Customer not found")
+
+            # Gate: second site onwards requires a payment method on file
+            if not existing_customer.get("payment_method_id"):
+                existing_sites = await db.request(
+                    "GET",
+                    "/rest/v1/automatisor_customer_sites",
+                    params={
+                        "select": "site_id",
+                        "customer_id": f"eq.{existing_customer['customer_id']}",
+                        "limit": 1,
+                    },
+                )
+                if existing_sites:
+                    raise HTTPException(
+                        status_code=402,
+                        detail={
+                            "code": "payment_method_required",
+                            "message": "Please add a payment method before adding more sites.",
+                        },
+                    )
+
             if selected_account_id:
                 account = await find_account_by_id(db, selected_account_id)
                 if not account:
@@ -1569,6 +1798,35 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
             raise HTTPException(status_code=422, detail="Selected site was not found for this customer")
         requested_at = datetime.now(timezone.utc).isoformat()
         if not is_dry_run_request(request, body):
+            stripe_customer_id = customer.get("stripe_customer_id")
+            if stripe_customer_id:
+                # Check 1: payment method must exist before allowing billable usage
+                stripe_cust = stripe.Customer.retrieve(
+                    stripe_customer_id,
+                    expand=["invoice_settings.default_payment_method"],
+                )
+                has_default_pm = bool(
+                    getattr(stripe_cust, "invoice_settings", None)
+                    and getattr(stripe_cust.invoice_settings, "default_payment_method", None)
+                )
+                if not has_default_pm:
+                    # Fall back: check for any attached card
+                    attached = stripe.PaymentMethod.list(
+                        customer=stripe_customer_id, type="card", limit=1
+                    )
+                    has_default_pm = bool(attached.data)
+                if not has_default_pm:
+                    raise HTTPException(
+                        status_code=402,
+                        detail="Add a payment method to continue using credits. You won't be charged until usage is billed.",
+                    )
+                # Check 2: block service if customer has any unpaid (open) Stripe invoices
+                open_invoices = stripe.Invoice.list(customer=stripe_customer_id, status="open", limit=1)
+                if open_invoices.data:
+                    raise HTTPException(
+                        status_code=402,
+                        detail="Your account has an unpaid invoice. Please pay your outstanding balance to continue using the service.",
+                    )
             await ensure_customer_site_assignment(
                 db,
                 customer["customer_id"],
@@ -1644,7 +1902,7 @@ async def get_credits_usage(body: dict[str, Any] = Body(default={})) -> dict[str
         "GET",
         "/rest/v1/automatisor_billing",
         params={
-            "select": "site_id,usage_type,credits_used,created_at",
+            "select": "site_id,usage_type,credits_used,created_at,is_free",
             "customer_id": f"eq.{customer['customer_id']}",
             "order": "created_at.desc",
         },
@@ -1725,6 +1983,7 @@ async def get_credits_usage(body: dict[str, Any] = Body(default={})) -> dict[str
             "task_label": task_label,
             "timestamp_utc": raw_ts,
             "credits_used": int(row.get("credits_used") or 0),
+            "is_free": bool(row.get("is_free")),
         })
 
     if current_key not in periods:
@@ -1749,6 +2008,53 @@ async def get_credits_usage(body: dict[str, Any] = Body(default={})) -> dict[str
     }
 
 
+@app.post("/api/stripe/setup-intent")
+async def create_setup_intent(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email is required.")
+    db = get_admin_db()
+    customer = await find_customer_by_email(db, email)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    stripe_customer_id = customer.get("stripe_customer_id")
+    if not stripe_customer_id:
+        raise HTTPException(status_code=422, detail="Stripe customer not initialised. Complete onboarding first.")
+    intent = stripe.SetupIntent.create(
+        customer=stripe_customer_id,
+        usage="off_session",
+        payment_method_types=["card"],
+    )
+    return {"client_secret": intent.client_secret}
+
+
+@app.post("/api/stripe/confirm-payment-method")
+async def confirm_payment_method(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    email = (body.get("email") or "").strip().lower()
+    payment_method_id = (body.get("payment_method_id") or "").strip()
+    if not email or not payment_method_id:
+        raise HTTPException(status_code=422, detail="email and payment_method_id are required.")
+    db = get_admin_db()
+    customer = await find_customer_by_email(db, email)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    stripe_customer_id = customer.get("stripe_customer_id")
+    if not stripe_customer_id:
+        raise HTTPException(status_code=422, detail="Stripe customer not initialised.")
+    stripe.Customer.modify(
+        stripe_customer_id,
+        invoice_settings={"default_payment_method": payment_method_id},
+    )
+    await db.request(
+        "PATCH",
+        "/rest/v1/automatisor_customer",
+        params={"customer_id": f"eq.{customer['customer_id']}"},
+        json_body={"payment_method_id": payment_method_id},
+        headers={"Prefer": "return=minimal"},
+    )
+    return {"ok": True}
+
+
 @app.post("/api/billing/invoices")
 async def get_billing_invoices(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     email = (body.get("email") or "").strip().lower()
@@ -1758,19 +2064,188 @@ async def get_billing_invoices(body: dict[str, Any] = Body(default={})) -> dict[
     customer = await find_customer_by_email(db, email)
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found.")
+    stripe_customer_id = customer.get("stripe_customer_id")
+    if not stripe_customer_id:
+        return {"invoices": [], "payment_method": None}
+    # Fetch default payment method info
+    stripe_customer = stripe.Customer.retrieve(
+        stripe_customer_id,
+        expand=["invoice_settings.default_payment_method"],
+    )
+    pm = stripe_customer.invoice_settings.default_payment_method
+    payment_method_info = None
+    if pm and hasattr(pm, "card") and pm.card:
+        payment_method_info = {
+            "brand":     pm.card.brand,
+            "last4":     pm.card.last4,
+            "exp_month": pm.card.exp_month,
+            "exp_year":  pm.card.exp_year,
+        }
+    stripe_invoices = stripe.Invoice.list(customer=stripe_customer_id, limit=12)
+    invoices = []
+    for inv in stripe_invoices.auto_paging_iter():
+        # Use amount_due for open/draft (what the customer still owes), amount_paid for settled
+        amount_cents = inv.amount_due if inv.status in ("open", "draft") else inv.amount_paid
+        invoices.append({
+            "invoice_id":     inv.id,
+            "invoice_number": inv.number,
+            "invoice_date":   datetime.fromtimestamp(inv.created, tz=timezone.utc).isoformat(),
+            "period_start":   datetime.fromtimestamp(inv.period_start, tz=timezone.utc).isoformat() if inv.period_start else None,
+            "period_end":     datetime.fromtimestamp(inv.period_end, tz=timezone.utc).isoformat() if inv.period_end else None,
+            "amount_usd":     amount_cents / 100,
+            "status":         inv.status,
+            "pdf_url":        inv.invoice_pdf,
+            "payment_url":    inv.hosted_invoice_url,
+        })
+        if len(invoices) >= 12:
+            break
+    return {"invoices": invoices, "payment_method": payment_method_info}
+
+
+@app.post("/api/stripe/portal-session")
+async def create_portal_session(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    email = (body.get("email") or "").strip().lower()
+    return_url = (body.get("return_url") or "").strip()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email is required.")
+    db = get_admin_db()
+    customer = await find_customer_by_email(db, email)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    stripe_customer_id = customer.get("stripe_customer_id")
+    if not stripe_customer_id:
+        raise HTTPException(status_code=422, detail="No Stripe customer found. Complete onboarding first.")
+    portal_session = stripe.billing_portal.Session.create(
+        customer=stripe_customer_id,
+        return_url=return_url or "https://automatisor.app/workspace/billing",
+    )
+    return {"url": portal_session.url}
+
+
+@app.post("/api/billing/pay-invoice")
+async def pay_invoice_endpoint(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    email = (body.get("email") or "").strip().lower()
+    invoice_id = (body.get("invoice_id") or "").strip()
+    if not email or not invoice_id:
+        raise HTTPException(status_code=422, detail="email and invoice_id are required.")
+    db = get_admin_db()
+    customer = await find_customer_by_email(db, email)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    stripe_customer_id = customer.get("stripe_customer_id")
+    if not stripe_customer_id:
+        raise HTTPException(status_code=422, detail="No Stripe customer found.")
+    # Verify the invoice belongs to this customer before charging
+    inv = stripe.Invoice.retrieve(invoice_id)
+    if inv.customer != stripe_customer_id:
+        raise HTTPException(status_code=403, detail="Invoice does not belong to this account.")
+    if inv.status not in ("open", "draft"):
+        raise HTTPException(status_code=422, detail=f"Invoice is not payable (status: {inv.status}).")
+    # Finalize first if still a draft
+    if inv.status == "draft":
+        inv = stripe.Invoice.finalize_invoice(invoice_id)
+    paid_inv = stripe.Invoice.pay(inv.id)
+    return {"ok": True, "status": paid_inv.status}
+
+
+@app.post("/api/billing/get-invoice-url")
+async def get_invoice_url(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Return the Stripe hosted payment URL for an invoice.
+    Finalizes draft invoices (no charge) to obtain the URL.
+    """
+    email = (body.get("email") or "").strip().lower()
+    invoice_id = (body.get("invoice_id") or "").strip()
+    if not email or not invoice_id:
+        raise HTTPException(status_code=422, detail="email and invoice_id are required.")
+    db = get_admin_db()
+    customer = await find_customer_by_email(db, email)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    stripe_customer_id = customer.get("stripe_customer_id")
+    if not stripe_customer_id:
+        raise HTTPException(status_code=422, detail="No Stripe customer found.")
+    inv = stripe.Invoice.retrieve(invoice_id)
+    if inv.customer != stripe_customer_id:
+        raise HTTPException(status_code=403, detail="Invoice does not belong to this account.")
+    if inv.status not in ("open", "draft"):
+        raise HTTPException(status_code=422, detail=f"Invoice is not payable (status: {inv.status}).")
+    # Finalize draft to generate the hosted_invoice_url (this does NOT charge the customer)
+    if inv.status == "draft":
+        inv = stripe.Invoice.finalize_invoice(invoice_id)
+    url = inv.hosted_invoice_url
+    if not url:
+        raise HTTPException(status_code=500, detail="Stripe did not return a payment URL for this invoice.")
+    return {"url": url}
+
+
+@app.post("/api/dev/trigger-billing-cron")
+async def dev_trigger_billing_cron(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """DEV ONLY — manually fire the billing cron. Remove before production."""
+    if os.getenv("ALLOW_DEV_TRIGGERS", "") != "1":
+        raise HTTPException(status_code=403, detail="Dev triggers are disabled.")
+    await run_billing_cron()
+    return {"ok": True, "message": "Billing cron completed."}
+
+
+@app.post("/api/dev/create-test-invoice")
+async def dev_create_test_invoice(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """DEV ONLY — create a real open Stripe invoice for testing Pay Now. Remove before production."""
+    if os.getenv("ALLOW_DEV_TRIGGERS", "") != "1":
+        raise HTTPException(status_code=403, detail="Dev triggers are disabled.")
+    email = (body.get("email") or "").strip().lower()
+    credits = int(body.get("credits") or 2)
+    if not email:
+        raise HTTPException(status_code=422, detail="email is required.")
+    db = get_admin_db()
+    customer = await find_customer_by_email(db, email)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    stripe_customer_id = customer.get("stripe_customer_id")
+    if not stripe_customer_id:
+        raise HTTPException(status_code=422, detail="No Stripe customer — add a card first.")
+    amount_cents = credits * PRICE_PER_CREDIT_USD_CENTS
+    # Create invoice first, then attach the item to it — avoids pending-item being swept to another invoice
+    invoice = stripe.Invoice.create(
+        customer=stripe_customer_id,
+        auto_advance=False,  # keep as draft — prevents auto-charge during testing
+        collection_method="charge_automatically",
+    )
+    stripe.InvoiceItem.create(
+        customer=stripe_customer_id,
+        invoice=invoice.id,
+        amount=amount_cents,
+        currency="usd",
+        description=f"[TEST] Automatisor — {credits} credit{'s' if credits != 1 else ''} (dev invoice)",
+    )
+    # Refresh to get correct amount_due
+    refreshed = stripe.Invoice.retrieve(invoice.id)
+    # Do NOT finalize — leave as draft so the UI can show it open for manual payment
+    return {"ok": True, "invoice_id": refreshed.id, "status": refreshed.status, "amount_usd": refreshed.amount_due / 100}
+
+
+@app.post("/api/stripe/webhook")
+async def stripe_webhook(request: Request) -> dict[str, Any]:
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
     try:
-        invoice_rows = await db.request(
-            "GET",
-            "/rest/v1/automatisor_invoices",
-            params={
-                "select": "invoice_id,invoice_number,invoice_date,amount_usd,status,pdf_url,payment_url,period_start,period_end",
-                "customer_id": f"eq.{customer['customer_id']}",
-                "order": "invoice_date.desc",
-            },
-        )
-    except HTTPException:
-        invoice_rows = []
-    return {"invoices": invoice_rows or []}
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid Stripe signature")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed webhook payload")
+
+    event_type = event["type"]
+
+    if event_type == "invoice.payment_succeeded":
+        pass  # Invoice already visible via /api/billing/invoices — no extra action needed
+
+    elif event_type == "invoice.payment_failed":
+        pass  # Stripe retries automatically; extend here to notify customer if desired
+
+    elif event_type == "setup_intent.succeeded":
+        pass  # confirm-payment-method endpoint handles the DB write; this is a backup confirm
+
+    return {"received": True}
 
 
 @app.post("/api/signup/request-otp")
@@ -1786,6 +2261,141 @@ async def signup_verify_alias(response: Response, request: Request, body: dict[s
 @app.post("/api/accounts/new-user")
 async def accounts_new_user_alias(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     return await handle_request_otp(request, body)
+
+
+# ── Billing cron ──────────────────────────────────────────────────────────────
+
+async def run_billing_cron() -> None:
+    """Runs daily at 01:00 UTC. Bills all customers whose billing period has ended."""
+    db = get_admin_db()
+    now = datetime.now(timezone.utc)
+
+    due_customers = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer",
+        params={
+            "select": "customer_id,email,stripe_customer_id,billing_period_start,billing_period_end,payment_method_id",
+            "billing_period_end": f"lte.{now.isoformat()}",
+            "stripe_customer_id": "not.is.null",
+        },
+    )
+
+    for customer in due_customers or []:
+        try:
+            await _process_billing_period(db, customer, now)
+        except Exception as exc:
+            print(f"[billing-cron] ERROR for {customer.get('email')}: {exc}")
+
+
+async def _process_billing_period(db: SupabaseAdmin, customer: dict[str, Any], now: datetime) -> None:
+    customer_id        = customer["customer_id"]
+    stripe_customer_id = customer["stripe_customer_id"]
+    period_start       = customer.get("billing_period_start")
+
+    # Determine if this is the first real (paid) period
+    prior_paid_rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_billing",
+        params={
+            "select": "billing_id",
+            "customer_id": f"eq.{customer_id}",
+            "is_free": "eq.false",
+            "limit": 1,
+        },
+    )
+    is_first_period = not bool(prior_paid_rows)
+
+    # Fetch usage rows for this period
+    usage_params: dict[str, Any] = {
+        "select": "billing_id,credits_used",
+        "customer_id": f"eq.{customer_id}",
+    }
+    if period_start:
+        usage_params["created_at"] = f"gte.{period_start}"
+    usage_rows = await db.request("GET", "/rest/v1/automatisor_billing", params=usage_params)
+    usage_rows = [r for r in (usage_rows or []) if r.get("billing_id")]
+    total_credits = sum(int(r.get("credits_used") or 0) for r in usage_rows)
+    row_ids = [r["billing_id"] for r in usage_rows]
+
+    # Open next billing period
+    if now.month == 12:
+        next_period_end = datetime(now.year + 1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    else:
+        next_period_end = datetime(now.year, now.month + 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+    await db.request(
+        "PATCH",
+        "/rest/v1/automatisor_customer",
+        params={"customer_id": f"eq.{customer_id}"},
+        json_body={
+            "billing_period_start": now.isoformat(),
+            "billing_period_end": next_period_end.isoformat(),
+        },
+        headers={"Prefer": "return=minimal"},
+    )
+
+    if is_first_period:
+        # Free period — mark rows, skip Stripe charge
+        if row_ids:
+            await db.request(
+                "PATCH",
+                "/rest/v1/automatisor_billing",
+                params={"billing_id": f"in.({','.join(row_ids)})"},
+                json_body={"is_free": True},
+                headers={"Prefer": "return=minimal"},
+            )
+        print(f"[billing-cron] FREE period closed for {customer.get('email')} ({total_credits} credits)")
+        return
+
+    # Paid period — charge via Stripe
+    if total_credits == 0:
+        print(f"[billing-cron] Zero usage for {customer.get('email')} — no invoice created")
+        return
+
+    if not customer.get("payment_method_id"):
+        print(f"[billing-cron] WARNING: {customer.get('email')} has no payment method — skipping charge")
+        return
+
+    amount_cents = total_credits * PRICE_PER_CREDIT_USD_CENTS
+    period_label = ""
+    if period_start and customer.get("billing_period_end"):
+        try:
+            ps = datetime.fromisoformat(str(period_start).replace("Z", "+00:00"))
+            pe = datetime.fromisoformat(str(customer["billing_period_end"]).replace("Z", "+00:00"))
+            period_label = f"{ps.strftime('%b %d')} – {pe.strftime('%b %d, %Y')}"
+        except ValueError:
+            pass
+
+    stripe.InvoiceItem.create(
+        customer=stripe_customer_id,
+        amount=amount_cents,
+        currency="usd",
+        description=f"Automatisor — {total_credits} credit{'s' if total_credits != 1 else ''} ({period_label})",
+    )
+    invoice = stripe.Invoice.create(
+        customer=stripe_customer_id,
+        auto_advance=True,
+        collection_method="charge_automatically",
+        default_payment_method=customer["payment_method_id"],
+    )
+    stripe.Invoice.pay(invoice.id)
+    print(f"[billing-cron] Charged {customer.get('email')}: ${amount_cents / 100:.2f} ({total_credits} credits)")
+
+
+# ── APScheduler lifecycle ─────────────────────────────────────────────────────
+
+_scheduler = AsyncIOScheduler(timezone="UTC")
+
+
+@app.on_event("startup")
+async def start_scheduler() -> None:
+    _scheduler.add_job(run_billing_cron, "cron", hour=1, minute=0)
+    _scheduler.start()
+
+
+@app.on_event("shutdown")
+async def stop_scheduler() -> None:
+    _scheduler.shutdown(wait=False)
 
 
 def register_vercel_service_api_aliases() -> None:

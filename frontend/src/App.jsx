@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import {
   Link,
+  Outlet,
   useLocation,
   Navigate,
   Route,
@@ -91,6 +92,7 @@ function loadSession() {
 function saveSession(nextState) {
   try {
     window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(nextState));
+    window.dispatchEvent(new CustomEvent("sessionUpdated", { detail: nextState }));
   } catch {
     // Ignore.
   }
@@ -220,6 +222,70 @@ function normalizeReportRatingMetadata(raw) {
     value: normalizeRating(source.value),
     additional_feedback: String(source.additional_feedback || ""),
     updated_at: source.updated_at || "",
+  };
+}
+
+function normalizeRecommendations(raw) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  return {
+    status: String(source.status || ""),
+    company_sites: Array.isArray(source.company_sites) ? source.company_sites : [],
+    nearby_sites: Array.isArray(source.nearby_sites) ? source.nearby_sites : [],
+    error: String(source.error || ""),
+  };
+}
+
+function recommendationText(value) {
+  return String(value || "").trim();
+}
+
+function recommendationTitle(recommendation) {
+  return (
+    recommendationText(recommendation.site_name) ||
+    recommendationText(recommendation.company_name) ||
+    recommendationText(recommendation.google_place_name)
+  );
+}
+
+function recommendationAddress(recommendation) {
+  return (
+    recommendationText(recommendation.site_address) ||
+    recommendationText(recommendation.google_formatted_address) ||
+    recommendationText(recommendation.full_address)
+  );
+}
+
+function hasHydratedRecommendationDetails(recommendation) {
+  return Boolean(
+    recommendationTitle(recommendation) ||
+      recommendationAddress(recommendation) ||
+      recommendationText(recommendation.google_maps_uri) ||
+      recommendationText(recommendation.source_url),
+  );
+}
+
+function recommendationAddFacilityDraft(recommendation, fallbackCompanyName = "") {
+  const companyName =
+    recommendationText(recommendation.company_name) ||
+    recommendationText(recommendation.site_name) ||
+    fallbackCompanyName;
+  const website = recommendationText(recommendation.website) || recommendationText(recommendation.source_url);
+  const domain = normalizeCandidateDomain({ website });
+  const address = recommendationAddress(recommendation);
+  return {
+    org_name: companyName,
+    company_name: companyName,
+    org_domain: domain,
+    full_address: address,
+    street: recommendationText(recommendation.site_street) || recommendationText(recommendation.street),
+    city: recommendationText(recommendation.site_city) || recommendationText(recommendation.city),
+    state: recommendationText(recommendation.site_state) || recommendationText(recommendation.state),
+    zip: recommendationText(recommendation.site_zip) || recommendationText(recommendation.zip_code) || recommendationText(recommendation.zip),
+    country: recommendationText(recommendation.country) || "US",
+    place_id: recommendationText(recommendation.place_id),
+    request_basis: "",
+    selected_candidate: null,
+    justification: "",
   };
 }
 
@@ -2491,6 +2557,77 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
   );
 });
 
+// ── Profile menu (avatar circle + dropdown) ────────────────
+function ProfileMenu({ session, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    function handleOutsideClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    if (open) document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [open]);
+
+  const initials = (session?.email || "?").charAt(0).toUpperCase();
+
+  return (
+    <div className="profile-menu" ref={menuRef}>
+      <button
+        type="button"
+        className="profile-avatar-btn"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Open profile menu"
+        aria-expanded={open}
+      >
+        {initials}
+      </button>
+
+      {open && (
+        <div className="profile-dropdown" role="dialog" aria-label="Profile">
+          {/* User info */}
+          <div className="profile-dropdown-header">
+            <div className="profile-dropdown-avatar">{initials}</div>
+            <div className="profile-dropdown-info">
+              <p className="profile-dropdown-email">{session?.email}</p>
+            </div>
+          </div>
+
+          <div className="profile-dropdown-divider" />
+
+          {/* Payment method */}
+          <div className="profile-dropdown-section">
+            <div className="profile-payment-row">
+              <span className="profile-section-label">Payment method</span>
+              <Link
+                to="/workspace/billing"
+                className="btn-secondary btn-sm"
+                onClick={() => setOpen(false)}
+              >
+                Manage card
+              </Link>
+            </div>
+          </div>
+
+          <div className="profile-dropdown-divider" />
+
+          {/* Logout */}
+          <button
+            type="button"
+            className="profile-logout-btn"
+            onClick={() => { setOpen(false); onLogout(); }}
+          >
+            Log out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CreditsUsedChip({ creditsUsed }) {
   return (
     <div className="wallet-chip" aria-label="Credits used">
@@ -2567,6 +2704,7 @@ function SiteRow({ site }) {
   const title = site.company_name || "Saved site";
   const routeState = buildPreAssessmentRouteState(site);
   const notesRouteState = { ...routeState, activeTab: "notes" };
+  const recommendationsRouteState = { ...routeState, activeTab: "recommendations" };
   const reportReady = Boolean(site.is_report_ready);
   return (
     <article className="site-bar-item">
@@ -2591,6 +2729,14 @@ function SiteRow({ site }) {
             onClick={() => saveReportContext(notesRouteState)}
           >
             Notes
+          </Link>
+          <Link
+            className="site-bar-link site-bar-link-secondary"
+            to={buildWorkspaceReportPath(recommendationsRouteState)}
+            state={recommendationsRouteState}
+            onClick={() => saveReportContext(recommendationsRouteState)}
+          >
+            Recommendations
           </Link>
         </div>
         <p className="site-bar-meta">
@@ -3412,8 +3558,59 @@ function useRequireSession() {
   return [session, setSession];
 }
 
-function WorkspacePage() {
+function WorkspaceLayout() {
   const navigate = useNavigate();
+  const [session, setSession] = useRequireSession();
+
+  // Keep the chip in sync whenever any child page calls saveSession
+  useEffect(() => {
+    function onSessionUpdated(e) {
+      if (e.detail?.creditsUsedTotal !== undefined) {
+        setSession((prev) => ({ ...prev, creditsUsedTotal: e.detail.creditsUsedTotal }));
+      }
+    }
+    window.addEventListener("sessionUpdated", onSessionUpdated);
+    return () => window.removeEventListener("sessionUpdated", onSessionUpdated);
+  }, []);
+
+  async function logout() {
+    try {
+      await fetchJson("/api/auth/logout", { method: "POST", body: JSON.stringify({}) });
+    } catch {
+      // Ignore logout failure.
+    }
+    clearSession();
+    navigate("/auth");
+  }
+
+  if (!session?.email) return null;
+
+  return (
+    <>
+      <div className="workspace-sticky-bar">
+        <div className="workspace-sticky-bar-inner">
+          <Link to="/workspace/sites/new" className="btn-primary">
+            Add new facility
+          </Link>
+          <Link to="/workspace" className="btn-secondary">
+            Workspace
+          </Link>
+          <Link to="/workspace/credits" className="btn-secondary">
+            Credits
+          </Link>
+          <Link to="/workspace/billing" className="btn-secondary">
+            Billing
+          </Link>
+          <CreditsUsedChip creditsUsed={session?.creditsUsedTotal || 0} />
+          <ProfileMenu session={session} onLogout={logout} />
+        </div>
+      </div>
+      <Outlet />
+    </>
+  );
+}
+
+function WorkspacePage() {
   const [session, setSession] = useRequireSession();
   const [error, setError] = useState("");
   const [workspace, setWorkspace] = useState(() => session || loadSession());
@@ -3439,46 +3636,19 @@ function WorkspacePage() {
       .finally(() => setLoadingWorkspace(false));
   }, [session?.email]);
 
-  async function logout() {
-    try {
-      await fetchJson("/api/auth/logout", { method: "POST", body: JSON.stringify({}) });
-    } catch {
-      // Ignore logout failure.
-    }
-    clearSession();
-    navigate("/auth");
-  }
-
   if (!session?.email) return null;
 
   const sites = workspace?.sites || [];
   return (
     <main className="workspace-page-shell signup-body workspace-body">
       <section className="workspace-page">
-        <header className="workspace-topbar">
+        <header className="workspace-topbar workspace-topbar-titleonly">
           <div className="workspace-topbar-copy">
             <p className="workspace-eyebrow">Workspace</p>
             <h1 className="workspace-page-title">Saved facilities</h1>
           </div>
-          <div className="workspace-topbar-actions">
-            <Link to="/workspace/sites/new" className="btn-primary">
-              Add new facility
-            </Link>
-            <Link to="/workspace/credits" className="btn-secondary">
-              Credits
-            </Link>
-            <Link to="/workspace/billing" className="btn-secondary">
-              Billing
-            </Link>
-            <button type="button" className="btn-secondary" onClick={logout}>
-              Logout
-            </button>
-            <CreditsUsedChip
-              creditsUsed={workspace?.creditsUsedTotal || 0}
-            />
-          </div>
         </header>
-        <WorkspaceMobileActions creditsUsed={workspace?.creditsUsedTotal || 0} onLogout={logout} />
+        <WorkspaceMobileActions creditsUsed={workspace?.creditsUsedTotal || 0} onLogout={() => {}} />
 
         <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
 
@@ -3635,9 +3805,6 @@ function NewSitePage() {
                 you confirm the pre-assessment request.
               </p>
             </div>
-            <Link to="/workspace" className="btn-primary">
-              Back to workspace
-            </Link>
           </div>
         </header>
 
@@ -3897,7 +4064,12 @@ function PreAssessmentPage() {
       setReviewOpen(false);
       setMode("success");
     } catch (nextError) {
-      const message = nextError.message || "Could not request the pre-assessment.";
+      const detail = nextError.payload?.detail;
+      const errorCode = (typeof detail === "object" ? detail?.code : null) || nextError.code || "";
+      const message =
+        errorCode === "payment_method_required"
+          ? "A payment method is required to add more sites. Please add a card on the Payments & Invoices page."
+          : (typeof detail === "object" ? detail?.message : null) || nextError.message || "Could not request the pre-assessment.";
       if (reviewOpen) {
         setReviewError(message);
       } else {
@@ -4212,6 +4384,130 @@ function ReportRatingPanel({
   );
 }
 
+function RecommendationCard({ recommendation, fallbackCompanyName }) {
+  const navigate = useNavigate();
+  const title = recommendationTitle(recommendation);
+  const address = recommendationAddress(recommendation);
+  const companyName = recommendationText(recommendation.company_name) || fallbackCompanyName;
+  const siteType = recommendationText(recommendation.site_type);
+  const reason = recommendationText(recommendation.reason);
+  const mapsUrl = recommendationText(recommendation.google_maps_uri) || recommendationText(recommendation.source_url);
+
+  function addFacility() {
+    navigate("/workspace/sites/new", {
+      state: {
+        editDraft: recommendationAddFacilityDraft(recommendation, fallbackCompanyName),
+      },
+    });
+  }
+
+  return (
+    <article className="recommendation-card">
+      <div className="recommendation-card-copy">
+        {title ? <p className="recommendation-card-title">{title}</p> : null}
+        {companyName && companyName !== title ? (
+          <p className="recommendation-card-company">{companyName}</p>
+        ) : null}
+        {address ? <p className="recommendation-card-address">{address}</p> : null}
+        <div className="recommendation-card-meta">
+          {siteType ? <span>{siteType}</span> : null}
+        </div>
+        {reason ? <p className="recommendation-card-reason">{reason}</p> : null}
+      </div>
+      <div className="recommendation-card-actions">
+        {mapsUrl ? (
+          <a className="site-bar-link site-bar-link-secondary" href={mapsUrl} target="_blank" rel="noopener noreferrer">
+            Google Maps
+          </a>
+        ) : null}
+        <button type="button" className="site-bar-link site-bar-link-primary" onClick={addFacility}>
+          Request pre-assessment
+        </button>
+        <button type="button" className="site-bar-link site-bar-link-secondary" onClick={() => {}}>
+          Add to collection
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function RecommendationSection({ title, recommendations, fallbackCompanyName }) {
+  const visibleRecommendations = recommendations
+    .filter(hasHydratedRecommendationDetails)
+    .slice(0, 3);
+  if (!visibleRecommendations.length) return null;
+  const layoutClass =
+    visibleRecommendations.length === 1 ? "recommendation-list-single" : "recommendation-list-grid";
+  return (
+    <section className="recommendation-section">
+      <h2 className="workspace-card-title">{title}</h2>
+      <div className={`recommendation-list ${layoutClass}`}>
+        {visibleRecommendations.map((recommendation, index) => (
+          <RecommendationCard
+            key={recommendation.place_id || `${title}-${recommendationAddress(recommendation)}-${index}`}
+            recommendation={recommendation}
+            fallbackCompanyName={fallbackCompanyName}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RecommendationsPanel({ selectedSite }) {
+  const recommendations = normalizeRecommendations(selectedSite?.recommendations);
+  const status = recommendations.status;
+  const ready = status === "ready";
+  const companySites = recommendations.company_sites;
+  const nearbySites = recommendations.nearby_sites;
+  const hasReadyResults = companySites.length > 0 || nearbySites.length > 0;
+
+  if (!ready) {
+    return (
+      <div className="report-running-panel">
+        <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
+          ...
+        </div>
+        <p className="workspace-eyebrow">Job running</p>
+        <h2 className="workspace-page-title">Recommendations are still running</h2>
+        <p className="workspace-page-copy">
+          We’re still preparing recommendations for this facility. They'll appear here when the job is complete.
+        </p>
+      </div>
+    );
+  }
+
+  if (!hasReadyResults) {
+    return (
+      <div className="report-running-panel">
+        <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
+          !
+        </div>
+        <p className="workspace-eyebrow">Recommendations</p>
+        <h2 className="workspace-page-title">No recommendations available</h2>
+        <p className="workspace-page-copy">
+          There are no additional facility recommendations available for this site yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="recommendations-panel">
+      <RecommendationSection
+        title="More facilities from this company"
+        recommendations={companySites}
+        fallbackCompanyName={selectedSite?.company_name || ""}
+      />
+      <RecommendationSection
+        title="Nearby facilities"
+        recommendations={nearbySites}
+        fallbackCompanyName=""
+      />
+    </div>
+  );
+}
+
 function ReportPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -4221,7 +4517,9 @@ function ReportPage() {
   const [workspace, setWorkspace] = useState(() => session || loadSession());
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
   const [activeReportTab, setActiveReportTab] = useState(() =>
-    location.state?.activeTab === "notes" ? "notes" : "preAssessment",
+    location.state?.activeTab === "notes" || location.state?.activeTab === "recommendations"
+      ? location.state.activeTab
+      : "preAssessment",
   );
   const [notesDraft, setNotesDraft] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
@@ -4255,7 +4553,11 @@ function ReportPage() {
   }, [location.search, routeState.accountId, routeState.siteId]);
 
   useEffect(() => {
-    if (routeState.activeTab === "notes" || routeState.activeTab === "preAssessment") {
+    if (
+      routeState.activeTab === "notes" ||
+      routeState.activeTab === "preAssessment" ||
+      routeState.activeTab === "recommendations"
+    ) {
       setActiveReportTab(routeState.activeTab);
     }
   }, [routeState.activeTab]);
@@ -4394,12 +4696,6 @@ function ReportPage() {
   return (
     <main className="workspace-page-shell signup-body workspace-body">
       <section className="workspace-page workspace-form-page report-page">
-        <div className="report-page-actions">
-          <Link to="/workspace" className="btn-primary">
-            Back to workspace
-          </Link>
-        </div>
-
         <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
 
         {loadingWorkspace && !workspace ? (
@@ -4447,6 +4743,15 @@ function ReportPage() {
                 aria-selected={activeReportTab === "notes"}
               >
                 Notes
+              </button>
+              <button
+                type="button"
+                className={`tab-btn ${activeReportTab === "recommendations" ? "tab-btn-active" : ""}`}
+                onClick={() => setActiveReportTab("recommendations")}
+                role="tab"
+                aria-selected={activeReportTab === "recommendations"}
+              >
+                Recommendations
               </button>
             </div>
 
@@ -4530,6 +4835,12 @@ function ReportPage() {
                 </div>
               </form>
             ) : null}
+
+            {activeReportTab === "recommendations" ? (
+              <div className="tab-panel report-tab-panel" role="tabpanel">
+                <RecommendationsPanel selectedSite={selectedSite} />
+              </div>
+            ) : null}
           </section>
         ) : null}
         {selectedSite ? (
@@ -4569,6 +4880,20 @@ function ReportPage() {
               </svg>
               <span>Notes</span>
             </button>
+            <button
+              type="button"
+              className={`report-mobile-action ${activeReportTab === "recommendations" ? "active" : ""}`}
+              onClick={() => setActiveReportTab("recommendations")}
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                <path d="M4.5 6.5h15" />
+                <path d="M4.5 12h15" />
+                <path d="M4.5 17.5h15" />
+                <path d="M8 4v15" />
+                <path d="M16 4v15" />
+              </svg>
+              <span>Recommendations</span>
+            </button>
           </nav>
         ) : null}
       </section>
@@ -4600,12 +4925,14 @@ function App() {
       <Route path="/" element={<Navigate to="/auth" replace />} />
       <Route path="/auth" element={<NewUserPage />} />
       <Route path="/new-user" element={<Navigate to="/auth" replace />} />
-      <Route path="/workspace" element={<WorkspacePage />} />
-      <Route path="/workspace/sites/new" element={<NewSitePage />} />
-      <Route path="/workspace/pre-assessment" element={<PreAssessmentPage />} />
-      <Route path="/workspace/report" element={<ReportPage />} />
-      <Route path="/workspace/credits" element={<CreditsPage />} />
-      <Route path="/workspace/billing" element={<BillingPage />} />
+      <Route element={<WorkspaceLayout />}>
+        <Route path="/workspace" element={<WorkspacePage />} />
+        <Route path="/workspace/sites/new" element={<NewSitePage />} />
+        <Route path="/workspace/pre-assessment" element={<PreAssessmentPage />} />
+        <Route path="/workspace/report" element={<ReportPage />} />
+        <Route path="/workspace/credits" element={<CreditsPage />} />
+        <Route path="/workspace/billing" element={<BillingPage />} />
+      </Route>
       <Route path="/sample-reports/br-williams" element={<SampleReportPage />} />
       <Route path="*" element={<Navigate to="/auth" replace />} />
     </Routes>
