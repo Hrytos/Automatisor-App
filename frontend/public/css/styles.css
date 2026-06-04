@@ -3335,6 +3335,80 @@ footer {
   max-width: none;
 }
 
+.workspace-library-button {
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid rgba(2, 5, 63, 0.14);
+  border-radius: 12px;
+  background: #ffffff;
+  color: #02053f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    color 0.16s ease;
+}
+
+.workspace-library-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(242, 92, 25, 0.2);
+  color: #cf4d14;
+  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.07);
+}
+
+.workspace-library-button svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspace-library-button strong {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(242, 92, 25, 0.1);
+  color: #cf4d14;
+  display: inline-grid;
+  place-items: center;
+  font-size: 12px;
+}
+
+.workspace-wishlist-panel {
+  margin-bottom: 18px;
+}
+
+.wishlist-bar-item {
+  border-color: rgba(2, 5, 63, 0.12);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.wishlist-bar-actions {
+  min-width: 230px;
+}
+
+.wishlist-bar-actions .site-bar-link {
+  width: 220px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.workspace-wishlist-empty {
+  margin-bottom: 0;
+}
+
 .site-bar-list {
   display: grid;
   gap: 14px;
@@ -3420,6 +3494,16 @@ footer {
   border-color: rgba(242, 92, 25, 0.18);
   color: #cf4d14;
   box-shadow: 0 10px 18px rgba(15, 23, 42, 0.06);
+}
+
+.site-bar-link:disabled,
+.site-bar-link[aria-disabled="true"] {
+  cursor: not-allowed;
+  transform: none;
+  border-color: rgba(15, 23, 42, 0.08);
+  background: #f1f5f9;
+  color: #64748b;
+  box-shadow: none;
 }
 
 .btn-glow {
@@ -3617,6 +3701,8 @@ footer {
   min-width: 0;
   min-height: 42px;
   border-radius: 12px;
+  text-align: center;
+  line-height: 1.2;
 }
 
 .site-bar-meta {
@@ -5564,6 +5650,50 @@ footer {
     padding: 18px 10px 40px;
   }
 
+  .workspace-sticky-bar {
+    margin: -18px -10px 0;
+    padding: 0 10px;
+  }
+
+  .workspace-sticky-bar-inner {
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .workspace-sticky-link-add,
+  .workspace-sticky-link-credits,
+  .workspace-sticky-link-billing {
+    display: none;
+  }
+
+  .workspace-sticky-bar-inner .wallet-chip {
+    flex: 0 1 auto;
+    width: fit-content;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .workspace-sticky-bar-inner .wallet-chip-icon {
+    display: grid;
+    flex-shrink: 0;
+  }
+
+  .workspace-sticky-bar-inner .wallet-chip-inline {
+    min-width: 0;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+
+  .workspace-sticky-link-workspace {
+    flex: 0 0 auto;
+    padding-inline: 12px;
+  }
+
+  .workspace-sticky-bar-inner .profile-menu {
+    flex: 0 0 auto;
+  }
+
   .new-site-page .workspace-map-shell {
     min-height: 260px;
   }
@@ -6265,6 +6395,12 @@ footer {
   border-radius: 8px;
   padding: 12px 14px;
   background: #fafafa;
+}
+
+.card-setup-hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #64748b;
 }
 
 .card-setup-actions {

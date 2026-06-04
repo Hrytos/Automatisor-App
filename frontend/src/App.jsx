@@ -9,6 +9,7 @@ import React, {
 import {
   Link,
   Outlet,
+  useOutletContext,
   useLocation,
   Navigate,
   Route,
@@ -164,6 +165,7 @@ function buildSessionFromPayload(session, payload) {
     creditsUsedTotal: Number(payload.credits_used_total || 0),
     creditsUsedThisMonth: Number(payload.credits_used_this_month || 0),
     sites: Array.isArray(payload.sites) ? payload.sites : session?.sites || [],
+    wishlist: Array.isArray(payload.wishlist) ? payload.wishlist : session?.wishlist || [],
     accounts: Array.isArray(payload.accounts) ? payload.accounts : session?.accounts || [],
     preAssessmentPriceCredits: Number(payload.pre_assessment_price_credits || session?.preAssessmentPriceCredits || 1),
   };
@@ -269,7 +271,11 @@ function recommendationAddFacilityDraft(recommendation, fallbackCompanyName = ""
     recommendationText(recommendation.company_name) ||
     recommendationText(recommendation.site_name) ||
     fallbackCompanyName;
-  const website = recommendationText(recommendation.website) || recommendationText(recommendation.source_url);
+  const website =
+    recommendationText(recommendation.website) ||
+    recommendationText(recommendation.company_domain) ||
+    recommendationText(recommendation.account_domain) ||
+    recommendationText(recommendation.source_url);
   const domain = normalizeCandidateDomain({ website });
   const address = recommendationAddress(recommendation);
   return {
@@ -287,6 +293,14 @@ function recommendationAddFacilityDraft(recommendation, fallbackCompanyName = ""
     selected_candidate: null,
     justification: "",
   };
+}
+
+function wishlistItemTitle(item) {
+  return recommendationText(item?.company_name) || recommendationText(item?.site_name) || "Wishlisted site";
+}
+
+function wishlistItemAddress(item) {
+  return recommendationText(item?.full_address) || recommendationText(item?.site_address) || recommendationText(item?.google_formatted_address);
 }
 
 function isWrappedReportField(value) {
@@ -2681,6 +2695,13 @@ function WorkspaceMobileActions({ creditsUsed, onLogout }) {
         </svg>
         <span>Billing</span>
       </Link>
+      <Link to="/workspace/wishlist" className="workspace-mobile-action">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+          <path d="M5.5 4.5h5.5a2 2 0 0 1 2 2v13a2.8 2.8 0 0 0-2-.85H5.5z" />
+          <path d="M18.5 4.5H13a2 2 0 0 0-2 2v13a2.8 2.8 0 0 1 2-.85h5.5z" />
+        </svg>
+        <span>Wishlist</span>
+      </Link>
       <div className="workspace-mobile-action workspace-mobile-credits" aria-label="Credits used">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
           <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h10A2.5 2.5 0 0 1 19 7.5V9h-2.75A3.25 3.25 0 0 0 13 12.25v.5A3.25 3.25 0 0 0 16.25 16H19v.5A2.5 2.5 0 0 1 16.5 19h-10A2.5 2.5 0 0 1 4 16.5v-9Z" />
@@ -2697,6 +2718,54 @@ function WorkspaceMobileActions({ creditsUsed, onLogout }) {
         <span>Logout</span>
       </button>
     </nav>
+  );
+}
+
+function WishlistRow({ item }) {
+  const editDraft = {
+    ...item,
+    ...recommendationAddFacilityDraft(item),
+    org_name: wishlistItemTitle(item),
+    company_name: wishlistItemTitle(item),
+    full_address: wishlistItemAddress(item),
+  };
+  return (
+    <article className="site-bar-item wishlist-bar-item">
+      <div className="site-bar-copy">
+        <p className="site-bar-title">{wishlistItemTitle(item)}</p>
+        <p className="site-bar-address">{wishlistItemAddress(item)}</p>
+      </div>
+      <div className="site-bar-actions wishlist-bar-actions">
+        <div className="site-bar-action-row">
+          <Link
+            className="site-bar-link site-bar-link-primary"
+            to="/workspace/sites/new"
+            state={{ editDraft }}
+          >
+            Request pre-assessment
+          </Link>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function WorkspaceWishlistPanel({ wishlist }) {
+  return (
+    <section className="workspace-wishlist-panel" aria-label="Wishlist">
+      {wishlist.length ? (
+        <div className="site-bar-list">
+          {wishlist.map((item) => (
+            <WishlistRow key={item.customer_context_id || item.site_id} item={item} />
+          ))}
+        </div>
+      ) : (
+        <div className="workspace-empty-state workspace-wishlist-empty">
+          <h3>No wishlist sites yet</h3>
+          <p>Add recommendations to wishlist from a report, then request a pre-assessment from here.</p>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -3589,29 +3658,30 @@ function WorkspaceLayout() {
     <>
       <div className="workspace-sticky-bar">
         <div className="workspace-sticky-bar-inner">
-          <Link to="/workspace/sites/new" className="btn-primary">
+          <Link to="/workspace/sites/new" className="btn-primary workspace-sticky-link workspace-sticky-link-add">
             Add new facility
           </Link>
-          <Link to="/workspace" className="btn-secondary">
+          <Link to="/workspace" className="btn-secondary workspace-sticky-link workspace-sticky-link-workspace">
             Workspace
           </Link>
-          <Link to="/workspace/credits" className="btn-secondary">
+          <Link to="/workspace/credits" className="btn-secondary workspace-sticky-link workspace-sticky-link-credits">
             Credits
           </Link>
-          <Link to="/workspace/billing" className="btn-secondary">
+          <Link to="/workspace/billing" className="btn-secondary workspace-sticky-link workspace-sticky-link-billing">
             Billing
           </Link>
           <CreditsUsedChip creditsUsed={session?.creditsUsedTotal || 0} />
           <ProfileMenu session={session} onLogout={logout} />
         </div>
       </div>
-      <Outlet />
+      <Outlet context={{ onLogout: logout }} />
     </>
   );
 }
 
 function WorkspacePage() {
   const [session, setSession] = useRequireSession();
+  const { onLogout = () => {} } = useOutletContext() || {};
   const [error, setError] = useState("");
   const [workspace, setWorkspace] = useState(() => session || loadSession());
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
@@ -3639,6 +3709,7 @@ function WorkspacePage() {
   if (!session?.email) return null;
 
   const sites = workspace?.sites || [];
+  const wishlist = workspace?.wishlist || [];
   return (
     <main className="workspace-page-shell signup-body workspace-body">
       <section className="workspace-page">
@@ -3647,8 +3718,19 @@ function WorkspacePage() {
             <p className="workspace-eyebrow">Workspace</p>
             <h1 className="workspace-page-title">Saved facilities</h1>
           </div>
+          <Link to="/workspace/wishlist" className="workspace-library-button">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+              <path d="M5.5 4.5h5.5a2 2 0 0 1 2 2v13a2.8 2.8 0 0 0-2-.85H5.5z" />
+              <path d="M18.5 4.5H13a2 2 0 0 0-2 2v13a2.8 2.8 0 0 1 2-.85h5.5z" />
+            </svg>
+            <span>Wishlist</span>
+            <strong>{wishlist.length}</strong>
+          </Link>
         </header>
-        <WorkspaceMobileActions creditsUsed={workspace?.creditsUsedTotal || 0} onLogout={() => {}} />
+        <WorkspaceMobileActions
+          creditsUsed={workspace?.creditsUsedTotal || 0}
+          onLogout={onLogout}
+        />
 
         <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
 
@@ -3675,6 +3757,63 @@ function WorkspacePage() {
                 </Link>
               </div>
             </div>
+          )}
+        </section>
+      </section>
+    </main>
+  );
+}
+
+function WishlistPage() {
+  const [session, setSession] = useRequireSession();
+  const { onLogout = () => {} } = useOutletContext() || {};
+  const [error, setError] = useState("");
+  const [workspace, setWorkspace] = useState(() => session || loadSession());
+  const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+
+  useEffect(() => {
+    if (!session?.email) return;
+    setLoadingWorkspace(true);
+    fetchJson("/api/workspace/state", {
+      method: "POST",
+      body: JSON.stringify({
+        email: session.email,
+        active_account_id: session.activeAccountId || session.accountId || "",
+      }),
+    })
+      .then((payload) => {
+        const nextState = buildSessionFromPayload(session, payload);
+        saveSession(nextState);
+        setSession(nextState);
+        setWorkspace(nextState);
+      })
+      .catch((nextError) => setError(nextError.message || "Could not load the wishlist."))
+      .finally(() => setLoadingWorkspace(false));
+  }, [session?.email]);
+
+  if (!session?.email) return null;
+
+  const wishlist = workspace?.wishlist || [];
+  return (
+    <main className="workspace-page-shell signup-body workspace-body">
+      <section className="workspace-page">
+        <header className="workspace-topbar workspace-topbar-titleonly">
+          <div className="workspace-topbar-copy">
+            <p className="workspace-eyebrow">Workspace</p>
+            <h1 className="workspace-page-title">Wishlist</h1>
+          </div>
+        </header>
+        <WorkspaceMobileActions creditsUsed={workspace?.creditsUsedTotal || 0} onLogout={onLogout} />
+
+        <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
+
+        <section className="workspace-sites-panel">
+          {loadingWorkspace && !wishlist.length ? (
+            <div className="workspace-loading-state">
+              <p>Loading wishlist...</p>
+            </div>
+          ) : (
+            <WorkspaceWishlistPanel wishlist={wishlist} />
           )}
         </section>
       </section>
@@ -3909,6 +4048,8 @@ function PreAssessmentPage() {
   const [workspace, setWorkspace] = useState(() => session || loadSession());
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
   const [confirmedRouteState, setConfirmedRouteState] = useState(null);
+  const [paymentRedirectSeconds, setPaymentRedirectSeconds] = useState(0);
+  const paymentRedirectTimersRef = useRef([]);
   const storedPreAssessmentContext = loadPreAssessmentContext();
   const queryRouteState = {
     accountId: searchParams.get("account_id") || "",
@@ -3953,7 +4094,11 @@ function PreAssessmentPage() {
   }, [session?.email, accountId]);
 
   const selectedSite = useMemo(
-    () => pendingSite || (workspace?.sites || []).find((site) => site.site_id === siteId) || null,
+    () =>
+      pendingSite ||
+      (workspace?.sites || []).find((site) => site.site_id === siteId) ||
+      (workspace?.wishlist || []).find((site) => site.site_id === siteId) ||
+      null,
     [workspace, siteId, pendingSite],
   );
   const isPendingSite = Boolean(pendingSite);
@@ -3962,6 +4107,33 @@ function PreAssessmentPage() {
   const preAssessmentPriceCredits =
     workspace?.preAssessmentPriceCredits ?? session?.preAssessmentPriceCredits ?? 1;
   const costLabel = `${preAssessmentPriceCredits} credit${preAssessmentPriceCredits === 1 ? "" : "s"}`;
+  const paymentRedirecting = paymentRedirectSeconds > 0;
+
+  function clearPaymentRedirectTimers() {
+    paymentRedirectTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    paymentRedirectTimersRef.current = [];
+  }
+
+  function resetPaymentRedirect() {
+    clearPaymentRedirectTimers();
+    setPaymentRedirectSeconds(0);
+  }
+
+  function startPaymentRedirect(message) {
+    clearPaymentRedirectTimers();
+    setPaymentRedirectSeconds(5);
+    paymentRedirectTimersRef.current = [
+      window.setTimeout(() => setPaymentRedirectSeconds(4), 1000),
+      window.setTimeout(() => setPaymentRedirectSeconds(3), 2000),
+      window.setTimeout(() => setPaymentRedirectSeconds(2), 3000),
+      window.setTimeout(() => setPaymentRedirectSeconds(1), 4000),
+      window.setTimeout(() => {
+        navigate("/workspace/billing", { state: { message } });
+      }, 5000),
+    ];
+  }
+
+  useEffect(() => () => clearPaymentRedirectTimers(), []);
 
   function openReview() {
     if (!selectedSite) {
@@ -3969,11 +4141,13 @@ function PreAssessmentPage() {
       return;
     }
     setError("");
+    resetPaymentRedirect();
     setReviewError("");
     setReviewOpen(true);
   }
 
   function editSelectedSite() {
+    if (paymentRedirecting) return;
     setReviewOpen(false);
     setReviewError("");
     if (isPendingSite) {
@@ -3988,11 +4162,13 @@ function PreAssessmentPage() {
   }
 
   async function requestPreAssessment() {
+    if (paymentRedirecting) return;
     if (!selectedSite) {
       setError("Select a site from the workspace before requesting a pre-assessment.");
       return;
     }
     setError("");
+    resetPaymentRedirect();
     setReviewError("");
     setLoading(true);
     try {
@@ -4068,8 +4244,17 @@ function PreAssessmentPage() {
       const errorCode = (typeof detail === "object" ? detail?.code : null) || nextError.code || "";
       const message =
         errorCode === "payment_method_required"
-          ? "A payment method is required to add more sites. Please add a card on the Payments & Invoices page."
+          ? "A payment method is required to add more sites. Please add a card on the Billing page."
           : (typeof detail === "object" ? detail?.message : null) || nextError.message || "Could not request the pre-assessment.";
+      if (errorCode === "payment_method_required") {
+        if (reviewOpen) {
+          setReviewError(message);
+        } else {
+          setError(message);
+        }
+        startPaymentRedirect(message);
+        return;
+      }
       if (reviewOpen) {
         setReviewError(message);
       } else {
@@ -4097,13 +4282,13 @@ function PreAssessmentPage() {
                     billed usage before the job starts.
                   </p>
                 </div>
-                <Link to="/workspace" className="btn-primary">
-                  Back to workspace
-                </Link>
               </div>
             </header>
 
-            <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
+            <p className={`form-error ${error ? "" : "hidden"}`}>
+              {error}
+              {paymentRedirectSeconds ? ` Redirecting in ${paymentRedirectSeconds}...` : ""}
+            </p>
 
             <section className="workspace-topbar-actions workspace-inline-stats">
               <CreditsUsedChip
@@ -4244,13 +4429,16 @@ function PreAssessmentPage() {
                       <span className="workspace-summary-value">{costLabel}</span>
                     </div>
                   </div>
-                  <p className={`form-error ${reviewError ? "" : "hidden"}`}>{reviewError}</p>
+                  <p className={`form-error ${reviewError ? "" : "hidden"}`}>
+                    {reviewError}
+                    {paymentRedirectSeconds ? ` Redirecting in ${paymentRedirectSeconds}...` : ""}
+                  </p>
                   <div className="review-modal-actions">
                     <button
                       type="button"
                       className="btn-secondary"
                       onClick={editSelectedSite}
-                      disabled={loading}
+                      disabled={loading || paymentRedirecting}
                     >
                       Edit
                     </button>
@@ -4258,7 +4446,7 @@ function PreAssessmentPage() {
                       type="button"
                       className="btn-primary"
                       onClick={requestPreAssessment}
-                      disabled={loading}
+                      disabled={loading || paymentRedirecting}
                     >
                       {loading ? "Please wait..." : "Confirm and proceed"}
                     </button>
@@ -4384,7 +4572,7 @@ function ReportRatingPanel({
   );
 }
 
-function RecommendationCard({ recommendation, fallbackCompanyName }) {
+function RecommendationCard({ recommendation, fallbackCompanyName, wishlistedSiteIds, addingWishlistSiteId, onAddToWishlist }) {
   const navigate = useNavigate();
   const title = recommendationTitle(recommendation);
   const address = recommendationAddress(recommendation);
@@ -4392,6 +4580,9 @@ function RecommendationCard({ recommendation, fallbackCompanyName }) {
   const siteType = recommendationText(recommendation.site_type);
   const reason = recommendationText(recommendation.reason);
   const mapsUrl = recommendationText(recommendation.google_maps_uri) || recommendationText(recommendation.source_url);
+  const siteId = recommendationText(recommendation.site_id);
+  const isWishlisted = Boolean(siteId && wishlistedSiteIds.has(siteId));
+  const isAddingWishlist = Boolean(siteId && addingWishlistSiteId === siteId);
 
   function addFacility() {
     navigate("/workspace/sites/new", {
@@ -4423,15 +4614,20 @@ function RecommendationCard({ recommendation, fallbackCompanyName }) {
         <button type="button" className="site-bar-link site-bar-link-primary" onClick={addFacility}>
           Request pre-assessment
         </button>
-        <button type="button" className="site-bar-link site-bar-link-secondary" onClick={() => {}}>
-          Add to collection
+        <button
+          type="button"
+          className="site-bar-link site-bar-link-secondary"
+          onClick={() => onAddToWishlist(recommendation)}
+          disabled={!siteId || isWishlisted || isAddingWishlist}
+        >
+          {isWishlisted ? "Added to wishlist" : isAddingWishlist ? "Adding..." : "Add to wishlist"}
         </button>
       </div>
     </article>
   );
 }
 
-function RecommendationSection({ title, recommendations, fallbackCompanyName }) {
+function RecommendationSection({ title, recommendations, fallbackCompanyName, wishlistedSiteIds, addingWishlistSiteId, onAddToWishlist }) {
   const visibleRecommendations = recommendations
     .filter(hasHydratedRecommendationDetails)
     .slice(0, 3);
@@ -4447,6 +4643,9 @@ function RecommendationSection({ title, recommendations, fallbackCompanyName }) 
             key={recommendation.place_id || `${title}-${recommendationAddress(recommendation)}-${index}`}
             recommendation={recommendation}
             fallbackCompanyName={fallbackCompanyName}
+            wishlistedSiteIds={wishlistedSiteIds}
+            addingWishlistSiteId={addingWishlistSiteId}
+            onAddToWishlist={onAddToWishlist}
           />
         ))}
       </div>
@@ -4454,13 +4653,14 @@ function RecommendationSection({ title, recommendations, fallbackCompanyName }) 
   );
 }
 
-function RecommendationsPanel({ selectedSite }) {
+function RecommendationsPanel({ selectedSite, wishlist, addingWishlistSiteId, onAddToWishlist }) {
   const recommendations = normalizeRecommendations(selectedSite?.recommendations);
   const status = recommendations.status;
   const ready = status === "ready";
   const companySites = recommendations.company_sites;
   const nearbySites = recommendations.nearby_sites;
   const hasReadyResults = companySites.length > 0 || nearbySites.length > 0;
+  const wishlistedSiteIds = new Set((wishlist || []).map((item) => item.site_id).filter(Boolean));
 
   if (!ready) {
     return (
@@ -4498,11 +4698,17 @@ function RecommendationsPanel({ selectedSite }) {
         title="More facilities from this company"
         recommendations={companySites}
         fallbackCompanyName={selectedSite?.company_name || ""}
+        wishlistedSiteIds={wishlistedSiteIds}
+        addingWishlistSiteId={addingWishlistSiteId}
+        onAddToWishlist={onAddToWishlist}
       />
       <RecommendationSection
         title="Nearby facilities"
         recommendations={nearbySites}
         fallbackCompanyName=""
+        wishlistedSiteIds={wishlistedSiteIds}
+        addingWishlistSiteId={addingWishlistSiteId}
+        onAddToWishlist={onAddToWishlist}
       />
     </div>
   );
@@ -4530,6 +4736,7 @@ function ReportPage() {
   const [savingRatingFeedback, setSavingRatingFeedback] = useState(false);
   const [ratingMessage, setRatingMessage] = useState("");
   const [ratingIsError, setRatingIsError] = useState(false);
+  const [addingWishlistSiteId, setAddingWishlistSiteId] = useState("");
   const queryRouteState = {
     accountId: searchParams.get("account_id") || "",
     siteId: searchParams.get("site_id") || "",
@@ -4615,6 +4822,55 @@ function ReportPage() {
     const nextSession = updateSites(session);
     setSession(nextSession);
     saveSession(nextSession);
+  }
+
+  function updateWishlistInState(nextItem) {
+    const updateWishlist = (state) => {
+      if (!state || !nextItem?.site_id) return state;
+      const currentWishlist = Array.isArray(state.wishlist) ? state.wishlist : [];
+      const exists = currentWishlist.some((item) => item.site_id === nextItem.site_id);
+      const nextWishlist = exists
+        ? currentWishlist.map((item) => (item.site_id === nextItem.site_id ? { ...item, ...nextItem } : item))
+        : [nextItem, ...currentWishlist];
+      return { ...state, wishlist: nextWishlist };
+    };
+    setWorkspace((current) => updateWishlist(current));
+    const nextSession = updateWishlist(session);
+    setSession(nextSession);
+    saveSession(nextSession);
+  }
+
+  async function addRecommendationToWishlist(recommendation) {
+    if (!session?.email) return;
+    const recommendationSiteId = recommendationText(recommendation.site_id);
+    const recommendationAccountId = recommendationText(recommendation.account_id);
+    if (!recommendationSiteId || !recommendationAccountId) {
+      setError("This recommendation is missing site details and cannot be added to wishlist.");
+      return;
+    }
+    setError("");
+    setAddingWishlistSiteId(recommendationSiteId);
+    try {
+      const payload = await fetchJson("/api/customer-context/wishlist", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          account_id: recommendationAccountId,
+          site_id: recommendationSiteId,
+          metadata: {
+            source: "report_recommendations",
+            source_site_id: selectedSite?.site_id || siteId,
+            title: recommendationTitle(recommendation),
+            address: recommendationAddress(recommendation),
+          },
+        }),
+      });
+      updateWishlistInState(payload.wishlist_item);
+    } catch (nextError) {
+      setError(nextError.message || "Could not add this site to wishlist.");
+    } finally {
+      setAddingWishlistSiteId("");
+    }
   }
 
   async function saveNotes(event) {
@@ -4838,7 +5094,12 @@ function ReportPage() {
 
             {activeReportTab === "recommendations" ? (
               <div className="tab-panel report-tab-panel" role="tabpanel">
-                <RecommendationsPanel selectedSite={selectedSite} />
+                <RecommendationsPanel
+                  selectedSite={selectedSite}
+                  wishlist={workspace?.wishlist || []}
+                  addingWishlistSiteId={addingWishlistSiteId}
+                  onAddToWishlist={addRecommendationToWishlist}
+                />
               </div>
             ) : null}
           </section>
@@ -4927,6 +5188,7 @@ function App() {
       <Route path="/new-user" element={<Navigate to="/auth" replace />} />
       <Route element={<WorkspaceLayout />}>
         <Route path="/workspace" element={<WorkspacePage />} />
+        <Route path="/workspace/wishlist" element={<WishlistPage />} />
         <Route path="/workspace/sites/new" element={<NewSitePage />} />
         <Route path="/workspace/pre-assessment" element={<PreAssessmentPage />} />
         <Route path="/workspace/report" element={<ReportPage />} />

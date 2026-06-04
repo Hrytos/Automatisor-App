@@ -95,6 +95,7 @@ SERVICE_API_PREFIXES = (
     "/address-validation",
     "/billing",
     "/credits",
+    "/customer-context",
     "/customer-sites",
     "/debug",
     "/frontend-config",
@@ -891,6 +892,149 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
     return sites
 
 
+async def list_customer_wishlist(db: SupabaseAdmin, customer_id: str | None) -> list[dict[str, Any]]:
+    if not customer_id:
+        return []
+    context_rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_context",
+        params={
+            "select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at",
+            "customer_id": f"eq.{customer_id}",
+            "event_type": "eq.wish_list",
+            "order": "created_at.desc",
+        },
+    )
+    site_ids: list[str] = []
+    for row in context_rows or []:
+        site_id = clean_optional(row.get("site_id"))
+        if site_id and site_id not in site_ids:
+            site_ids.append(site_id)
+    if not site_ids:
+        return []
+    site_rows = await db.request(
+        "GET",
+        "/rest/v1/account_sites",
+        params={
+            "select": "site_id,account_id,full_address,company_name,metadata,created_at",
+            "site_id": f"in.({','.join(site_ids)})",
+            "is_archived": "eq.false",
+        },
+    )
+    site_by_id = {row["site_id"]: row for row in site_rows or [] if row.get("site_id")}
+    account_ids: list[str] = []
+    for site in site_rows or []:
+        account_id = clean_optional(site.get("account_id"))
+        if account_id and account_id not in account_ids:
+            account_ids.append(account_id)
+    account_map: dict[str, dict[str, Any]] = {}
+    if account_ids:
+        account_rows = await db.request(
+            "GET",
+            "/rest/v1/accounts",
+            params={
+                "select": "account_id,company_name,account_domain",
+                "account_id": f"in.({','.join(account_ids)})",
+            },
+        )
+        account_map = {row["account_id"]: row for row in account_rows or [] if row.get("account_id")}
+    wishlist = []
+    for row in context_rows or []:
+        site = site_by_id.get(row.get("site_id"))
+        if not site:
+            continue
+        account = account_map.get(site.get("account_id")) or {}
+        wishlist.append(
+            {
+                **row,
+                "site_id": site.get("site_id"),
+                "account_id": site.get("account_id") or row.get("account_id"),
+                "company_name": site.get("company_name") or account.get("company_name") or "",
+                "company_domain": account.get("account_domain") or "",
+                "full_address": site.get("full_address") or "",
+                "site_metadata": site.get("metadata") or {},
+            }
+        )
+    return wishlist
+
+
+async def add_customer_wishlist_item(
+    db: SupabaseAdmin,
+    customer_id: str,
+    account_id: str,
+    site_id: str,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    site_rows = await db.request(
+        "GET",
+        "/rest/v1/account_sites",
+        params={
+            "select": "site_id,account_id,full_address,company_name,metadata",
+            "account_id": f"eq.{account_id}",
+            "site_id": f"eq.{site_id}",
+            "is_archived": "eq.false",
+            "limit": 1,
+        },
+    )
+    site = site_rows[0] if site_rows else None
+    if not site:
+        raise HTTPException(status_code=422, detail="Selected wishlist site was not found")
+    account_rows = await db.request(
+        "GET",
+        "/rest/v1/accounts",
+        params={
+            "select": "account_id,company_name,account_domain",
+            "account_id": f"eq.{account_id}",
+            "limit": 1,
+        },
+    )
+    account = account_rows[0] if account_rows else {}
+    existing_rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_context",
+        params={
+            "select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at",
+            "customer_id": f"eq.{customer_id}",
+            "site_id": f"eq.{site_id}",
+            "event_type": "eq.wish_list",
+            "limit": 1,
+        },
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    row = existing_rows[0] if existing_rows else None
+    if row:
+        return {
+            **row,
+            "company_name": site.get("company_name") or account.get("company_name") or "",
+            "company_domain": account.get("account_domain") or "",
+            "full_address": site.get("full_address") or "",
+            "site_metadata": site.get("metadata") or {},
+        }
+    created = await db.request(
+        "POST",
+        "/rest/v1/automatisor_customer_context",
+        params={"select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at"},
+        json_body={
+            "customer_id": customer_id,
+            "site_id": site_id,
+            "account_id": account_id,
+            "event_type": "wish_list",
+            "metadata": metadata or {},
+            "created_at": now,
+            "updated_at": now,
+        },
+        headers={"Prefer": "return=representation"},
+    )
+    result = created[0]
+    return {
+        **result,
+        "company_name": site.get("company_name") or account.get("company_name") or "",
+        "company_domain": account.get("account_domain") or "",
+        "full_address": site.get("full_address") or "",
+        "site_metadata": site.get("metadata") or {},
+    }
+
+
 async def upsert_account(db: SupabaseAdmin, org_name: str, domain: str) -> dict[str, str]:
     account_rows = await db.request(
         "GET",
@@ -1118,7 +1262,8 @@ async def build_workspace_state(db: SupabaseAdmin, email: str, requested_account
 async def build_workspace_payload(db: SupabaseAdmin, email: str, requested_account_id: str | None = None) -> dict[str, Any]:
     workspace = await build_workspace_state(db, email, requested_account_id)
     sites = await list_customer_sites(db, workspace.get("customer_id"))
-    return {**workspace, "sites": sites, "pre_assessment_price_credits": PRE_ASSESSMENT_PRICE}
+    wishlist = await list_customer_wishlist(db, workspace.get("customer_id"))
+    return {**workspace, "sites": sites, "wishlist": wishlist, "pre_assessment_price_credits": PRE_ASSESSMENT_PRICE}
 
 
 async def get_customer_usage_state(db: SupabaseAdmin, customer_id: str | None) -> dict[str, int]:
@@ -1760,6 +1905,32 @@ async def save_customer_site_rating(body: dict[str, Any] = Body(default={})) -> 
             "account_id": account_id,
             "site_id": site_id,
             "rating_metadata": rating_metadata,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/customer-context/wishlist")
+async def add_customer_context_wishlist(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        account_id = clean_required(body.get("account_id"), "Account")
+        site_id = clean_required(body.get("site_id"), "Site")
+        metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+        db = get_admin_db()
+        customer = await find_customer_by_email(db, email)
+        if not customer:
+            raise HTTPException(status_code=422, detail="Customer not found")
+        item = await add_customer_wishlist_item(
+            db,
+            customer["customer_id"],
+            account_id,
+            site_id,
+            metadata=metadata,
+        )
+        return {
+            "status": "saved",
+            "wishlist_item": item,
         }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
