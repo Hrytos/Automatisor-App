@@ -21,10 +21,11 @@ except ImportError:
     from address_normalization import canonical_zip, normalize_full_address, normalize_state, normalize_street_line
     from address_validator import validate_company_site
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
+BACKEND_DIR = Path(__file__).resolve().parent
+ROOT_DIR = BACKEND_DIR.parent
 
 # Ensure local development env vars are available when running uvicorn directly.
-load_dotenv(ROOT_DIR / ".env")
+load_dotenv(BACKEND_DIR / ".env")
 
 PORT = int(os.getenv("PORT", "3000"))
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")

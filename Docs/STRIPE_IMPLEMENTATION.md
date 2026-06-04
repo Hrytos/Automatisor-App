@@ -80,7 +80,7 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 VITE_STRIPE_PUBLISHABLE_KEY=pk_test_...
 ```
 
-Update `.env.example` to include all three keys (with placeholder values only).
+Update `backend/.env.example` and `frontend/.env.example` with placeholder values only.
 
 ---
 
@@ -596,7 +596,7 @@ periods[key].append({
 ```
 Step 1  →  Run SQL migrations in Supabase (Schema section 1a + 1b)
 Step 2  →  poetry add stripe apscheduler
-Step 3  →  Add STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET to .env
+Step 3  →  Add STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET to backend/.env
 Step 4  →  4a — New imports + constants in main.py
 Step 5  →  4b — Update find_customer_by_email select list
 Step 6  →  4c — Add create_stripe_customer helper
