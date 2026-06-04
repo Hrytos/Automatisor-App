@@ -3805,9 +3805,6 @@ function NewSitePage() {
                 you confirm the pre-assessment request.
               </p>
             </div>
-            <Link to="/workspace" className="btn-primary">
-              Back to workspace
-            </Link>
           </div>
         </header>
 
@@ -4699,12 +4696,6 @@ function ReportPage() {
   return (
     <main className="workspace-page-shell signup-body workspace-body">
       <section className="workspace-page workspace-form-page report-page">
-        <div className="report-page-actions">
-          <Link to="/workspace" className="btn-primary">
-            Back to workspace
-          </Link>
-        </div>
-
         <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
 
         {loadingWorkspace && !workspace ? (
