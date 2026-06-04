@@ -22,6 +22,8 @@ except ImportError:
     from address_validator import validate_company_site
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+
+# Ensure local development env vars are available when running uvicorn directly.
 load_dotenv(ROOT_DIR / ".env")
 
 PORT = int(os.getenv("PORT", "3000"))
@@ -1525,13 +1527,9 @@ async def handle_complete_onboarding(request: Request, body: dict[str, Any] = Bo
                 },
             )
             await mark_customer_verified(db, email)
-<<<<<<< HEAD
-            workspace = await build_workspace_payload(db, email)
-=======
             full_name = f"{first_name} {last_name}".strip()
             await create_stripe_customer(db, customer["customerId"], email, full_name)
             workspace = await build_workspace_payload(db, email, account["accountId"])
->>>>>>> stripe-dev
             return {
                 "status": "onboarding_complete",
                 **workspace,
