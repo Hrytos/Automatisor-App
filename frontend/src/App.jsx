@@ -223,6 +223,70 @@ function normalizeReportRatingMetadata(raw) {
   };
 }
 
+function normalizeRecommendations(raw) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  return {
+    status: String(source.status || ""),
+    company_sites: Array.isArray(source.company_sites) ? source.company_sites : [],
+    nearby_sites: Array.isArray(source.nearby_sites) ? source.nearby_sites : [],
+    error: String(source.error || ""),
+  };
+}
+
+function recommendationText(value) {
+  return String(value || "").trim();
+}
+
+function recommendationTitle(recommendation) {
+  return (
+    recommendationText(recommendation.site_name) ||
+    recommendationText(recommendation.company_name) ||
+    recommendationText(recommendation.google_place_name)
+  );
+}
+
+function recommendationAddress(recommendation) {
+  return (
+    recommendationText(recommendation.site_address) ||
+    recommendationText(recommendation.google_formatted_address) ||
+    recommendationText(recommendation.full_address)
+  );
+}
+
+function hasHydratedRecommendationDetails(recommendation) {
+  return Boolean(
+    recommendationTitle(recommendation) ||
+      recommendationAddress(recommendation) ||
+      recommendationText(recommendation.google_maps_uri) ||
+      recommendationText(recommendation.source_url),
+  );
+}
+
+function recommendationAddFacilityDraft(recommendation, fallbackCompanyName = "") {
+  const companyName =
+    recommendationText(recommendation.company_name) ||
+    recommendationText(recommendation.site_name) ||
+    fallbackCompanyName;
+  const website = recommendationText(recommendation.website) || recommendationText(recommendation.source_url);
+  const domain = normalizeCandidateDomain({ website });
+  const address = recommendationAddress(recommendation);
+  return {
+    org_name: companyName,
+    company_name: companyName,
+    org_domain: domain,
+    full_address: address,
+    street: recommendationText(recommendation.site_street) || recommendationText(recommendation.street),
+    city: recommendationText(recommendation.site_city) || recommendationText(recommendation.city),
+    state: recommendationText(recommendation.site_state) || recommendationText(recommendation.state),
+    zip: recommendationText(recommendation.site_zip) || recommendationText(recommendation.zip_code) || recommendationText(recommendation.zip),
+    country: recommendationText(recommendation.country) || "US",
+    place_id: recommendationText(recommendation.place_id),
+    request_basis: "",
+    selected_candidate: null,
+    justification: "",
+  };
+}
+
 function isWrappedReportField(value) {
   return (
     value &&
@@ -2567,6 +2631,7 @@ function SiteRow({ site }) {
   const title = site.company_name || "Saved site";
   const routeState = buildPreAssessmentRouteState(site);
   const notesRouteState = { ...routeState, activeTab: "notes" };
+  const recommendationsRouteState = { ...routeState, activeTab: "recommendations" };
   const reportReady = Boolean(site.is_report_ready);
   return (
     <article className="site-bar-item">
@@ -2591,6 +2656,14 @@ function SiteRow({ site }) {
             onClick={() => saveReportContext(notesRouteState)}
           >
             Notes
+          </Link>
+          <Link
+            className="site-bar-link site-bar-link-secondary"
+            to={buildWorkspaceReportPath(recommendationsRouteState)}
+            state={recommendationsRouteState}
+            onClick={() => saveReportContext(recommendationsRouteState)}
+          >
+            Recommendations
           </Link>
         </div>
         <p className="site-bar-meta">
@@ -4212,6 +4285,130 @@ function ReportRatingPanel({
   );
 }
 
+function RecommendationCard({ recommendation, fallbackCompanyName }) {
+  const navigate = useNavigate();
+  const title = recommendationTitle(recommendation);
+  const address = recommendationAddress(recommendation);
+  const companyName = recommendationText(recommendation.company_name) || fallbackCompanyName;
+  const siteType = recommendationText(recommendation.site_type);
+  const reason = recommendationText(recommendation.reason);
+  const mapsUrl = recommendationText(recommendation.google_maps_uri) || recommendationText(recommendation.source_url);
+
+  function addFacility() {
+    navigate("/workspace/sites/new", {
+      state: {
+        editDraft: recommendationAddFacilityDraft(recommendation, fallbackCompanyName),
+      },
+    });
+  }
+
+  return (
+    <article className="recommendation-card">
+      <div className="recommendation-card-copy">
+        {title ? <p className="recommendation-card-title">{title}</p> : null}
+        {companyName && companyName !== title ? (
+          <p className="recommendation-card-company">{companyName}</p>
+        ) : null}
+        {address ? <p className="recommendation-card-address">{address}</p> : null}
+        <div className="recommendation-card-meta">
+          {siteType ? <span>{siteType}</span> : null}
+        </div>
+        {reason ? <p className="recommendation-card-reason">{reason}</p> : null}
+      </div>
+      <div className="recommendation-card-actions">
+        {mapsUrl ? (
+          <a className="site-bar-link site-bar-link-secondary" href={mapsUrl} target="_blank" rel="noopener noreferrer">
+            Google Maps
+          </a>
+        ) : null}
+        <button type="button" className="site-bar-link site-bar-link-primary" onClick={addFacility}>
+          Request pre-assessment
+        </button>
+        <button type="button" className="site-bar-link site-bar-link-secondary" onClick={() => {}}>
+          Add to collection
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function RecommendationSection({ title, recommendations, fallbackCompanyName }) {
+  const visibleRecommendations = recommendations
+    .filter(hasHydratedRecommendationDetails)
+    .slice(0, 3);
+  if (!visibleRecommendations.length) return null;
+  const layoutClass =
+    visibleRecommendations.length === 1 ? "recommendation-list-single" : "recommendation-list-grid";
+  return (
+    <section className="recommendation-section">
+      <h2 className="workspace-card-title">{title}</h2>
+      <div className={`recommendation-list ${layoutClass}`}>
+        {visibleRecommendations.map((recommendation, index) => (
+          <RecommendationCard
+            key={recommendation.place_id || `${title}-${recommendationAddress(recommendation)}-${index}`}
+            recommendation={recommendation}
+            fallbackCompanyName={fallbackCompanyName}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RecommendationsPanel({ selectedSite }) {
+  const recommendations = normalizeRecommendations(selectedSite?.recommendations);
+  const status = recommendations.status;
+  const ready = status === "ready";
+  const companySites = recommendations.company_sites;
+  const nearbySites = recommendations.nearby_sites;
+  const hasReadyResults = companySites.length > 0 || nearbySites.length > 0;
+
+  if (!ready) {
+    return (
+      <div className="report-running-panel">
+        <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
+          ...
+        </div>
+        <p className="workspace-eyebrow">Job running</p>
+        <h2 className="workspace-page-title">Recommendations are still running</h2>
+        <p className="workspace-page-copy">
+          We’re still preparing recommendations for this facility. They'll appear here when the job is complete.
+        </p>
+      </div>
+    );
+  }
+
+  if (!hasReadyResults) {
+    return (
+      <div className="report-running-panel">
+        <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
+          !
+        </div>
+        <p className="workspace-eyebrow">Recommendations</p>
+        <h2 className="workspace-page-title">No recommendations available</h2>
+        <p className="workspace-page-copy">
+          There are no additional facility recommendations available for this site yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="recommendations-panel">
+      <RecommendationSection
+        title="More facilities from this company"
+        recommendations={companySites}
+        fallbackCompanyName={selectedSite?.company_name || ""}
+      />
+      <RecommendationSection
+        title="Nearby facilities"
+        recommendations={nearbySites}
+        fallbackCompanyName=""
+      />
+    </div>
+  );
+}
+
 function ReportPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -4221,7 +4418,9 @@ function ReportPage() {
   const [workspace, setWorkspace] = useState(() => session || loadSession());
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
   const [activeReportTab, setActiveReportTab] = useState(() =>
-    location.state?.activeTab === "notes" ? "notes" : "preAssessment",
+    location.state?.activeTab === "notes" || location.state?.activeTab === "recommendations"
+      ? location.state.activeTab
+      : "preAssessment",
   );
   const [notesDraft, setNotesDraft] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
@@ -4255,7 +4454,11 @@ function ReportPage() {
   }, [location.search, routeState.accountId, routeState.siteId]);
 
   useEffect(() => {
-    if (routeState.activeTab === "notes" || routeState.activeTab === "preAssessment") {
+    if (
+      routeState.activeTab === "notes" ||
+      routeState.activeTab === "preAssessment" ||
+      routeState.activeTab === "recommendations"
+    ) {
       setActiveReportTab(routeState.activeTab);
     }
   }, [routeState.activeTab]);
@@ -4448,6 +4651,15 @@ function ReportPage() {
               >
                 Notes
               </button>
+              <button
+                type="button"
+                className={`tab-btn ${activeReportTab === "recommendations" ? "tab-btn-active" : ""}`}
+                onClick={() => setActiveReportTab("recommendations")}
+                role="tab"
+                aria-selected={activeReportTab === "recommendations"}
+              >
+                Recommendations
+              </button>
             </div>
 
             {activeReportTab === "preAssessment" ? (
@@ -4530,6 +4742,12 @@ function ReportPage() {
                 </div>
               </form>
             ) : null}
+
+            {activeReportTab === "recommendations" ? (
+              <div className="tab-panel report-tab-panel" role="tabpanel">
+                <RecommendationsPanel selectedSite={selectedSite} />
+              </div>
+            ) : null}
           </section>
         ) : null}
         {selectedSite ? (
@@ -4568,6 +4786,20 @@ function ReportPage() {
                 <path d="M9 15h3.5" />
               </svg>
               <span>Notes</span>
+            </button>
+            <button
+              type="button"
+              className={`report-mobile-action ${activeReportTab === "recommendations" ? "active" : ""}`}
+              onClick={() => setActiveReportTab("recommendations")}
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                <path d="M4.5 6.5h15" />
+                <path d="M4.5 12h15" />
+                <path d="M4.5 17.5h15" />
+                <path d="M8 4v15" />
+                <path d="M16 4v15" />
+              </svg>
+              <span>Recommendations</span>
             </button>
           </nav>
         ) : null}

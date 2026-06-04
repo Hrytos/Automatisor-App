@@ -171,6 +171,7 @@ def _extract_supabase_error(response: httpx.Response) -> str:
         return (
             payload.get("msg")
             or payload.get("message")
+            or payload.get("detail")
             or payload.get("error_description")
             or payload.get("error")
             or payload.get("details")
@@ -595,6 +596,152 @@ async def find_account_for_customer_site(db: SupabaseAdmin, customer_id: str | N
     }
 
 
+async def hydrate_recommendations_by_assignment(
+    db: SupabaseAdmin,
+    assignment_rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    refs_by_assignment: dict[str, dict[str, Any]] = {}
+    site_ids: list[str] = []
+    for assignment in assignment_rows:
+        customer_site_id = assignment.get("customer_site_id")
+        if not customer_site_id:
+            continue
+        recommendations = assignment.get("recommendations") or {}
+        if not isinstance(recommendations, dict):
+            recommendations = {}
+        refs_by_assignment[customer_site_id] = recommendations
+        for branch in ["company_sites", "nearby_sites"]:
+            for item in recommendations.get(branch) or []:
+                if not isinstance(item, dict):
+                    continue
+                site_id = clean_optional(item.get("site_id"))
+                if site_id and site_id not in site_ids:
+                    site_ids.append(site_id)
+    if not refs_by_assignment:
+        return result
+    site_map = await fetch_recommendation_site_map(db, site_ids)
+    for customer_site_id, recommendations in refs_by_assignment.items():
+        result[customer_site_id] = hydrate_recommendations_from_site_map(recommendations, site_map)
+    return result
+
+
+async def hydrate_recommendations(db: SupabaseAdmin, recommendations: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(recommendations, dict):
+        return {}
+    site_ids: list[str] = []
+    for branch in ["company_sites", "nearby_sites"]:
+        for item in recommendations.get(branch) or []:
+            if not isinstance(item, dict):
+                continue
+            site_id = clean_optional(item.get("site_id"))
+            if site_id and site_id not in site_ids:
+                site_ids.append(site_id)
+    site_map = await fetch_recommendation_site_map(db, site_ids)
+    return hydrate_recommendations_from_site_map(recommendations, site_map)
+
+
+async def fetch_recommendation_site_map(db: SupabaseAdmin, site_ids: list[str]) -> dict[str, dict[str, Any]]:
+    ids = [site_id for site_id in site_ids if site_id]
+    if not ids:
+        return {}
+    site_rows = await db.request(
+        "GET",
+        "/rest/v1/account_sites",
+        params={
+            "select": "site_id,account_id,full_address,company_name,metadata",
+            "site_id": f"in.({','.join(ids)})",
+            "is_archived": "eq.false",
+        },
+    )
+    account_ids: list[str] = []
+    for row in site_rows or []:
+        account_id = clean_optional(row.get("account_id"))
+        if account_id and account_id not in account_ids:
+            account_ids.append(account_id)
+    account_map: dict[str, dict[str, Any]] = {}
+    if account_ids:
+        account_rows = await db.request(
+            "GET",
+            "/rest/v1/accounts",
+            params={
+                "select": "account_id,company_name,account_domain",
+                "account_id": f"in.({','.join(account_ids)})",
+            },
+        )
+        account_map = {row["account_id"]: row for row in account_rows or [] if row.get("account_id")}
+    return {
+        row["site_id"]: hydrate_recommendation_site_row(row, account_map.get(row.get("account_id")) or {})
+        for row in site_rows or []
+        if row.get("site_id")
+    }
+
+
+def hydrate_recommendations_from_site_map(
+    recommendations: dict[str, Any],
+    site_map: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    hydrated = {
+        "status": clean_optional(recommendations.get("status")),
+        "company_sites": hydrate_recommendation_branch(
+            recommendations.get("company_sites"),
+            site_map,
+            "recommendation_site_discovery",
+        ),
+        "nearby_sites": hydrate_recommendation_branch(
+            recommendations.get("nearby_sites"),
+            site_map,
+            "recommendation_nearby_site",
+        ),
+    }
+    errors = recommendations.get("errors")
+    if isinstance(errors, dict) and errors:
+        hydrated["errors"] = errors
+    return hydrated
+
+
+def hydrate_recommendation_branch(
+    items: Any,
+    site_map: dict[str, dict[str, Any]],
+    metadata_key: str,
+) -> list[dict[str, Any]]:
+    hydrated: list[dict[str, Any]] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        site_id = clean_optional(item.get("site_id"))
+        if not site_id:
+            continue
+        site = site_map.get(site_id)
+        if not site:
+            hydrated.append({"site_id": site_id})
+            continue
+        metadata = site.get("metadata") if isinstance(site.get("metadata"), dict) else {}
+        recommendation_metadata = metadata.get(metadata_key) if isinstance(metadata.get(metadata_key), dict) else {}
+        hydrated.append(
+            {
+                **item,
+                "site_id": site_id,
+                "account_id": site.get("account_id") or "",
+                "company_name": recommendation_metadata.get("company_name") or site.get("company_name") or "",
+                "company_domain": site.get("company_domain") or "",
+                "website": site.get("company_domain") or "",
+                "site_address": recommendation_metadata.get("site_address") or site.get("full_address") or "",
+                "full_address": site.get("full_address") or "",
+                "google_maps_uri": recommendation_metadata.get("google_maps_uri") or "",
+            }
+        )
+    return hydrated
+
+
+def hydrate_recommendation_site_row(row: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **row,
+        "company_name": row.get("company_name") or account.get("company_name") or "",
+        "company_domain": account.get("account_domain") or "",
+    }
+
+
 async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, site_id: str | None, customer_id: str | None) -> dict[str, Any] | None:
     if not account_id or not site_id:
         return None
@@ -602,7 +749,7 @@ async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, sit
         "GET",
         "/rest/v1/automatisor_customer_sites",
         params={
-            "select": "customer_site_id,metadata,notes,report_metadata,rating_metadata,is_report_ready",
+            "select": "customer_site_id,metadata,recommendations,notes,report_metadata,rating_metadata,is_report_ready",
             "customer_id": f"eq.{customer_id}",
             "account_id": f"eq.{account_id}",
             "site_id": f"eq.{site_id}",
@@ -629,6 +776,7 @@ async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, sit
     if assignment:
         row["customer_site_id"] = assignment.get("customer_site_id")
         row["customer_site_metadata"] = assignment.get("metadata") or {}
+        row["recommendations"] = await hydrate_recommendations(db, assignment.get("recommendations") or {})
         row["notes"] = assignment.get("notes") or ""
         row["report_metadata"] = assignment.get("report_metadata") or {}
         row["rating_metadata"] = assignment.get("rating_metadata") or {}
@@ -643,7 +791,7 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
         "GET",
         "/rest/v1/automatisor_customer_sites",
         params={
-            "select": "customer_site_id,site_id,account_id,metadata,notes,report_metadata,rating_metadata,is_report_ready,created_at",
+            "select": "customer_site_id,site_id,account_id,metadata,recommendations,notes,report_metadata,rating_metadata,is_report_ready,created_at",
             "customer_id": f"eq.{customer_id}",
             "order": "created_at.desc",
         },
@@ -666,6 +814,7 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
         },
     )
     assignment_by_site = {row["site_id"]: row for row in assignment_rows or [] if row.get("site_id")}
+    hydrated_recommendations = await hydrate_recommendations_by_assignment(db, assignment_rows or [])
     sites = []
     for row in data or []:
         assignment = assignment_by_site.get(row.get("site_id"))
@@ -676,6 +825,7 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
                 **row,
                 "customer_site_id": assignment.get("customer_site_id"),
                 "customer_site_metadata": assignment.get("metadata") or {},
+                "recommendations": hydrated_recommendations.get(assignment.get("customer_site_id")) or {},
                 "notes": assignment.get("notes") or "",
                 "report_metadata": assignment.get("report_metadata") or {},
                 "rating_metadata": assignment.get("rating_metadata") or {},
