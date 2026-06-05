@@ -257,6 +257,10 @@ function recommendationAddress(recommendation) {
   );
 }
 
+function recommendationMapsUrl(recommendation) {
+  return recommendationText(recommendation.google_maps_uri) || recommendationText(recommendation.source_url);
+}
+
 function hasHydratedRecommendationDetails(recommendation) {
   return Boolean(
     recommendationTitle(recommendation) ||
@@ -301,6 +305,16 @@ function wishlistItemTitle(item) {
 
 function wishlistItemAddress(item) {
   return recommendationText(item?.full_address) || recommendationText(item?.site_address) || recommendationText(item?.google_formatted_address);
+}
+
+function wishlistItemMapsUrl(item) {
+  const metadata = item?.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata) ? item.metadata : {};
+  return (
+    recommendationText(item?.google_maps_uri) ||
+    recommendationText(item?.source_url) ||
+    recommendationText(metadata.google_maps_uri) ||
+    recommendationText(metadata.source_url)
+  );
 }
 
 function isWrappedReportField(value) {
@@ -2722,18 +2736,26 @@ function WorkspaceMobileActions({ creditsUsed, onLogout }) {
 }
 
 function WishlistRow({ item }) {
+  const address = wishlistItemAddress(item);
+  const mapsUrl = wishlistItemMapsUrl(item);
   const editDraft = {
     ...item,
     ...recommendationAddFacilityDraft(item),
     org_name: wishlistItemTitle(item),
     company_name: wishlistItemTitle(item),
-    full_address: wishlistItemAddress(item),
+    full_address: address,
   };
   return (
     <article className="site-bar-item wishlist-bar-item">
       <div className="site-bar-copy">
         <p className="site-bar-title">{wishlistItemTitle(item)}</p>
-        <p className="site-bar-address">{wishlistItemAddress(item)}</p>
+        {address && mapsUrl ? (
+          <a className="site-bar-address address-link" href={mapsUrl} target="_blank" rel="noopener noreferrer">
+            {address}
+          </a>
+        ) : (
+          <p className="site-bar-address">{address}</p>
+        )}
       </div>
       <div className="site-bar-actions wishlist-bar-actions">
         <div className="site-bar-action-row">
@@ -4579,7 +4601,7 @@ function RecommendationCard({ recommendation, fallbackCompanyName, wishlistedSit
   const companyName = recommendationText(recommendation.company_name) || fallbackCompanyName;
   const siteType = recommendationText(recommendation.site_type);
   const reason = recommendationText(recommendation.reason);
-  const mapsUrl = recommendationText(recommendation.google_maps_uri) || recommendationText(recommendation.source_url);
+  const mapsUrl = recommendationMapsUrl(recommendation);
   const siteId = recommendationText(recommendation.site_id);
   const isWishlisted = Boolean(siteId && wishlistedSiteIds.has(siteId));
   const isAddingWishlist = Boolean(siteId && addingWishlistSiteId === siteId);
@@ -4599,18 +4621,19 @@ function RecommendationCard({ recommendation, fallbackCompanyName, wishlistedSit
         {companyName && companyName !== title ? (
           <p className="recommendation-card-company">{companyName}</p>
         ) : null}
-        {address ? <p className="recommendation-card-address">{address}</p> : null}
+        {address && mapsUrl ? (
+          <a className="recommendation-card-address recommendation-card-address-link" href={mapsUrl} target="_blank" rel="noopener noreferrer">
+            {address}
+          </a>
+        ) : address ? (
+          <p className="recommendation-card-address">{address}</p>
+        ) : null}
         <div className="recommendation-card-meta">
           {siteType ? <span>{siteType}</span> : null}
         </div>
         {reason ? <p className="recommendation-card-reason">{reason}</p> : null}
       </div>
       <div className="recommendation-card-actions">
-        {mapsUrl ? (
-          <a className="site-bar-link site-bar-link-secondary" href={mapsUrl} target="_blank" rel="noopener noreferrer">
-            Google Maps
-          </a>
-        ) : null}
         <button type="button" className="site-bar-link site-bar-link-primary" onClick={addFacility}>
           Request pre-assessment
         </button>
@@ -4862,6 +4885,8 @@ function ReportPage() {
             source_site_id: selectedSite?.site_id || siteId,
             title: recommendationTitle(recommendation),
             address: recommendationAddress(recommendation),
+            google_maps_uri: recommendationText(recommendation.google_maps_uri),
+            source_url: recommendationText(recommendation.source_url),
           },
         }),
       });
@@ -5106,14 +5131,6 @@ function ReportPage() {
         ) : null}
         {selectedSite ? (
           <nav className="report-mobile-actions" aria-label="Report actions">
-            <Link to="/workspace" className="report-mobile-action">
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
-                <path d="M3 11.5 12 4l9 7.5" />
-                <path d="M5.5 10.5V20h13v-9.5" />
-                <path d="M9.5 20v-5h5v5" />
-              </svg>
-              <span>Workspace</span>
-            </Link>
             <button
               type="button"
               className={`report-mobile-action ${activeReportTab === "preAssessment" ? "active" : ""}`}

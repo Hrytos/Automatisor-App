@@ -2904,6 +2904,7 @@ footer {
 
 .new-site-page {
   max-width: 1040px;
+  margin-top: 22px;
 }
 
 .new-site-page .workspace-card-form {
@@ -3467,6 +3468,26 @@ footer {
   line-height: 1.62;
 }
 
+.address-link,
+.recommendation-card-address-link {
+  display: inline;
+  color: #475569;
+  text-decoration: underline;
+  text-decoration-color: rgba(71, 85, 105, 0.28);
+  text-underline-offset: 3px;
+  transition:
+    color 0.16s ease,
+    text-decoration-color 0.16s ease;
+}
+
+.address-link:hover,
+.address-link:focus-visible,
+.recommendation-card-address-link:hover,
+.recommendation-card-address-link:focus-visible {
+  color: #cf4d14;
+  text-decoration-color: rgba(207, 77, 20, 0.55);
+}
+
 .site-bar-link {
   flex-shrink: 0;
   min-height: 40px;
@@ -3771,6 +3792,7 @@ footer {
 
 .report-page {
   max-width: 1480px;
+  margin-top: 22px;
 }
 
 .report-page-actions {
@@ -5650,6 +5672,11 @@ footer {
     padding: 18px 10px 40px;
   }
 
+  .new-site-page,
+  .report-page {
+    margin-top: 30px;
+  }
+
   .workspace-sticky-bar {
     margin: -18px -10px 0;
     padding: 0 10px;
@@ -5946,7 +5973,7 @@ footer {
     max-height: 56px;
     box-sizing: border-box;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: center;
     gap: 4px;
     padding: 5px;
@@ -6170,7 +6197,7 @@ footer {
     max-height: 58px;
     box-sizing: border-box;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: center;
     gap: 6px;
     padding: 6px;
