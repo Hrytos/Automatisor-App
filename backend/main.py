@@ -397,6 +397,46 @@ async def find_customer_by_email(db: SupabaseAdmin, email: str) -> dict[str, Any
     return data[0] if data else None
 
 
+async def find_customer_by_id(db: SupabaseAdmin, customer_id: str | None) -> dict[str, Any] | None:
+    if not customer_id:
+        return None
+    data = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer",
+        params={
+            "select": "customer_id,email,first_name,last_name,full_name,designation,company_name,company_domain,email_verified,email_verified_at,last_login_at,metadata,stripe_customer_id,billing_period_start,billing_period_end,payment_method_id",
+            "customer_id": f"eq.{customer_id}",
+            "limit": 1,
+        },
+    )
+    return data[0] if data else None
+
+
+async def resolve_customer_for_billing(db: SupabaseAdmin, body: dict[str, Any]) -> dict[str, Any]:
+    raw_customer_id = str(body.get("customer_id") or body.get("customerId") or "").strip()
+    email = (body.get("email") or "").strip().lower()
+
+    customer_by_id = await find_customer_by_id(db, raw_customer_id) if raw_customer_id else None
+    customer_by_email = await find_customer_by_email(db, email) if email else None
+
+    if raw_customer_id and not customer_by_id:
+        raise HTTPException(status_code=404, detail="Customer not found for provided customer_id.")
+
+    if email and not customer_by_email and not customer_by_id:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+
+    if customer_by_id and customer_by_email and customer_by_id["customer_id"] != customer_by_email["customer_id"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Customer identity mismatch. Please sign out and sign in again.",
+        )
+
+    customer = customer_by_id or customer_by_email
+    if not customer:
+        raise HTTPException(status_code=422, detail="Either customer_id or email is required.")
+    return customer
+
+
 async def find_account_by_id(db: SupabaseAdmin, account_id: str | None) -> dict[str, Any] | None:
     if not account_id:
         return None
@@ -1675,7 +1715,7 @@ async def handle_complete_onboarding(request: Request, body: dict[str, Any] = Bo
             await mark_customer_verified(db, email)
             full_name = f"{first_name} {last_name}".strip()
             await create_stripe_customer(db, customer["customerId"], email, full_name)
-            workspace = await build_workspace_payload(db, email, account["accountId"])
+            workspace = await build_workspace_payload(db, email)
             return {
                 "status": "onboarding_complete",
                 **workspace,
@@ -2181,41 +2221,39 @@ async def get_credits_usage(body: dict[str, Any] = Body(default={})) -> dict[str
 
 @app.post("/api/stripe/setup-intent")
 async def create_setup_intent(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
-    email = (body.get("email") or "").strip().lower()
-    if not email:
-        raise HTTPException(status_code=422, detail="Email is required.")
     db = get_admin_db()
-    customer = await find_customer_by_email(db, email)
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found.")
+    customer = await resolve_customer_for_billing(db, body)
     stripe_customer_id = customer.get("stripe_customer_id")
     if not stripe_customer_id:
         raise HTTPException(status_code=422, detail="Stripe customer not initialised. Complete onboarding first.")
-    intent = stripe.SetupIntent.create(
-        customer=stripe_customer_id,
-        usage="off_session",
-        payment_method_types=["card"],
-    )
+    try:
+        intent = stripe.SetupIntent.create(
+            customer=stripe_customer_id,
+            usage="off_session",
+            payment_method_types=["card"],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Unable to start card setup: {exc}") from exc
     return {"client_secret": intent.client_secret}
 
 
 @app.post("/api/stripe/confirm-payment-method")
 async def confirm_payment_method(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
-    email = (body.get("email") or "").strip().lower()
     payment_method_id = (body.get("payment_method_id") or "").strip()
-    if not email or not payment_method_id:
-        raise HTTPException(status_code=422, detail="email and payment_method_id are required.")
+    if not payment_method_id:
+        raise HTTPException(status_code=422, detail="payment_method_id is required.")
     db = get_admin_db()
-    customer = await find_customer_by_email(db, email)
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found.")
+    customer = await resolve_customer_for_billing(db, body)
     stripe_customer_id = customer.get("stripe_customer_id")
     if not stripe_customer_id:
         raise HTTPException(status_code=422, detail="Stripe customer not initialised.")
-    stripe.Customer.modify(
-        stripe_customer_id,
-        invoice_settings={"default_payment_method": payment_method_id},
-    )
+    try:
+        stripe.Customer.modify(
+            stripe_customer_id,
+            invoice_settings={"default_payment_method": payment_method_id},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Unable to save card as default payment method: {exc}") from exc
     await db.request(
         "PATCH",
         "/rest/v1/automatisor_customer",

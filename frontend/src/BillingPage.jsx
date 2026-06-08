@@ -107,7 +107,7 @@ function formatCurrency(amount) {
 }
 
 // ── Card setup form (rendered inside Stripe Elements) ────────
-function CardSetupForm({ email, onSuccess, onCancel }) {
+function CardSetupForm({ email, customerId, onSuccess, onCancel }) {
   const stripe = useStripe();
   const elements = useElements();
   const [busy, setBusy] = useState(false);
@@ -121,7 +121,7 @@ function CardSetupForm({ email, onSuccess, onCancel }) {
     try {
       const { client_secret } = await fetchJson("/api/stripe/setup-intent", {
         method: "POST",
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, customer_id: customerId }),
       });
       const { setupIntent, error } = await stripe.confirmCardSetup(client_secret, {
         payment_method: { card: elements.getElement(CardElement) },
@@ -132,7 +132,11 @@ function CardSetupForm({ email, onSuccess, onCancel }) {
       }
       await fetchJson("/api/stripe/confirm-payment-method", {
         method: "POST",
-        body: JSON.stringify({ email, payment_method_id: setupIntent.payment_method }),
+        body: JSON.stringify({
+          email,
+          customer_id: customerId,
+          payment_method_id: setupIntent.payment_method,
+        }),
       });
       onSuccess();
     } catch (err) {
@@ -290,6 +294,7 @@ export default function BillingPage() {
             <Elements stripe={stripePromise}>
               <CardSetupForm
                 email={session.email}
+                customerId={session.customerId}
                 onSuccess={() => { setShowCardSetup(false); loadData(); }}
                 onCancel={() => setShowCardSetup(false)}
               />
