@@ -1344,6 +1344,13 @@ async def insert_billing_usage(
     credits_used: int,
     metadata: dict[str, Any] | None = None,
 ) -> None:
+    # First report for this customer is always free.
+    prior_rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_billing",
+        params={"select": "billing_id", "customer_id": f"eq.{customer_id}", "limit": 1},
+    )
+    is_first = not bool(prior_rows)
     await db.request(
         "POST",
         "/rest/v1/automatisor_billing",
@@ -1354,6 +1361,7 @@ async def insert_billing_usage(
             "usage_type": usage_type,
             "credits_used": credits_used,
             "metadata": metadata or {},
+            "is_free": is_first,
         },
         headers={"Prefer": "return=minimal"},
     )
@@ -2514,23 +2522,11 @@ async def _process_billing_period(db: SupabaseAdmin, customer: dict[str, Any], n
     stripe_customer_id = customer["stripe_customer_id"]
     period_start       = customer.get("billing_period_start")
 
-    # Determine if this is the first real (paid) period
-    prior_paid_rows = await db.request(
-        "GET",
-        "/rest/v1/automatisor_billing",
-        params={
-            "select": "billing_id",
-            "customer_id": f"eq.{customer_id}",
-            "is_free": "eq.false",
-            "limit": 1,
-        },
-    )
-    is_first_period = not bool(prior_paid_rows)
-
-    # Fetch usage rows for this period
+    # Fetch usage rows for this period (exclude rows explicitly marked is_free=true)
     usage_params: dict[str, Any] = {
         "select": "billing_id,credits_used",
         "customer_id": f"eq.{customer_id}",
+        "is_free": "not.is.true",
     }
     if period_start:
         usage_params["created_at"] = f"gte.{period_start}"
@@ -2555,19 +2551,6 @@ async def _process_billing_period(db: SupabaseAdmin, customer: dict[str, Any], n
         },
         headers={"Prefer": "return=minimal"},
     )
-
-    if is_first_period:
-        # Free period — mark rows, skip Stripe charge
-        if row_ids:
-            await db.request(
-                "PATCH",
-                "/rest/v1/automatisor_billing",
-                params={"billing_id": f"in.({','.join(row_ids)})"},
-                json_body={"is_free": True},
-                headers={"Prefer": "return=minimal"},
-            )
-        print(f"[billing-cron] FREE period closed for {customer.get('email')} ({total_credits} credits)")
-        return
 
     # Paid period — charge via Stripe
     if total_credits == 0:
