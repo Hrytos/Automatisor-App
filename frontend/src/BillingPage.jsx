@@ -110,27 +110,32 @@ function CardSetupForm({ email, customerId, onSuccess, onCancel }) {
   const elements = useElements();
   const [busy, setBusy] = useState(false);
   const [cardError, setCardError] = useState("");
+  const [cardStatus, setCardStatus] = useState("");
 
   async function handleSubmit(e) {
-    e.preventDefault();
+    e?.preventDefault();
     if (!stripe || !elements) {
       setCardError("Payment form is still loading. Please wait a moment and try again.");
       return;
     }
     setBusy(true);
     setCardError("");
+    setCardStatus("Preparing secure card form…");
     try {
       const { client_secret } = await fetchJson("/api/stripe/setup-intent", {
         method: "POST",
         body: JSON.stringify({ email, customer_id: customerId }),
       });
+      setCardStatus("Confirming card with Stripe…");
       const { setupIntent, error } = await stripe.confirmCardSetup(client_secret, {
         payment_method: { card: elements.getElement(CardElement) },
       });
       if (error) {
         setCardError(error.message || "Card setup failed.");
+        setCardStatus("");
         return;
       }
+      setCardStatus("Saving card to your account…");
       await fetchJson("/api/stripe/confirm-payment-method", {
         method: "POST",
         body: JSON.stringify({
@@ -139,9 +144,11 @@ function CardSetupForm({ email, customerId, onSuccess, onCancel }) {
           payment_method_id: setupIntent.payment_method,
         }),
       });
+      setCardStatus("Card saved. Refreshing billing details…");
       onSuccess();
     } catch (err) {
       setCardError(err.message || "Something went wrong.");
+      setCardStatus("");
     } finally {
       setBusy(false);
     }
@@ -160,8 +167,9 @@ function CardSetupForm({ email, customerId, onSuccess, onCancel }) {
         />
       </div>
       {cardError && <p className="form-error" style={{ marginTop: "8px" }}>{cardError}</p>}
+      {cardStatus && <p className="card-setup-hint">{cardStatus}</p>}
       <div className="card-setup-actions">
-        <button type="submit" className="btn-primary" disabled={busy || !stripe}>
+        <button type="button" className="btn-primary" onClick={handleSubmit} disabled={busy || !stripe}>
           {busy ? "Saving…" : "Save card"}
         </button>
         <button type="button" className="btn-secondary" onClick={onCancel} disabled={busy}>
@@ -186,9 +194,9 @@ export default function BillingPage() {
   const [payingInvoiceId, setPayingInvoiceId] = useState(null);
   const [payError, setPayError] = useState("");
 
-  function loadData() {
+  function loadData(silent = false) {
     if (!session?.email) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     fetchJson("/api/billing/invoices", {
       method: "POST",
       body: JSON.stringify({ email: session.email }),
@@ -237,7 +245,7 @@ export default function BillingPage() {
 
   // Re-check payment method when user returns from the Stripe portal tab
   useEffect(() => {
-    function onFocus() { loadData(); }
+    function onFocus() { loadData(true); }
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [session?.email]);
