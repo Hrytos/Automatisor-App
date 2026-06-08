@@ -113,7 +113,10 @@ function CardSetupForm({ email, customerId, onSuccess, onCancel }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!stripe || !elements) return;
+    if (!stripe || !elements) {
+      setCardError("Payment form is still loading. Please wait a moment and try again.");
+      return;
+    }
     setBusy(true);
     setCardError("");
     try {
@@ -208,8 +211,20 @@ export default function BillingPage() {
         if (!key) {
           throw new Error("Stripe publishable key is missing in server configuration.");
         }
+        const promise = loadStripe(key);
+        promise
+          .then((instance) => {
+            if (active && !instance) {
+              setStripeInitError("Stripe.js failed to initialize. Disable blockers and refresh the page.");
+            }
+          })
+          .catch((err) => {
+            if (active) {
+              setStripeInitError(err.message || "Unable to initialize payment form.");
+            }
+          });
         if (active) {
-          setStripePromise(loadStripe(key));
+          setStripePromise(promise);
         }
       })
       .catch((err) => {
@@ -314,7 +329,9 @@ export default function BillingPage() {
               openingPortal={openingPortal}
             />
           ) : showCardSetup ? (
-            stripePromise ? (
+            stripeInitError ? (
+              <p className="form-error" style={{ marginTop: "8px" }}>{stripeInitError}</p>
+            ) : stripePromise ? (
               <Elements stripe={stripePromise}>
                 <CardSetupForm
                   email={session.email}
@@ -323,8 +340,6 @@ export default function BillingPage() {
                   onCancel={() => setShowCardSetup(false)}
                 />
               </Elements>
-            ) : stripeInitError ? (
-              <p className="form-error" style={{ marginTop: "8px" }}>{stripeInitError}</p>
             ) : (
               <div className="pm-loading">Loading payment form…</div>
             )
