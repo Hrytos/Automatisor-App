@@ -299,7 +299,6 @@ export default function BillingPage() {
               <button
                 className="btn-primary"
                 onClick={() => setShowCardSetup(true)}
-                disabled={!stripePromise}
               >
                 Add payment method
               </button>

@@ -41,7 +41,14 @@ SERVER_DRY_RUN = "--dry" in os.sys.argv or os.getenv("AUTOMATISOR_DRY") == "1"
 
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
+# Accept both STRIPE_PUBLISHABLE_KEY (preferred, single .env) and
+# VITE_STRIPE_PUBLISHABLE_KEY (legacy frontend/.env name) so deployments
+# using either convention work without changes.
+STRIPE_PUBLISHABLE_KEY = (
+    os.getenv("STRIPE_PUBLISHABLE_KEY")
+    or os.getenv("VITE_STRIPE_PUBLISHABLE_KEY")
+    or ""
+)
 PRICE_PER_CREDIT_USD_CENTS = 5000  # $50.00 per credit
 
 stripe.api_key = STRIPE_SECRET_KEY
@@ -2259,11 +2266,20 @@ async def confirm_payment_method(body: dict[str, Any] = Body(default={})) -> dic
         )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Unable to save card as default payment method: {exc}") from exc
+    # Build the DB patch — always update payment_method_id.
+    patch: dict[str, Any] = {"payment_method_id": payment_method_id}
+
+    # Initialize rolling 30-day billing period only if not yet set.
+    if not customer.get("billing_period_start") or not customer.get("billing_period_end"):
+        now = datetime.now(timezone.utc)
+        patch["billing_period_start"] = now.isoformat()
+        patch["billing_period_end"] = (now + timedelta(days=30)).isoformat()
+
     await db.request(
         "PATCH",
         "/rest/v1/automatisor_customer",
         params={"customer_id": f"eq.{customer['customer_id']}"},
-        json_body={"payment_method_id": payment_method_id},
+        json_body=patch,
         headers={"Prefer": "return=minimal"},
     )
     return {"ok": True}
