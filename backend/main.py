@@ -513,7 +513,7 @@ async def upsert_customer(db: SupabaseAdmin, data: dict[str, Any]) -> dict[str, 
 
 async def create_stripe_customer(db: SupabaseAdmin, customer_id: str, email: str, full_name: str | None) -> str:
     """
-    Creates a Stripe Customer and writes stripe_customer_id + billing period
+    Creates a Stripe Customer and writes stripe_customer_id
     back to automatisor_customer. Idempotent — if stripe_customer_id already
     exists, returns it without calling Stripe again.
     """
@@ -536,20 +536,12 @@ async def create_stripe_customer(db: SupabaseAdmin, customer_id: str, email: str
         metadata={"automatisor_customer_id": customer_id},
     )
 
-    now = datetime.now(timezone.utc)
-    if now.month == 12:
-        period_end = datetime(now.year + 1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    else:
-        period_end = datetime(now.year, now.month + 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-
     await db.request(
         "PATCH",
         "/rest/v1/automatisor_customer",
         params={"customer_id": f"eq.{customer_id}"},
         json_body={
             "stripe_customer_id": stripe_customer.id,
-            "billing_period_start": now.isoformat(),
-            "billing_period_end": period_end.isoformat(),
         },
         headers={"Prefer": "return=minimal"},
     )
