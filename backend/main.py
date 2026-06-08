@@ -2022,7 +2022,14 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
         requested_at = datetime.now(timezone.utc).isoformat()
         if not is_dry_run_request(request, body):
             stripe_customer_id = customer.get("stripe_customer_id")
-            if stripe_customer_id:
+            # First report is always free — skip payment method gate for it.
+            prior_billing_rows = await db.request(
+                "GET",
+                "/rest/v1/automatisor_billing",
+                params={"select": "billing_id", "customer_id": f"eq.{customer['customer_id']}", "limit": 1},
+            )
+            is_first_report = not bool(prior_billing_rows)
+            if stripe_customer_id and not is_first_report:
                 # Check 1: payment method must exist before allowing billable usage
                 stripe_cust = stripe.Customer.retrieve(
                     stripe_customer_id,
