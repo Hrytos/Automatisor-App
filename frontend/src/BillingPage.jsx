@@ -41,8 +41,6 @@ function SavedPaymentMethod({ paymentMethod, onOpenPortal, openingPortal }) {
   );
 }
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
-
 // ── Shared session utilities ─────────────────────────────────
 const SESSION_KEY = "automatisor_auth_workspace_v2";
 
@@ -176,6 +174,8 @@ export default function BillingPage() {
   const [session] = useRequireSession();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [stripeInitError, setStripeInitError] = useState("");
+  const [stripePromise, setStripePromise] = useState(null);
   const [invoices, setInvoices] = useState([]);
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [showCardSetup, setShowCardSetup] = useState(false);
@@ -199,6 +199,26 @@ export default function BillingPage() {
   }
 
   useEffect(() => { loadData(); }, [session?.email]);
+
+  useEffect(() => {
+    let active = true;
+    fetchJson("/api/frontend-config")
+      .then((payload) => {
+        const key = String(payload.stripe_publishable_key || "").trim();
+        if (!key) {
+          throw new Error("Stripe publishable key is missing in server configuration.");
+        }
+        if (active) {
+          setStripePromise(loadStripe(key));
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setStripeInitError(err.message || "Unable to initialize payment form.");
+        }
+      });
+    return () => { active = false; };
+  }, []);
 
   // Re-check payment method when user returns from the Stripe portal tab
   useEffect(() => {
@@ -276,7 +296,11 @@ export default function BillingPage() {
               </p>
             </div>
             {!loading && !paymentMethod && !showCardSetup && (
-              <button className="btn-primary" onClick={() => setShowCardSetup(true)}>
+              <button
+                className="btn-primary"
+                onClick={() => setShowCardSetup(true)}
+                disabled={!stripePromise}
+              >
                 Add payment method
               </button>
             )}
@@ -291,14 +315,20 @@ export default function BillingPage() {
               openingPortal={openingPortal}
             />
           ) : showCardSetup ? (
-            <Elements stripe={stripePromise}>
-              <CardSetupForm
-                email={session.email}
-                customerId={session.customerId}
-                onSuccess={() => { setShowCardSetup(false); loadData(); }}
-                onCancel={() => setShowCardSetup(false)}
-              />
-            </Elements>
+            stripePromise ? (
+              <Elements stripe={stripePromise}>
+                <CardSetupForm
+                  email={session.email}
+                  customerId={session.customerId}
+                  onSuccess={() => { setShowCardSetup(false); loadData(); }}
+                  onCancel={() => setShowCardSetup(false)}
+                />
+              </Elements>
+            ) : stripeInitError ? (
+              <p className="form-error" style={{ marginTop: "8px" }}>{stripeInitError}</p>
+            ) : (
+              <div className="pm-loading">Loading payment form…</div>
+            )
           ) : null}
         </section>
 

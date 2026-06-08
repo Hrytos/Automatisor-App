@@ -25,6 +25,7 @@ BACKEND_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BACKEND_DIR.parent
 
 # Ensure local development env vars are available when running uvicorn directly.
+load_dotenv(ROOT_DIR / ".env")
 load_dotenv(BACKEND_DIR / ".env")
 
 PORT = int(os.getenv("PORT", "3000"))
@@ -40,6 +41,7 @@ SERVER_DRY_RUN = "--dry" in os.sys.argv or os.getenv("AUTOMATISOR_DRY") == "1"
 
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
 PRICE_PER_CREDIT_USD_CENTS = 5000  # $50.00 per credit
 
 stripe.api_key = STRIPE_SECRET_KEY
@@ -1588,7 +1590,10 @@ async def verify_supabase_otp(email: str, otp: str) -> dict[str, Any]:
 
 @app.get("/api/frontend-config")
 async def frontend_config() -> dict[str, Any]:
-    return {"google_maps_api_key": GOOGLE_MAPS_API_KEY}
+    return {
+        "google_maps_api_key": GOOGLE_MAPS_API_KEY,
+        "stripe_publishable_key": STRIPE_PUBLISHABLE_KEY,
+    }
 
 
 @app.post("/api/address-validation/check")
