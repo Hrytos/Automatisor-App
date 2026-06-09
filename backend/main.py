@@ -2355,7 +2355,12 @@ async def create_portal_session(body: dict[str, Any] = Body(default={})) -> dict
     portal_session = stripe.billing_portal.Session.create(
         customer=stripe_customer_id,
         return_url=return_url or "https://automatisor.app/workspace/billing",
+        configuration=None,  # uses default portal config — see note below
     )
+    # NOTE: To hide the × remove button when it's the only card, go to
+    # Stripe Dashboard → Billing → Customer portal → Payment methods
+    # and enable "Require customers to always have a payment method on file".
+    # This cannot be set per-session via the API; it's a portal configuration setting.
     return {"url": portal_session.url}
 
 
@@ -2481,6 +2486,20 @@ async def stripe_webhook(request: Request) -> dict[str, Any]:
 
     elif event_type == "setup_intent.succeeded":
         pass  # confirm-payment-method endpoint handles the DB write; this is a backup confirm
+
+    elif event_type == "payment_method.detached":
+        # A card was removed (e.g. via the Customer Portal). Clear it from our DB so the
+        # billing cron does not attempt to charge a detached payment method.
+        pm_id = event["data"]["object"].get("id", "")
+        if pm_id:
+            db = get_admin_db()
+            await db.request(
+                "PATCH",
+                "/rest/v1/automatisor_customer",
+                params={"payment_method_id": f"eq.{pm_id}"},
+                json_body={"payment_method_id": None},
+                headers={"Prefer": "return=minimal"},
+            )
 
     return {"received": True}
 

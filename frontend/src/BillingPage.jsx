@@ -15,7 +15,7 @@ const BRAND_LABELS = {
 };
 
 // ── Saved payment method display ─────────────────────────────
-function SavedPaymentMethod({ paymentMethod, onOpenPortal, openingPortal }) {
+function SavedPaymentMethod({ paymentMethod, onUpdate }) {
   const brand = (paymentMethod.brand || "").toLowerCase();
   const label = BRAND_LABELS[brand] || paymentMethod.brand || "Card";
   const expMonth = String(paymentMethod.exp_month).padStart(2, "0");
@@ -30,12 +30,8 @@ function SavedPaymentMethod({ paymentMethod, onOpenPortal, openingPortal }) {
           <span className="pm-card-expiry">Expires {expMonth}/{expYear}</span>
         </div>
       </div>
-      <button
-        className="btn-secondary btn-sm"
-        onClick={onOpenPortal}
-        disabled={openingPortal}
-      >
-        {openingPortal ? "Opening…" : "Manage card →"}
+      <button className="btn-secondary btn-sm" onClick={onUpdate}>
+        Update card
       </button>
     </div>
   );
@@ -190,7 +186,6 @@ export default function BillingPage() {
   const [invoices, setInvoices] = useState([]);
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [showCardSetup, setShowCardSetup] = useState(false);
-  const [openingPortal, setOpeningPortal] = useState(false);
   const [payingInvoiceId, setPayingInvoiceId] = useState(null);
   const [payError, setPayError] = useState("");
 
@@ -243,28 +238,11 @@ export default function BillingPage() {
     return () => { active = false; };
   }, []);
 
-  // Re-check payment method when user returns from the Stripe portal tab
   useEffect(() => {
     function onFocus() { loadData(true); }
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [session?.email]);
-
-  async function openPortal() {
-    setOpeningPortal(true);
-    setError("");
-    try {
-      const { url } = await fetchJson("/api/stripe/portal-session", {
-        method: "POST",
-        body: JSON.stringify({ email: session.email, return_url: window.location.href }),
-      });
-      window.open(url, "_blank", "noopener,noreferrer");
-    } catch (err) {
-      setError(err.message || "Could not open billing portal.");
-    } finally {
-      setOpeningPortal(false);
-    }
-  }
 
   async function handlePayInvoice(invoiceId) {
     const inv = invoices.find((i) => i.invoice_id === invoiceId);
@@ -318,7 +296,7 @@ export default function BillingPage() {
                   : "Add a card to enable automatic billing at the end of each period."}
               </p>
             </div>
-            {!loading && !paymentMethod && !showCardSetup && (
+            {!loading && !showCardSetup && !paymentMethod && (
               <button
                 className="btn-primary"
                 onClick={() => setShowCardSetup(true)}
@@ -330,11 +308,10 @@ export default function BillingPage() {
 
           {loading ? (
             <div className="pm-loading">Loading payment details…</div>
-          ) : paymentMethod ? (
+          ) : paymentMethod && !showCardSetup ? (
             <SavedPaymentMethod
               paymentMethod={paymentMethod}
-              onOpenPortal={openPortal}
-              openingPortal={openingPortal}
+              onUpdate={() => setShowCardSetup(true)}
             />
           ) : showCardSetup ? (
             stripeInitError ? (
