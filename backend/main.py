@@ -1483,7 +1483,7 @@ def build_pre_assessment_approval_email(email: str, company_name: str, site_addr
             <p style="margin:0;font-size:12px;color:#a0a09a;line-height:1.6">
               AutomatiSOR<br>
               Questions? Reply to this email or contact
-              <a href="mailto:no-reply@automatisor.com" style="color:#7a7a72">no-reply@automatisor.com</a>
+              <a href="mailto:notifications@automatisor.com" style="color:#7a7a72">notifications@automatisor.com</a>
             </p>
           </td>
         </tr>
