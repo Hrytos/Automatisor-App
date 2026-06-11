@@ -1,3 +1,5 @@
+#setup completed#
+
 # Stripe Integration — Detailed Implementation Document
 
 **Model:** Postpaid (bill at end of period)  
