@@ -120,7 +120,7 @@ function CardSetupForm({ email, customerId, onSuccess, onCancel }) {
     try {
       const { client_secret } = await fetchJson("/api/stripe/setup-intent", {
         method: "POST",
-        body: JSON.stringify({ email, customer_id: customerId }),
+        body: JSON.stringify({}),
       });
       setCardStatus("Confirming card with Stripe…");
       const { setupIntent, error } = await stripe.confirmCardSetup(client_secret, {
@@ -135,8 +135,6 @@ function CardSetupForm({ email, customerId, onSuccess, onCancel }) {
       await fetchJson("/api/stripe/confirm-payment-method", {
         method: "POST",
         body: JSON.stringify({
-          email,
-          customer_id: customerId,
           payment_method_id: setupIntent.payment_method,
         }),
       });
@@ -194,7 +192,7 @@ export default function BillingPage() {
     if (!silent) setLoading(true);
     fetchJson("/api/billing/invoices", {
       method: "POST",
-      body: JSON.stringify({ email: session.email }),
+      body: JSON.stringify({}),
     })
       .then((payload) => {
         setInvoices(payload.invoices || []);
@@ -259,7 +257,7 @@ export default function BillingPage() {
     try {
       const { url } = await fetchJson("/api/billing/get-invoice-url", {
         method: "POST",
-        body: JSON.stringify({ email: session.email, invoice_id: invoiceId }),
+        body: JSON.stringify({ invoice_id: invoiceId }),
       });
       window.open(url, "_blank", "noopener,noreferrer");
       // Reload so the draft now shows as open with its hosted URL
@@ -388,11 +386,9 @@ export default function BillingPage() {
                       </td>
                       <td>
                         <span
-                          className={`invoice-status-badge invoice-status-${inv.status || "pending"}`}
+                          className={`invoice-status-badge invoice-status-${inv.status === "paid" ? "paid" : "due"}`}
                         >
-                          {inv.status
-                            ? inv.status.charAt(0).toUpperCase() + inv.status.slice(1)
-                            : "Pending"}
+                          {inv.status === "paid" ? "Paid" : "Due"}
                         </span>
                       </td>
                       <td>

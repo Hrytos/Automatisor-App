@@ -33,11 +33,24 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "no-reply@automatisor.com")
+RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true") != "false"
 SERVER_DRY_RUN = "--dry" in os.sys.argv or os.getenv("AUTOMATISOR_DRY") == "1"
+
+def _parse_cors_origins(raw: str | None) -> list[str]:
+    if not raw:
+        return [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+CORS_ALLOW_ORIGINS = _parse_cors_origins(os.getenv("CORS_ALLOW_ORIGINS") or os.getenv("ALLOWED_ORIGINS"))
 
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
@@ -87,12 +100,7 @@ DISALLOWED_PERSONAL_EMAIL_DOMAINS = {
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=CORS_ALLOW_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -443,6 +451,50 @@ async def resolve_customer_for_billing(db: SupabaseAdmin, body: dict[str, Any]) 
     customer = customer_by_id or customer_by_email
     if not customer:
         raise HTTPException(status_code=422, detail="Either customer_id or email is required.")
+    return customer
+
+
+def _extract_authenticated_email(user: Any) -> str:
+    if isinstance(user, dict):
+        return normalize_email(user.get("email"))
+    return normalize_email(getattr(user, "email", None))
+
+
+async def get_authenticated_customer(
+    db: SupabaseAdmin,
+    request: Request,
+    *,
+    expected_email: str | None = None,
+) -> dict[str, Any]:
+    access_token = clean_optional(request.cookies.get("access_token"))
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    try:
+        auth_client = get_auth_client()
+        try:
+            auth_response = auth_client.auth.get_user(access_token)
+        except TypeError:
+            auth_response = auth_client.auth.get_user(jwt=access_token)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Session expired or invalid.") from exc
+
+    auth_user = getattr(auth_response, "user", None)
+    if auth_user is None and isinstance(auth_response, dict):
+        auth_user = auth_response.get("user")
+
+    authenticated_email = _extract_authenticated_email(auth_user)
+    if not authenticated_email:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    if expected_email and normalize_email(expected_email) and normalize_email(expected_email) != authenticated_email:
+        raise HTTPException(status_code=403, detail="Authenticated user does not match the request.")
+
+    customer = await find_customer_by_email(db, authenticated_email)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
     return customer
 
 
@@ -1445,6 +1497,8 @@ def build_pre_assessment_approval_email(email: str, company_name: str, site_addr
 async def send_pre_assessment_approval_email(email: str, company_name: str, site_address: str) -> None:
     if not RESEND_API_KEY:
         raise HTTPException(status_code=500, detail="Missing RESEND_API_KEY")
+    if not RESEND_FROM_EMAIL:
+        raise HTTPException(status_code=500, detail="Missing RESEND_FROM_EMAIL")
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             "https://api.resend.com/emails",
@@ -1613,17 +1667,6 @@ async def check_address_validation(body: dict[str, Any] = Body(default={})) -> d
         return {**result, "checked_at": datetime.now(timezone.utc).isoformat()}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@app.get("/api/debug/google-status")
-async def debug_google_status() -> dict[str, Any]:
-    key = GOOGLE_MAPS_API_KEY or ""
-    return {
-        "google_maps_api_key_present": bool(key),
-        "google_maps_api_key_length": len(key),
-        "google_maps_api_key_prefix": key[:8] if key else "",
-        "google_maps_api_key_suffix": key[-4:] if key else "",
-    }
 
 
 @app.post("/api/auth/check-email")
@@ -2156,58 +2199,51 @@ async def get_credits_usage(body: dict[str, Any] = Body(default={})) -> dict[str
                 "full_address": row.get("full_address") or "",
             }
 
-    signup_date: datetime | None = None
-    raw_anchor = customer.get("email_verified_at")
+    # Anchor = when the card was added (billing_period_start). Fall back to earliest billing row or now.
+    anchor: datetime | None = None
+    raw_anchor = customer.get("billing_period_start")
     if raw_anchor:
         try:
-            signup_date = datetime.fromisoformat(str(raw_anchor).replace("Z", "+00:00"))
+            anchor = datetime.fromisoformat(str(raw_anchor).replace("Z", "+00:00"))
         except ValueError:
-            signup_date = None
-    # Use earliest billing row if it predates the anchor (or if no anchor)
-    if billing_rows:
+            anchor = None
+    if anchor is None and billing_rows:
         oldest_raw = min((r.get("created_at") or "" for r in billing_rows), default="")
         try:
-            oldest_billing = datetime.fromisoformat(str(oldest_raw).replace("Z", "+00:00"))
-            if signup_date is None or oldest_billing < signup_date:
-                signup_date = oldest_billing
+            anchor = datetime.fromisoformat(str(oldest_raw).replace("Z", "+00:00"))
         except ValueError:
             pass
-    if not signup_date:
-        signup_date = datetime.now(timezone.utc)
+    if anchor is None:
+        anchor = datetime.now(timezone.utc)
 
     now = datetime.now(timezone.utc)
 
-    def month_key(ts: datetime) -> str:
-        # Convert to EST for month grouping
-        est_offset = timedelta(hours=-5)
-        local_ts = ts + est_offset
-        return f"{local_ts.year}-{local_ts.month:02d}"
+    def period_index_for(ts: datetime) -> int:
+        delta_days = (ts - anchor).days
+        return max(delta_days // 30, 0)
 
-    def month_bounds(key: str) -> tuple[datetime, datetime]:
-        import calendar as cal_mod
-        year, month = int(key.split("-")[0]), int(key.split("-")[1])
-        last_day = cal_mod.monthrange(year, month)[1]
-        est_offset = timedelta(hours=-5)
-        start = datetime(year, month, 1, 0, 0, 0, tzinfo=timezone.utc) - est_offset
-        end = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc) - est_offset
-        return start, end
+    def period_bounds(index: int) -> tuple[datetime, datetime]:
+        return (
+            anchor + timedelta(days=index * 30),
+            anchor + timedelta(days=(index + 1) * 30),
+        )
 
-    current_key = month_key(now)
-    periods: dict[str, list[dict[str, Any]]] = {}
+    current_index = period_index_for(now)
+    periods: dict[int, list[dict[str, Any]]] = {}
     for row in billing_rows:
         raw_ts = row.get("created_at") or ""
         try:
             ts = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
         except ValueError:
             continue
-        key = month_key(ts)
-        if key not in periods:
-            periods[key] = []
+        idx = period_index_for(ts)
+        if idx not in periods:
+            periods[idx] = []
         site_id = row.get("site_id") or ""
         site_info = site_map.get(site_id, {})
         usage_type = row.get("usage_type") or ""
         task_label = USAGE_TYPE_LABELS.get(usage_type, usage_type.replace("_", " ").title())
-        periods[key].append({
+        periods[idx].append({
             "site_name": site_info.get("company_name") or "—",
             "site_address": site_info.get("full_address") or "—",
             "task_label": task_label,
@@ -2216,32 +2252,36 @@ async def get_credits_usage(body: dict[str, Any] = Body(default={})) -> dict[str
             "is_free": bool(row.get("is_free")),
         })
 
-    if current_key not in periods:
-        periods[current_key] = []
+    if current_index not in periods:
+        periods[current_index] = []
 
     result_periods = []
-    for key in sorted(periods.keys(), reverse=True):
-        start, end = month_bounds(key)
-        rows = periods[key]
+    for idx in sorted(periods.keys(), reverse=True):
+        start, end = period_bounds(idx)
+        rows = periods[idx]
         result_periods.append({
-            "period_index": key,
+            "period_index": str(idx),
             "period_start": start.isoformat(),
             "period_end": end.isoformat(),
-            "is_current": key == current_key,
+            "is_current": idx == current_index,
             "total_credits_used": sum(r["credits_used"] for r in rows),
             "rows": rows,
         })
 
     return {
-        "billing_anchor_date": signup_date.isoformat(),
+        "billing_anchor_date": anchor.isoformat(),
         "billing_periods": result_periods,
     }
 
 
 @app.post("/api/stripe/setup-intent")
-async def create_setup_intent(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+async def create_setup_intent(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     db = get_admin_db()
-    customer = await resolve_customer_for_billing(db, body)
+    customer = await get_authenticated_customer(
+        db,
+        request,
+        expected_email=body.get("email") or body.get("work_email"),
+    )
     stripe_customer_id = customer.get("stripe_customer_id")
     if not stripe_customer_id:
         raise HTTPException(status_code=422, detail="Stripe customer not initialised. Complete onboarding first.")
@@ -2257,12 +2297,16 @@ async def create_setup_intent(body: dict[str, Any] = Body(default={})) -> dict[s
 
 
 @app.post("/api/stripe/confirm-payment-method")
-async def confirm_payment_method(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+async def confirm_payment_method(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     payment_method_id = (body.get("payment_method_id") or "").strip()
     if not payment_method_id:
         raise HTTPException(status_code=422, detail="payment_method_id is required.")
     db = get_admin_db()
-    customer = await resolve_customer_for_billing(db, body)
+    customer = await get_authenticated_customer(
+        db,
+        request,
+        expected_email=body.get("email") or body.get("work_email"),
+    )
     stripe_customer_id = customer.get("stripe_customer_id")
     if not stripe_customer_id:
         raise HTTPException(status_code=422, detail="Stripe customer not initialised.")
@@ -2293,14 +2337,13 @@ async def confirm_payment_method(body: dict[str, Any] = Body(default={})) -> dic
 
 
 @app.post("/api/billing/invoices")
-async def get_billing_invoices(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
-    email = (body.get("email") or "").strip().lower()
-    if not email:
-        raise HTTPException(status_code=422, detail="Email is required.")
+async def get_billing_invoices(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     db = get_admin_db()
-    customer = await find_customer_by_email(db, email)
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found.")
+    customer = await get_authenticated_customer(
+        db,
+        request,
+        expected_email=body.get("email") or body.get("work_email"),
+    )
     stripe_customer_id = customer.get("stripe_customer_id")
     if not stripe_customer_id:
         return {"invoices": [], "payment_method": None}
@@ -2321,6 +2364,9 @@ async def get_billing_invoices(body: dict[str, Any] = Body(default={})) -> dict[
     stripe_invoices = stripe.Invoice.list(customer=stripe_customer_id, limit=12)
     invoices = []
     for inv in stripe_invoices.auto_paging_iter():
+        # Skip voided/written-off invoices — not actionable for the customer
+        if inv.status in ("void", "uncollectible"):
+            continue
         # Use amount_due for open/draft (what the customer still owes), amount_paid for settled
         amount_cents = inv.amount_due if inv.status in ("open", "draft") else inv.amount_paid
         invoices.append({
@@ -2340,15 +2386,14 @@ async def get_billing_invoices(body: dict[str, Any] = Body(default={})) -> dict[
 
 
 @app.post("/api/stripe/portal-session")
-async def create_portal_session(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
-    email = (body.get("email") or "").strip().lower()
+async def create_portal_session(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     return_url = (body.get("return_url") or "").strip()
-    if not email:
-        raise HTTPException(status_code=422, detail="Email is required.")
     db = get_admin_db()
-    customer = await find_customer_by_email(db, email)
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found.")
+    customer = await get_authenticated_customer(
+        db,
+        request,
+        expected_email=body.get("email") or body.get("work_email"),
+    )
     stripe_customer_id = customer.get("stripe_customer_id")
     if not stripe_customer_id:
         raise HTTPException(status_code=422, detail="No Stripe customer found. Complete onboarding first.")
@@ -2365,15 +2410,16 @@ async def create_portal_session(body: dict[str, Any] = Body(default={})) -> dict
 
 
 @app.post("/api/billing/pay-invoice")
-async def pay_invoice_endpoint(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
-    email = (body.get("email") or "").strip().lower()
+async def pay_invoice_endpoint(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     invoice_id = (body.get("invoice_id") or "").strip()
-    if not email or not invoice_id:
-        raise HTTPException(status_code=422, detail="email and invoice_id are required.")
+    if not invoice_id:
+        raise HTTPException(status_code=422, detail="invoice_id is required.")
     db = get_admin_db()
-    customer = await find_customer_by_email(db, email)
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found.")
+    customer = await get_authenticated_customer(
+        db,
+        request,
+        expected_email=body.get("email") or body.get("work_email"),
+    )
     stripe_customer_id = customer.get("stripe_customer_id")
     if not stripe_customer_id:
         raise HTTPException(status_code=422, detail="No Stripe customer found.")
@@ -2391,18 +2437,19 @@ async def pay_invoice_endpoint(body: dict[str, Any] = Body(default={})) -> dict[
 
 
 @app.post("/api/billing/get-invoice-url")
-async def get_invoice_url(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+async def get_invoice_url(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     """Return the Stripe hosted payment URL for an invoice.
     Finalizes draft invoices (no charge) to obtain the URL.
     """
-    email = (body.get("email") or "").strip().lower()
     invoice_id = (body.get("invoice_id") or "").strip()
-    if not email or not invoice_id:
-        raise HTTPException(status_code=422, detail="email and invoice_id are required.")
+    if not invoice_id:
+        raise HTTPException(status_code=422, detail="invoice_id is required.")
     db = get_admin_db()
-    customer = await find_customer_by_email(db, email)
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found.")
+    customer = await get_authenticated_customer(
+        db,
+        request,
+        expected_email=body.get("email") or body.get("work_email"),
+    )
     stripe_customer_id = customer.get("stripe_customer_id")
     if not stripe_customer_id:
         raise HTTPException(status_code=422, detail="No Stripe customer found.")
@@ -2459,10 +2506,9 @@ async def dev_create_test_invoice(body: dict[str, Any] = Body(default={})) -> di
         currency="usd",
         description=f"[TEST] Automatisor — {credits} credit{'s' if credits != 1 else ''} (dev invoice)",
     )
-    # Refresh to get correct amount_due
-    refreshed = stripe.Invoice.retrieve(invoice.id)
-    # Do NOT finalize — leave as draft so the UI can show it open for manual payment
-    return {"ok": True, "invoice_id": refreshed.id, "status": refreshed.status, "amount_usd": refreshed.amount_due / 100}
+    # Finalize so Stripe assigns an invoice_number and hosted_invoice_url (does NOT charge the customer)
+    finalized = stripe.Invoice.finalize_invoice(invoice.id)
+    return {"ok": True, "invoice_id": finalized.id, "status": finalized.status, "amount_usd": finalized.amount_due / 100}
 
 
 @app.post("/api/stripe/webhook")

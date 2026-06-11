@@ -167,7 +167,7 @@ function buildSessionFromPayload(session, payload) {
     sites: Array.isArray(payload.sites) ? payload.sites : session?.sites || [],
     wishlist: Array.isArray(payload.wishlist) ? payload.wishlist : session?.wishlist || [],
     accounts: Array.isArray(payload.accounts) ? payload.accounts : session?.accounts || [],
-    preAssessmentPriceCredits: Number(payload.pre_assessment_price_credits || session?.preAssessmentPriceCredits || 1),
+    preAssessmentPriceCredits: Number(payload.pre_assessment_price_credits || session?.preAssessmentPriceCredits || 2),
   };
 }
 
@@ -4125,9 +4125,8 @@ function PreAssessmentPage() {
   );
   const isPendingSite = Boolean(pendingSite);
   const isResolvingSelectedSite = loadingWorkspace && Boolean(siteId) && !selectedSite;
-  const creditsUsed = workspace?.creditsUsedTotal ?? session?.creditsUsedTotal ?? 0;
   const preAssessmentPriceCredits =
-    workspace?.preAssessmentPriceCredits ?? session?.preAssessmentPriceCredits ?? 1;
+    workspace?.preAssessmentPriceCredits ?? session?.preAssessmentPriceCredits ?? 2;
   const costLabel = `${preAssessmentPriceCredits} credit${preAssessmentPriceCredits === 1 ? "" : "s"}`;
   const paymentRedirecting = paymentRedirectSeconds > 0;
 
@@ -4313,15 +4312,10 @@ function PreAssessmentPage() {
             </p>
 
             <section className="workspace-topbar-actions workspace-inline-stats">
-              <CreditsUsedChip
-                creditsUsed={creditsUsed}
-              />
               <div className="wallet-chip wallet-chip-muted">
                 <p className="wallet-chip-inline">
                   <span className="wallet-chip-inline-label">Price:</span>{" "}
-                  <span className="wallet-chip-inline-value">
-                    {preAssessmentPriceCredits} credit
-                  </span>
+                  <span className="wallet-chip-inline-value">{costLabel}</span>
                 </p>
               </div>
             </section>
@@ -4391,9 +4385,11 @@ function PreAssessmentPage() {
                 </p>
 
                 <h2 className="workspace-card-title">How much does it cost?</h2>
-                <p className="workspace-copy">
-                  A site pre-assessment costs 1 credit
-                </p>
+                <div className="pre-assessment-cost-callout">
+                  <p className="workspace-copy">
+                    A site pre-assessment costs <strong>{costLabel}</strong>.
+                  </p>
+                </div>
 
                 <h2 className="workspace-card-title">Sample site pre-assessment report</h2>
                 <p className="workspace-copy">

@@ -3179,11 +3179,15 @@ footer {
 .pre-assessment-page .workspace-inline-stats {
   margin-left: 0;
   padding-top: 0;
+  margin-bottom: 14px;
+  justify-content: flex-start;
 }
 
 .pre-assessment-page .workspace-inline-stats .wallet-chip {
   width: auto;
-  min-width: 188px;
+  min-width: 220px;
+  padding: 10px 14px;
+  border-radius: 14px;
 }
 
 .pre-assessment-page .workspace-page-copy,
@@ -3200,12 +3204,30 @@ footer {
 
 .pre-assessment-meaning-panel {
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .pre-assessment-copy-stack {
   display: grid;
-  gap: 12px;
+  gap: 14px;
+}
+
+.pre-assessment-copy-stack .workspace-copy {
+  margin: 0;
+}
+
+.pre-assessment-cost-callout {
+  display: inline-flex;
+  align-items: center;
+  margin: 2px 0 4px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 246, 239, 0.95) 0%, rgba(255, 252, 249, 0.95) 100%);
+  border: 1px solid rgba(242, 92, 25, 0.2);
+}
+
+.pre-assessment-cost-callout .workspace-copy {
+  margin: 0;
 }
 
 .sample-report-link-row {
