@@ -1,5 +1,6 @@
 # AutomatiSOR — Codebase Technical Report
 
+
 > Generated: May 2026  
 > Scope: Full codebase analysis — frontend and backend  
 > Purpose: Foundation for frontend and backend rulebooks
