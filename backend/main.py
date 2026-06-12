@@ -2467,6 +2467,18 @@ async def get_invoice_url(request: Request, body: dict[str, Any] = Body(default=
     return {"url": url}
 
 
+@app.get("/api/cron/billing")
+async def vercel_cron_billing(request: Request) -> dict[str, Any]:
+    """Called daily by Vercel Cron at 01:00 UTC. Protected by CRON_SECRET."""
+    cron_secret = os.getenv("CRON_SECRET", "")
+    if not cron_secret:
+        raise HTTPException(status_code=503, detail="CRON_SECRET is not configured.")
+    if request.headers.get("authorization") != f"Bearer {cron_secret}":
+        raise HTTPException(status_code=401, detail="Unauthorized.")
+    await run_billing_cron()
+    return {"ok": True}
+
+
 @app.post("/api/dev/trigger-billing-cron")
 async def dev_trigger_billing_cron(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     """DEV ONLY — manually fire the billing cron. Remove before production."""
@@ -2525,7 +2537,39 @@ async def stripe_webhook(request: Request) -> dict[str, Any]:
     event_type = event["type"]
 
     if event_type == "invoice.payment_succeeded":
-        pass  # Invoice already visible via /api/billing/invoices — no extra action needed
+        # Roll the billing window forward if it hasn't been already.
+        # The cron does this before creating an invoice, so this handles the case
+        # where an invoice was paid manually (e.g. via the billing UI) and the
+        # billing period was never advanced.
+        stripe_cust_id = event["data"]["object"].get("customer", "")
+        if stripe_cust_id:
+            db = get_admin_db()
+            now_utc = datetime.now(timezone.utc)
+            stale_customers = await db.request(
+                "GET",
+                "/rest/v1/automatisor_customer",
+                params={
+                    "select": "customer_id",
+                    "stripe_customer_id": f"eq.{stripe_cust_id}",
+                    "billing_period_end": f"lte.{now_utc.isoformat()}",
+                },
+            )
+            if stale_customers:
+                customer_id = stale_customers[0]["customer_id"]
+                if now_utc.month == 12:
+                    next_period_end = datetime(now_utc.year + 1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+                else:
+                    next_period_end = datetime(now_utc.year, now_utc.month + 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+                await db.request(
+                    "PATCH",
+                    "/rest/v1/automatisor_customer",
+                    params={"customer_id": f"eq.{customer_id}"},
+                    json_body={
+                        "billing_period_start": now_utc.isoformat(),
+                        "billing_period_end": next_period_end.isoformat(),
+                    },
+                    headers={"Prefer": "return=minimal"},
+                )
 
     elif event_type == "invoice.payment_failed":
         pass  # Stripe retries automatically; extend here to notify customer if desired

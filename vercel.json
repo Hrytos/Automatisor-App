@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/cron/billing",
+      "schedule": "0 1 * * *"
+    }
+  ],
   "experimentalServices": {
     "frontend": {
       "entrypoint": "frontend",
