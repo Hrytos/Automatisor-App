@@ -39,6 +39,13 @@ function validateShareEmails(raw, senderEmail) {
   return { valid, errors };
 }
 
+function formatApiError(data, fallback = "Request failed") {
+  const detail = data?.detail;
+  if (typeof detail === "string") return detail;
+  if (typeof detail === "object" && detail?.message) return detail.message;
+  return data?.message || fallback;
+}
+
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
     credentials: "same-origin",
@@ -47,7 +54,7 @@ async function fetchJson(url, options = {}) {
   });
   const data = await response.json();
   if (!response.ok) {
-    const error = new Error(data.message || data.detail || "Request failed");
+    const error = new Error(formatApiError(data));
     error.code = response.status;
     error.payload = data;
     throw error;
@@ -74,6 +81,7 @@ export default function ShareReportDialog({ report, senderEmail, onClose }) {
         method: "POST",
         body: JSON.stringify({
           customer_site_id: report.customer_site_id,
+          site_id: report.site_id,
           emails: validation.valid,
         }),
       });
@@ -136,20 +144,10 @@ export default function ShareReportDialog({ report, senderEmail, onClose }) {
               {results.map((item) => (
                 <p
                   key={item.email}
-                  className={
-                    item.status === "sent"
-                      ? "share-result-sent"
-                      : item.status === "already_shared"
-                      ? "share-result-warning"
-                      : "share-result-failed"
-                  }
+                  className={item.status === "sent" ? "share-result-sent" : "share-result-failed"}
                 >
                   <strong>{item.email}:</strong>{" "}
-                  {item.status === "sent"
-                    ? "Email sent"
-                    : item.status === "already_shared"
-                    ? "Already shared this report with this user"
-                    : item.message || "Delivery failed"}
+                  {item.status === "sent" ? "Email sent" : item.message || "Delivery failed"}
                 </p>
               ))}
             </div>

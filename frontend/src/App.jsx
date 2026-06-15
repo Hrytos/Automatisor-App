@@ -2863,6 +2863,7 @@ function SiteRow({ site }) {
         <ShareReportDialog
           report={{
             customer_site_id: site.customer_site_id,
+            site_id: site.site_id,
             company_name: site.company_name,
           }}
           senderEmail={session?.email || ""}
@@ -5624,6 +5625,7 @@ function ReportPage() {
           <ShareReportDialog
             report={{
               customer_site_id: selectedSite.customer_site_id,
+              site_id: selectedSite.site_id,
               company_name: selectedSite.company_name,
             }}
             senderEmail={session?.email || ""}

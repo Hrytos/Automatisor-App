@@ -2,6 +2,7 @@ import os
 import re
 import json
 import base64
+import binascii
 import hmac
 import hashlib
 import asyncio
@@ -1937,6 +1938,28 @@ async def send_report_share_email(
         raise RuntimeError(f"Failed to send share email: {response.text}")
 
 
+async def resolve_sender_report_assignment(
+    db: SupabaseAdmin,
+    customer_id: str,
+    *,
+    customer_site_id: str | None = None,
+    site_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Resolve the sender's report row for sharing, with site_id fallback."""
+    if customer_site_id:
+        assignment = await find_customer_site_assignment(db, customer_id, customer_site_id)
+        if assignment and (not site_id or assignment.get("site_id") == site_id):
+            return assignment
+    if site_id:
+        return await find_share_source_assignment(
+            db,
+            site_id,
+            customer_id,
+            source_customer_site_id=customer_site_id,
+        )
+    return None
+
+
 def validate_share_recipients(raw_emails: Any, sender_email: str) -> tuple[list[str], list[dict[str, str]]]:
     """Validate share recipient emails."""
     values = raw_emails if isinstance(raw_emails, list) else re.split(r"[,;\s]+", str(raw_emails or ""))
@@ -2643,10 +2666,22 @@ async def resolve_share_token(body: dict[str, Any] = Body(default={})) -> dict[s
 @app.post("/api/reports/share")
 async def share_report(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     """Share a report with work email recipients."""
+    try:
+        customer_site_id = clean_optional(body.get("customer_site_id"))
+        site_id = clean_optional(body.get("site_id"))
+        if not customer_site_id and not site_id:
+            raise ValueError("Report is required")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     db = get_admin_db()
     sender = await get_authenticated_customer(db, request)
-    customer_site_id = clean_required(body.get("customer_site_id"), "Report")
-    assignment = await find_customer_site_assignment(db, sender["customer_id"], customer_site_id)
+    assignment = await resolve_sender_report_assignment(
+        db,
+        sender["customer_id"],
+        customer_site_id=customer_site_id or None,
+        site_id=site_id or None,
+    )
     if not assignment:
         raise HTTPException(status_code=404, detail="Report not found.")
     if not assignment.get("is_report_ready"):
@@ -2659,40 +2694,7 @@ async def share_report(request: Request, body: dict[str, Any] = Body(default={})
         )
     if not APP_BASE_URL:
         raise HTTPException(status_code=500, detail="Missing APP_BASE_URL")
-    
-    # Check for recipients who already have this site shared from this sender
-    already_shared_to = []
-    for recipient_email in recipients[:]:
-        recipient_customer = await find_customer_by_email(db, recipient_email)
-        if recipient_customer:
-            existing_share = await db.request(
-                "GET",
-                "/rest/v1/automatisor_customer_sites",
-                params={
-                    "customer_id": f"eq.{recipient_customer['customer_id']}",
-                    "site_id": f"eq.{assignment['site_id']}",
-                    "assigned_via": "eq.shared_site",
-                    "shared_by": f"eq.{sender['customer_id']}",
-                    "limit": 1,
-                },
-            )
-            if existing_share:
-                already_shared_to.append(recipient_email)
-                recipients.remove(recipient_email)
-    
-    # If all recipients already have it, return early
-    if not recipients and already_shared_to:
-        return {
-            "status": "complete",
-            "sent": 0,
-            "failed": 0,
-            "already_shared": len(already_shared_to),
-            "results": [
-                {"email": email, "status": "already_shared", "message": "You've already shared this report with this user"}
-                for email in already_shared_to
-            ]
-        }
-    
+
     # AUTO-SYNC: Create shared assignments immediately for existing users
     for recipient_email in recipients:
         recipient_customer = await find_customer_by_email(db, recipient_email)
@@ -2746,19 +2748,11 @@ async def share_report(request: Request, body: dict[str, Any] = Body(default={})
             return {"email": recipient, "status": "failed", "message": error_msg}
 
     results = await asyncio.gather(*(send_one(recipient) for recipient in recipients))
-    
-    # Add already shared results
-    if already_shared_to:
-        results = list(results) + [
-            {"email": email, "status": "already_shared", "message": "You've already shared this report with this user"}
-            for email in already_shared_to
-        ]
-    
+
     return {
         "status": "complete",
         "sent": sum(r["status"] == "sent" for r in results),
         "failed": sum(r["status"] == "failed" for r in results),
-        "already_shared": sum(r["status"] == "already_shared" for r in results),
         "results": results,
     }
 
