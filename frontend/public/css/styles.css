@@ -3848,18 +3848,19 @@ footer {
 }
 
 .report-tab-row {
+  display: flex;
+  align-items: center;
   justify-content: center;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(150px, 1fr));
   margin-bottom: 24px;
-  max-width: 540px;
+  max-width: 900px;
   margin-left: auto;
   margin-right: auto;
   gap: 10px;
+  padding: 0 24px;
 }
 
 .report-tab-row .tab-btn {
-  width: 100%;
+  min-width: 150px;
   min-height: 44px;
   display: inline-flex;
   align-items: center;

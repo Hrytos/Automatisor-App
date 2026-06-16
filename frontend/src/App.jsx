@@ -23,6 +23,8 @@ import reportStructure from "./report_section_structure.json";
 import CreditsPage from "./CreditsPage.jsx";
 import BillingPage from "./BillingPage.jsx";
 import ChatWidget from "./ChatWidget.jsx";
+import ShareReportDialog from "./ShareReportDialog.jsx";
+import { isFreeEmail } from "free-email-domains-list";
 
 const SESSION_KEY = "automatisor_auth_workspace_v2";
 const REPORT_CONTEXT_KEY = "automatisor_selected_report_v1";
@@ -1603,6 +1605,7 @@ function workEmailError(value) {
   const parts = email.split("@");
   if (parts.length !== 2) return "Enter a valid work email.";
   if (!parts[0] || !parts[1] || !parts[1].includes(".")) return "Enter a valid work email.";
+  if (isFreeEmail(email)) return "Personal email addresses are not accepted.";
   return "";
 }
 
@@ -2793,6 +2796,8 @@ function WorkspaceWishlistPanel({ wishlist }) {
 }
 
 function SiteRow({ site }) {
+  const [session] = useRequireSession();
+  const [showShareDialog, setShowShareDialog] = useState(false);
   const title = site.company_name || "Saved site";
   const routeState = buildPreAssessmentRouteState(site);
   const notesRouteState = { ...routeState, activeTab: "notes" };
@@ -2830,6 +2835,22 @@ function SiteRow({ site }) {
           >
             Recommendations
           </Link>
+          {reportReady && (
+            <button
+              type="button"
+              className="site-bar-link site-bar-link-secondary site-bar-share-button"
+              onClick={() => setShowShareDialog(true)}
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg>
+              Share
+            </button>
+          )}
         </div>
         <p className="site-bar-meta">
           {reportReady
@@ -2839,6 +2860,17 @@ function SiteRow({ site }) {
               : "Job not started yet"}
         </p>
       </div>
+      {showShareDialog && reportReady ? (
+        <ShareReportDialog
+          report={{
+            customer_site_id: site.customer_site_id,
+            site_id: site.site_id,
+            company_name: site.company_name,
+          }}
+          senderEmail={session?.email || ""}
+          onClose={() => setShowShareDialog(false)}
+        />
+      ) : null}
     </article>
   );
 }
@@ -2880,7 +2912,25 @@ function buildPreAssessmentRouteState(siteOrPayload) {
       siteOrPayload?.accountId ||
       "",
     siteId: siteOrPayload?.site_id || siteOrPayload?.siteId || "",
+    customerSiteId: siteOrPayload?.customer_site_id || siteOrPayload?.customerSiteId || "",
   };
+}
+
+function findWorkspaceSite(sites, { siteId = "", customerSiteId = "" } = {}) {
+  if (!Array.isArray(sites) || !sites.length) return null;
+  if (customerSiteId) {
+    const match = sites.find((site) => site.customer_site_id === customerSiteId);
+    if (match) return match;
+  }
+  if (!siteId) return null;
+  const matches = sites.filter((site) => site.site_id === siteId);
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0];
+  return (
+    matches.find((site) => site.is_report_ready && site.assigned_via === "shared_site") ||
+    matches.find((site) => site.is_report_ready) ||
+    matches[0]
+  );
 }
 
 function buildWorkspaceReportPath(siteOrPayload) {
@@ -3128,8 +3178,110 @@ function HomePage() {
   );
 }
 
+function TermsModal({ show, onClose }) {
+  if (!show) return null;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content terms-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>Terms & Conditions</h3>
+          <button
+            type="button"
+            className="modal-close-btn"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="modal-body">
+          <p>
+            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt 
+            ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco 
+            laboris nisi ut aliquip ex ea commodo consequat.
+          </p>
+          <p>
+            Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla 
+            pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt 
+            mollit anim id est laborum.
+          </p>
+          <p>
+            Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, 
+            totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae 
+            dicta sunt explicabo.
+          </p>
+          <p>
+            Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur 
+            magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem 
+            ipsum quia dolor sit amet, consectetur, adipisci velit.
+          </p>
+          <p>
+            Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi 
+            ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate 
+            velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla 
+            pariatur.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PrivacyModal({ show, onClose }) {
+  if (!show) return null;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content terms-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>Privacy Policy</h3>
+          <button
+            type="button"
+            className="modal-close-btn"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="modal-body">
+          <p>
+            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt 
+            ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco 
+            laboris nisi ut aliquip ex ea commodo consequat.
+          </p>
+          <p>
+            Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla 
+            pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt 
+            mollit anim id est laborum.
+          </p>
+          <p>
+            Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, 
+            totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae 
+            dicta sunt explicabo.
+          </p>
+          <p>
+            Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur 
+            magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem 
+            ipsum quia dolor sit amet, consectetur, adipisci velit.
+          </p>
+          <p>
+            Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi 
+            ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate 
+            velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla 
+            pariatur.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NewUserPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const shareToken = searchParams.get("share") || "";
   const addressPickerRef = useRef(null);
   const applyingOnboardingCandidateRef = useRef(false);
   const [stage, setStage] = useState("email");
@@ -3138,6 +3290,7 @@ function NewUserPage() {
   const [formError, setFormError] = useState("");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState("");
+  const [shareDetails, setShareDetails] = useState(null);
   const [sessionState, setSessionState] = useState({
     email: "",
     userMode: "new_user",
@@ -3161,6 +3314,9 @@ function NewUserPage() {
     site_company_domain: "",
     hasAddress: false,
   });
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [onboardingResolvedAddress, setOnboardingResolvedAddress] = useState(null);
   const [onboardingCandidateToConfirm, setOnboardingCandidateToConfirm] = useState(null);
   const [confirmingOnboardingCandidate, setConfirmingOnboardingCandidate] = useState(false);
@@ -3170,6 +3326,30 @@ function NewUserPage() {
     resolvedAddress: onboardingResolvedAddress,
   });
   const feedback = normalizeAuthFeedback(formError);
+
+  // Handle share link resolution
+  useEffect(() => {
+    if (!shareToken) return;
+    setLoading("share");
+    fetchJson("/api/share/resolve", {
+      method: "POST",
+      body: JSON.stringify({ share_token: shareToken }),
+    })
+      .then((payload) => {
+        setShareDetails(payload);
+        setEmail(payload.recipient_email || "");
+        setSessionState((current) => ({
+          ...current,
+          email: payload.recipient_email || "",
+          nextStep: "email",
+        }));
+        setStage("email");
+      })
+      .catch((error) =>
+        setFormError(error.message || "This share link is invalid. Continue with normal sign in.")
+      )
+      .finally(() => setLoading(""));
+  }, [shareToken]);
 
   function resetOnboardingValidationOverrides() {
     onboardingValidation.resetOverrides();
@@ -3218,8 +3398,21 @@ function NewUserPage() {
     setEmail(saved.email || "");
     if (saved.nextStep === "otp") {
       setStage("otp");
+    } else if (saved.nextStep === "onboarding_step1" && saved.authVerified) {
+      setStage("onboarding_step1");
+      setOnboarding((current) => ({
+        ...current,
+        customer_company_name: saved.companyName || "",
+      }));
+    } else if (saved.nextStep === "onboarding_step2" && saved.authVerified) {
+      setStage("onboarding_step2");
+      setOnboarding((current) => ({
+        ...current,
+        customer_company_name: saved.companyName || "",
+      }));
     } else if (saved.nextStep === "onboarding" && saved.authVerified) {
-      setStage("onboarding");
+      // Legacy support for old "onboarding" stage
+      setStage("onboarding_step1");
       setOnboarding((current) => ({
         ...current,
         customer_company_name: saved.companyName || "",
@@ -3240,6 +3433,20 @@ function NewUserPage() {
     navigate("/workspace");
   }
 
+  const step1Ready = Boolean(
+    onboarding.first_name &&
+      onboarding.last_name &&
+      onboarding.customer_company_name &&
+      termsAccepted,
+  );
+  
+  const step2Ready = Boolean(
+    onboarding.site_company_name &&
+      onboarding.site_company_domain &&
+      onboarding.hasAddress &&
+      onboardingValidation.canProceed,
+  );
+  
   const onboardingReady = Boolean(
     onboarding.first_name &&
       onboarding.last_name &&
@@ -3295,8 +3502,26 @@ function NewUserPage() {
     try {
       const payload = await fetchJson("/api/auth/verify-otp", {
         method: "POST",
-        body: JSON.stringify({ email: sessionState.email || email, otp }),
+        body: JSON.stringify({ 
+          email: sessionState.email || email, 
+          otp,
+          share_token: shareToken || undefined
+        }),
       });
+      
+      // Handle share destination - navigate directly to shared report
+      if (payload.share_destination) {
+        const routeState = {
+          accountId: payload.share_destination.account_id,
+          siteId: payload.share_destination.site_id,
+          customerSiteId: payload.share_destination.customer_site_id,
+        };
+        persistState(buildSessionFromPayload(sessionState, { ...payload, next_step: "workspace" }));
+        saveReportContext(routeState);
+        navigate("/workspace/report", { state: routeState });
+        return;
+      }
+      
       if (payload.next_step === "workspace") {
         persistState({
           email: payload.email || sessionState.email || email,
@@ -3305,14 +3530,38 @@ function NewUserPage() {
           authVerified: true,
         });
         showWorkspace(payload);
-      } else {
+      } else if (payload.next_step === "onboarding_step1") {
         persistState({
           email: payload.email || sessionState.email || email,
           userMode: payload.user_mode || sessionState.userMode,
-          nextStep: "onboarding",
+          nextStep: "onboarding_step1",
           authVerified: true,
         });
-        setStage("onboarding");
+        setStage("onboarding_step1");
+        if (payload.share_token) {
+          setSessionState((current) => ({ ...current, shareToken: payload.share_token }));
+        }
+      } else if (payload.next_step === "onboarding_step2") {
+        persistState({
+          email: payload.email || sessionState.email || email,
+          userMode: payload.user_mode || sessionState.userMode,
+          nextStep: "onboarding_step2",
+          authVerified: true,
+        });
+        setStage("onboarding_step2");
+        setOnboarding((current) => ({
+          ...current,
+          customer_company_name: sessionState.companyName || "",
+        }));
+      } else {
+        // Legacy support or fallback to step 1
+        persistState({
+          email: payload.email || sessionState.email || email,
+          userMode: payload.user_mode || sessionState.userMode,
+          nextStep: "onboarding_step1",
+          authVerified: true,
+        });
+        setStage("onboarding_step1");
         setOnboarding((current) => ({
           ...current,
           customer_company_name: sessionState.companyName || "",
@@ -3342,18 +3591,63 @@ function NewUserPage() {
     }
   }
 
-  async function completeOnboarding() {
+  async function completeOnboardingStep1() {
     setFormError("");
-    setLoading("onboarding");
+    if (!onboarding.first_name || !onboarding.last_name || !onboarding.customer_company_name) {
+      setFormError("All fields are required");
+      return;
+    }
+    if (!termsAccepted) {
+      setFormError("You must accept the Terms & Conditions");
+      return;
+    }
+
+    setLoading("step1");
     try {
-      const sitePayload = await addressPickerRef.current.resolveCurrentAddress();
-      const payload = await fetchJson("/api/onboarding/complete", {
+      const payload = await fetchJson("/api/onboarding/step1", {
         method: "POST",
         body: JSON.stringify({
           email: sessionState.email || email,
           first_name: onboarding.first_name,
           last_name: onboarding.last_name,
           customer_company_name: onboarding.customer_company_name,
+          share_token: shareToken || undefined,
+          terms_accepted: termsAccepted,
+        }),
+      });
+
+      // Share flow: go directly to report
+      if (payload.share_destination) {
+        const routeState = {
+          accountId: payload.share_destination.account_id,
+          siteId: payload.share_destination.site_id,
+          customerSiteId: payload.share_destination.customer_site_id,
+        };
+        persistState(buildSessionFromPayload(sessionState, payload));
+        saveReportContext(routeState);
+        navigate("/workspace/report", { state: routeState });
+        return;
+      }
+
+      // Normal flow: proceed to step 2
+      persistState(buildSessionFromPayload(sessionState, payload));
+      setStage("onboarding_step2");
+    } catch (error) {
+      setFormError(error.message || "Could not complete step 1");
+    } finally {
+      setLoading("");
+    }
+  }
+
+  async function completeOnboardingStep2() {
+    setFormError("");
+    setLoading("step2");
+    try {
+      const sitePayload = await addressPickerRef.current.resolveCurrentAddress();
+      const payload = await fetchJson("/api/onboarding/complete", {
+        method: "POST",
+        body: JSON.stringify({
+          email: sessionState.email || email,
         }),
       });
       const nextState = buildSessionFromPayload(sessionState, payload);
@@ -3377,133 +3671,37 @@ function NewUserPage() {
     }
   }
 
-  return (
-    <div className="signup-body">
-      <AppNav backToHome />
-      <main className="signup-page signup-page-modern">
-        <section className={`auth-shell-modern ${stage === "onboarding" ? "" : "auth-shell-with-explainer"}`}>
-          {stage === "onboarding" ? null : <AuthExplainerPanel />}
-          <section id="signupShell" className="auth-panel-modern">
-            <div className="auth-panel-head">
-              <h2 id="signupPageTitle">
-                {stage === "email"
-                  ? "Start with your work email"
-                  : stage === "otp"
-                    ? "Verify your email"
-                    : "Create your account"}
-              </h2>
-              <p id="signupIntro" className="signup-subtitle auth-panel-copy">
-                {stage === "email"
-                  ? ""
-                  : stage === "otp"
-                    ? "Use the one-time password to continue into your workspace."
-                    : "Account does not exist. Finish the onboarding to create your workspace."}
-              </p>
-            </div>
+  // Render onboarding on separate screen like workspace
+  if (stage === "onboarding_step1" || stage === "onboarding_step2") {
+    return (
+      <div className="signup-body">
+        <AppNav backToHome />
+        <main className="workspace-page-shell signup-body workspace-body">
+          <section className="workspace-page onboarding-workspace-page">
+            <section className="auth-stage-card auth-stage-card-wide">
+              <div className="auth-stage-header">
+                <h3>{shareDetails ? "Access shared report" : "Finish your onboarding"}</h3>
+                <p>{shareDetails ? "Add your details to access the report" : "Complete these steps to create your workspace and request your first pre-assessment."}</p>
+              </div>
 
-            <div className={`auth-feedback auth-feedback-${feedback.tone} ${formError ? "" : "hidden"}`}>
-              <p className="auth-feedback-title">{feedback.title}</p>
-              <p className="auth-feedback-message">{feedback.message}</p>
-            </div>
-
-            {stage === "email" ? (
-              <section className="auth-stage-card">
-                <div className="auth-stage-header">
-                  <h3>Enter your work email</h3>
-                  <p>Use a company email address. Personal inboxes are blocked.</p>
-                </div>
-                <form onSubmit={handleEmailSubmit} noValidate>
-                  <label className="modern-field">
-                    <span>Work email</span>
-                    <input
-                      id="work_email"
-                      type="email"
-                      autoComplete="email"
-                      placeholder="you@company.com"
-                      value={email}
-                      onChange={(event) => {
-                        setEmail(event.target.value);
-                        setEmailError("");
-                      }}
-                    />
-                  </label>
-                  <p className={`form-error ${emailError ? "" : "hidden"}`}>{emailError}</p>
-                  <div className="auth-primary-action">
-                    <button
-                      type="submit"
-                      className="btn-primary btn-submit-wide"
-                      disabled={loading === "email"}
-                    >
-                      {loading === "email" ? "Please wait..." : "Continue"}
-                    </button>
+              {/* Stepper - only show for normal users (not share recipients) */}
+              {!shareDetails && (
+                <div className="onboarding-stepper">
+                  <div className={`stepper-step ${stage === "onboarding_step1" ? "stepper-step-active" : stage === "onboarding_step2" ? "stepper-step-completed" : ""}`}>
+                    <div className="stepper-step-number">1</div>
+                    <div className="stepper-step-label">Add your details</div>
                   </div>
-                </form>
-              </section>
-            ) : null}
+                  <div className="stepper-line"></div>
+                  <div className={`stepper-step ${stage === "onboarding_step2" ? "stepper-step-active" : ""}`}>
+                    <div className="stepper-step-number">2</div>
+                    <div className="stepper-step-label">Add your first facility</div>
+                  </div>
+                </div>
+              )}
 
-            {stage === "otp" ? (
-              <section className="auth-stage-card">
-                <div className="auth-stage-header">
-                  <h3>Verify your email</h3>
-                  <p>
-                    Enter the 6-digit code sent to <strong>{sessionState.email || email}</strong>.
-                  </p>
-                </div>
-                <div className="auth-inline-grid">
-                  <label className="modern-field">
-                    <span>One-time password</span>
-                    <input
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      maxLength={6}
-                      placeholder="6-digit OTP"
-                      value={otp}
-                      onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="btn-primary auth-inline-cta"
-                    onClick={verifyOtp}
-                    disabled={loading === "otp"}
-                  >
-                    {loading === "otp" ? "Please wait..." : "Verify OTP"}
-                  </button>
-                </div>
-                <div className="auth-secondary-actions">
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={resendOtp}
-                    disabled={loading === "resend"}
-                  >
-                    {loading === "resend" ? "Please wait..." : "Resend OTP"}
-                  </button>
-                  <button
-                    type="button"
-                    className="auth-link-btn"
-                    onClick={() => {
-                      setStage("email");
-                      persistState({ nextStep: "email", authVerified: false });
-                      setOtp("");
-                    }}
-                  >
-                    Use a different email
-                  </button>
-                </div>
-              </section>
-            ) : null}
-
-            {stage === "onboarding" ? (
-              <section className="auth-stage-card auth-stage-card-wide">
-                <div className="auth-stage-header">
-                  <h3>Finish your onboarding</h3>
-                  <p>Complete these steps to create your workspace and request your first pre-assessment.</p>
-                </div>
-
+              {stage === "onboarding_step1" ? (
                 <section className="onboarding-section">
                   <div className="onboarding-section-head">
-                    <span className="onboarding-step-label">Step 1</span>
                     <h4>Add your details</h4>
                   </div>
                   <div className="modern-form-grid">
@@ -3536,11 +3734,38 @@ function NewUserPage() {
                       />
                     </label>
                   </div>
-                </section>
 
+                  <label className="terms-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={termsAccepted}
+                      onChange={(e) => setTermsAccepted(e.target.checked)}
+                    />
+                    <span>
+                      I agree to the{" "}
+                      <button
+                        type="button"
+                        className="terms-link"
+                        onClick={() => setShowTermsModal(true)}
+                      >
+                        Terms & Conditions
+                      </button>
+                      {" "}and{" "}
+                      <button
+                        type="button"
+                        className="terms-link"
+                        onClick={() => setShowPrivacyModal(true)}
+                      >
+                        Privacy Policy
+                      </button>
+                    </span>
+                  </label>
+                </section>
+              ) : null}
+
+              {stage === "onboarding_step2" ? (
                 <section className="site-card-modern onboarding-section">
                   <div className="onboarding-section-head">
-                    <span className="onboarding-step-label">Step 2</span>
                     <h4>Add your first facility</h4>
                   </div>
                   <div className="modern-form-grid">
@@ -3619,15 +3844,146 @@ function NewUserPage() {
                     addressLabel="Facility address"
                   />
                 </section>
+              ) : null}
 
-                <div className="auth-primary-action">
+              <div className="auth-primary-action">
+                <button
+                  type="button"
+                  className="btn-primary btn-submit-wide"
+                  onClick={stage === "onboarding_step1" ? completeOnboardingStep1 : completeOnboardingStep2}
+                  disabled={stage === "onboarding_step1" ? (!step1Ready || loading === "step1") : (!step2Ready || loading === "step2")}
+                >
+                  {loading === "step1" || loading === "step2" ? "Please wait..." : stage === "onboarding_step1" ? (shareDetails ? "Access Report" : "Next") : "Request pre-assessment"}
+                </button>
+              </div>
+
+              <p className={`form-error ${formError ? "" : "hidden"}`}>{formError}</p>
+            </section>
+          </section>
+        </main>
+        <TermsModal show={showTermsModal} onClose={() => setShowTermsModal(false)} />
+        <PrivacyModal show={showPrivacyModal} onClose={() => setShowPrivacyModal(false)} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="signup-body">
+      <AppNav backToHome />
+      <main className="signup-page signup-page-modern">
+        <section className="auth-shell-modern auth-shell-with-explainer">
+          <AuthExplainerPanel />
+          <section id="signupShell" className="auth-panel-modern">
+            <div className="auth-panel-head">
+              <h2 id="signupPageTitle">
+                {stage === "email"
+                  ? "Start with your work email"
+                  : stage === "otp"
+                    ? "Verify your email"
+                    : "Create your account"}
+              </h2>
+              <p id="signupIntro" className="signup-subtitle auth-panel-copy">
+                {stage === "email"
+                  ? ""
+                  : stage === "otp"
+                    ? "Use the one-time password to continue into your workspace."
+                    : "Account does not exist. Finish the onboarding to create your workspace."}
+              </p>
+            </div>
+
+            <div className={`auth-feedback auth-feedback-${feedback.tone} ${formError ? "" : "hidden"}`}>
+              <p className="auth-feedback-title">{feedback.title}</p>
+              <p className="auth-feedback-message">{feedback.message}</p>
+            </div>
+
+            {stage === "email" ? (
+              <section className="auth-stage-card">
+                <div className="auth-stage-header">
+                  <h3>Enter your work email</h3>
+                  <p>
+                    {shareDetails
+                      ? "Sign in with the invited email to view the report."
+                      : "Use a company email address. Personal inboxes are blocked."}
+                  </p>
+                </div>
+                <form onSubmit={handleEmailSubmit} noValidate>
+                  <label className="modern-field">
+                    <span>Work email</span>
+                    <input
+                      id="work_email"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="you@company.com"
+                      value={email}
+                      readOnly={Boolean(shareDetails)}
+                      onChange={(event) => {
+                        setEmail(event.target.value);
+                        setEmailError("");
+                      }}
+                    />
+                  </label>
+                  <p className={`form-error ${emailError ? "" : "hidden"}`}>{emailError}</p>
+                  <div className="auth-primary-action">
+                    <button
+                      type="submit"
+                      className="btn-primary btn-submit-wide"
+                      disabled={loading === "email"}
+                    >
+                      {loading === "email" ? "Please wait..." : "Continue"}
+                    </button>
+                  </div>
+                </form>
+              </section>
+            ) : null}
+
+            {stage === "otp" ? (
+              <section className="auth-stage-card">
+                <div className="auth-stage-header">
+                  <h3>Verify your email</h3>
+                  <p>
+                    Enter the 6-digit code sent to <strong>{sessionState.email || email}</strong>.
+                  </p>
+                </div>
+                <div className="auth-inline-grid">
+                  <label className="modern-field">
+                    <span>One-time password</span>
+                    <input
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      placeholder="6-digit OTP"
+                      value={otp}
+                      onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                    />
+                  </label>
                   <button
                     type="button"
-                    className="btn-primary btn-submit-wide"
-                    onClick={completeOnboarding}
-                    disabled={!onboardingReady || loading === "onboarding"}
+                    className="btn-primary auth-inline-cta"
+                    onClick={verifyOtp}
+                    disabled={loading === "otp"}
                   >
-                    {loading === "onboarding" ? "Please wait..." : "Request pre-assessment"}
+                    {loading === "otp" ? "Please wait..." : "Verify OTP"}
+                  </button>
+                </div>
+                <div className="auth-secondary-actions">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={resendOtp}
+                    disabled={loading === "resend"}
+                  >
+                    {loading === "resend" ? "Please wait..." : "Resend OTP"}
+                  </button>
+                  <button
+                    type="button"
+                    className="auth-link-btn"
+                    onClick={() => {
+                      setStage("email");
+                      persistState({ nextStep: "email", authVerified: false });
+                      setOtp("");
+                    }}
+                  >
+                    Use a different email
                   </button>
                 </div>
               </section>
@@ -3635,6 +3991,8 @@ function NewUserPage() {
           </section>
         </section>
       </main>
+      <TermsModal show={showTermsModal} onClose={() => setShowTermsModal(false)} />
+      <PrivacyModal show={showPrivacyModal} onClose={() => setShowPrivacyModal(false)} />
     </div>
   );
 }
@@ -3685,7 +4043,10 @@ function WorkspaceLayout() {
             Add new facility
           </Link>
           <Link to="/workspace" className="btn-secondary workspace-sticky-link workspace-sticky-link-workspace">
-            Workspace
+            Facilities
+          </Link>
+          <Link to="/workspace/wishlist" className="btn-secondary workspace-sticky-link workspace-sticky-link-wishlist">
+            Wishlist
           </Link>
           <Link to="/workspace/credits" className="btn-secondary workspace-sticky-link workspace-sticky-link-credits">
             Credits
@@ -3708,6 +4069,7 @@ function WorkspacePage() {
   const [error, setError] = useState("");
   const [workspace, setWorkspace] = useState(() => session || loadSession());
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+  const [activeTab, setActiveTab] = useState("my");
 
   useEffect(() => {
     if (!session?.email) return;
@@ -3731,25 +4093,13 @@ function WorkspacePage() {
 
   if (!session?.email) return null;
 
-  const sites = workspace?.sites || [];
+  const allSites = workspace?.sites || [];
   const wishlist = workspace?.wishlist || [];
+  const myFacilities = allSites.filter((site) => site.assigned_via !== "shared_site");
+  const sharedFacilities = allSites.filter((site) => site.assigned_via === "shared_site");
   return (
     <main className="workspace-page-shell signup-body workspace-body">
       <section className="workspace-page">
-        <header className="workspace-topbar workspace-topbar-titleonly">
-          <div className="workspace-topbar-copy">
-            <p className="workspace-eyebrow">Workspace</p>
-            <h1 className="workspace-page-title">Saved facilities</h1>
-          </div>
-          <Link to="/workspace/wishlist" className="workspace-library-button">
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
-              <path d="M5.5 4.5h5.5a2 2 0 0 1 2 2v13a2.8 2.8 0 0 0-2-.85H5.5z" />
-              <path d="M18.5 4.5H13a2 2 0 0 0-2 2v13a2.8 2.8 0 0 1 2-.85h5.5z" />
-            </svg>
-            <span>Wishlist</span>
-            <strong>{wishlist.length}</strong>
-          </Link>
-        </header>
         <WorkspaceMobileActions
           creditsUsed={workspace?.creditsUsedTotal || 0}
           onLogout={onLogout}
@@ -3757,29 +4107,69 @@ function WorkspacePage() {
 
         <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
 
+        {/* Facilities Tabs */}
+        <div className="tab-row workspace-facilities-tabs" role="tablist" aria-label="Facilities">
+          <button
+            type="button"
+            className={`tab-btn ${activeTab === "my" ? "tab-btn-active" : ""}`}
+            onClick={() => setActiveTab("my")}
+            role="tab"
+            aria-selected={activeTab === "my"}
+          >
+            My facilities
+          </button>
+          <button
+            type="button"
+            className={`tab-btn ${activeTab === "shared" ? "tab-btn-active" : ""}`}
+            onClick={() => setActiveTab("shared")}
+            role="tab"
+            aria-selected={activeTab === "shared"}
+          >
+            Shared facilities
+          </button>
+        </div>
+
         <section className="workspace-sites-panel">
-          {loadingWorkspace && !sites.length ? (
+          {loadingWorkspace && !allSites.length ? (
             <div className="workspace-loading-state">
               <p>Loading saved sites...</p>
             </div>
-          ) : sites.length ? (
-            <div className="site-bar-list">
-              <PinnedSampleReportRow />
-              {sites.map((site) => (
-                <SiteRow key={site.site_id} site={site} />
-              ))}
-            </div>
           ) : (
-            <div className="site-bar-list">
-              <PinnedSampleReportRow />
-              <div className="workspace-empty-state">
-                <h3>No sites added yet</h3>
-                <p>Add your first site to start organizing the workspace around real operating locations.</p>
-                <Link to="/workspace/sites/new" className="btn-primary">
-                  Add first facility
-                </Link>
-              </div>
-            </div>
+            <>
+              {/* My Facilities Tab */}
+              {activeTab === "my" && (
+                <div className="site-bar-list">
+                  <PinnedSampleReportRow />
+                  {myFacilities.map((site) => (
+                    <SiteRow key={site.customer_site_id} site={site} />
+                  ))}
+                  {!myFacilities.length && (
+                    <div className="workspace-empty-state">
+                      <h3>No facilities added yet</h3>
+                      <Link to="/workspace/sites/new" className="btn-primary">
+                        Add first facility
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Shared Facilities Tab */}
+              {activeTab === "shared" && (
+                <div className="site-bar-list">
+                  {sharedFacilities.length > 0 ? (
+                    sharedFacilities.map((site) => (
+                      <SiteRow key={site.customer_site_id} site={site} />
+                    ))
+                  ) : (
+                    <div className="workspace-empty-state">
+                      <h3>No shared facilities yet</h3>
+                      <p>Reports shared with you by other users will appear here.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </section>
       </section>
@@ -3822,7 +4212,6 @@ function WishlistPage() {
       <section className="workspace-page">
         <header className="workspace-topbar workspace-topbar-titleonly">
           <div className="workspace-topbar-copy">
-            <p className="workspace-eyebrow">Workspace</p>
             <h1 className="workspace-page-title">Wishlist</h1>
           </div>
         </header>
@@ -4073,6 +4462,7 @@ function PreAssessmentPage() {
   const [confirmedRouteState, setConfirmedRouteState] = useState(null);
   const [paymentRedirectSeconds, setPaymentRedirectSeconds] = useState(0);
   const paymentRedirectTimersRef = useRef([]);
+  const preAssessmentSubmittingRef = useRef(false);
   const storedPreAssessmentContext = loadPreAssessmentContext();
   const queryRouteState = {
     accountId: searchParams.get("account_id") || "",
@@ -4168,6 +4558,12 @@ function PreAssessmentPage() {
     setReviewOpen(true);
   }
 
+  function closeReviewModal() {
+    if (paymentRedirecting) return;
+    setReviewOpen(false);
+    setReviewError("");
+  }
+
   function editSelectedSite() {
     if (paymentRedirecting) return;
     setReviewOpen(false);
@@ -4184,11 +4580,12 @@ function PreAssessmentPage() {
   }
 
   async function requestPreAssessment() {
-    if (paymentRedirecting) return;
+    if (paymentRedirecting || preAssessmentSubmittingRef.current) return;
     if (!selectedSite) {
       setError("Select a site from the workspace before requesting a pre-assessment.");
       return;
     }
+    preAssessmentSubmittingRef.current = true;
     setError("");
     resetPaymentRedirect();
     setReviewError("");
@@ -4196,6 +4593,8 @@ function PreAssessmentPage() {
     try {
       let requestAccountId = accountId || selectedSite.account_id || "";
       let requestSiteId = selectedSite.site_id || "";
+      let requestCustomerSiteId = selectedSite.customer_site_id || "";
+      let justCreatedOwnedSite = false;
       let nextWorkspace = workspace;
 
       if (isPendingSite) {
@@ -4218,12 +4617,26 @@ function PreAssessmentPage() {
             request_basis: pendingSite.request_basis || "",
           }),
         });
+
         nextWorkspace = buildSessionFromPayload(session, savedSitePayload);
         saveSession(nextWorkspace);
         setSession(nextWorkspace);
         setWorkspace(nextWorkspace);
         requestAccountId = savedSitePayload.account_id || nextWorkspace.activeAccountId || "";
         requestSiteId = savedSitePayload.site_id || "";
+        requestCustomerSiteId = savedSitePayload.customer_site_id || "";
+        justCreatedOwnedSite = savedSitePayload.site_status === "created";
+
+        if (savedSitePayload.site_status === "already_exists" && savedSitePayload.can_proceed === false) {
+          setReviewError(
+            "You already added this facility and a pre-assessment is already in progress. Check your My facilities tab.",
+          );
+          return;
+        }
+
+        if (savedSitePayload.site_status !== "created" && savedSitePayload.site_status !== "already_exists") {
+          throw new Error("Could not save the selected site before starting the pre-assessment.");
+        }
       }
 
       if (!requestSiteId) {
@@ -4236,9 +4649,22 @@ function PreAssessmentPage() {
           email: session.email,
           account_id: requestAccountId,
           site_id: requestSiteId,
+          customer_site_id: requestCustomerSiteId,
           confirmed: true,
         }),
       });
+
+      if (
+        justCreatedOwnedSite &&
+        payload.message &&
+        payload.message.toLowerCase().includes("already running")
+      ) {
+        setReviewError(
+          "You already added this facility and a pre-assessment is already in progress. Check your My facilities tab.",
+        );
+        return;
+      }
+
       const nextRouteState = {
         accountId: payload.account_id || requestAccountId,
         siteId: payload.site_id || requestSiteId,
@@ -4284,6 +4710,7 @@ function PreAssessmentPage() {
       }
     } finally {
       setLoading(false);
+      preAssessmentSubmittingRef.current = false;
     }
   }
 
@@ -4421,12 +4848,13 @@ function PreAssessmentPage() {
             </section>
 
             {reviewOpen ? (
-              <div className="review-modal-backdrop" role="presentation">
+              <div className="review-modal-backdrop" role="presentation" onMouseDown={closeReviewModal}>
                 <section
                   className="review-modal"
                   role="dialog"
                   aria-modal="true"
                   aria-labelledby="reviewModalTitle"
+                  onMouseDown={(event) => event.stopPropagation()}
                 >
                   <div className="review-modal-head">
                     <p className="workspace-eyebrow">Review</p>
@@ -4757,27 +5185,32 @@ function ReportPage() {
   const [ratingMessage, setRatingMessage] = useState("");
   const [ratingIsError, setRatingIsError] = useState(false);
   const [addingWishlistSiteId, setAddingWishlistSiteId] = useState("");
+  const [showShareDialog, setShowShareDialog] = useState(false);
   const queryRouteState = {
     accountId: searchParams.get("account_id") || "",
     siteId: searchParams.get("site_id") || "",
+    customerSiteId: searchParams.get("customer_site_id") || "",
   };
   const storedReportContext = loadReportContext();
   const routeState =
     location.state ||
-    (queryRouteState.accountId || queryRouteState.siteId ? queryRouteState : null) ||
+    (queryRouteState.accountId || queryRouteState.siteId || queryRouteState.customerSiteId
+      ? queryRouteState
+      : null) ||
     storedReportContext ||
     {};
   const accountId = routeState.accountId || session?.activeAccountId || "";
   const siteId = routeState.siteId || "";
+  const customerSiteId = routeState.customerSiteId || "";
 
   useEffect(() => {
-    if (routeState.accountId || routeState.siteId) {
+    if (routeState.accountId || routeState.siteId || routeState.customerSiteId) {
       saveReportContext(routeState);
     }
     if (location.search) {
       navigate("/workspace/report", { replace: true, state: routeState });
     }
-  }, [location.search, routeState.accountId, routeState.siteId]);
+  }, [location.search, navigate, routeState.accountId, routeState.siteId, routeState.customerSiteId]);
 
   useEffect(() => {
     if (
@@ -4809,7 +5242,8 @@ function ReportPage() {
       .finally(() => setLoadingWorkspace(false));
   }, [session?.email, accountId]);
 
-  const selectedSite = (workspace?.sites || []).find((site) => site.site_id === siteId) || null;
+  const selectedSite =
+    findWorkspaceSite(workspace?.sites, { siteId, customerSiteId }) || null;
   const reportMetadata = selectedSite?.report_metadata || {};
   const reportMarkedReady = Boolean(selectedSite?.is_report_ready);
   const reportHasMetadata = hasReportMetadata(reportMetadata);
@@ -4834,7 +5268,7 @@ function ReportPage() {
       return {
         ...state,
         sites: state.sites.map((site) =>
-          site.site_id === selectedSite.site_id ? { ...site, ...updates } : site,
+          site.customer_site_id === selectedSite.customer_site_id ? { ...site, ...updates } : site,
         ),
       };
     };
@@ -5031,6 +5465,23 @@ function ReportPage() {
               >
                 Recommendations
               </button>
+              {reportMarkedReady ? (
+                <button
+                  type="button"
+                  className="btn-secondary report-share-button"
+                  onClick={() => setShowShareDialog(true)}
+                  aria-label="Share this report"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="18" cy="5" r="3" />
+                    <circle cx="6" cy="12" r="3" />
+                    <circle cx="18" cy="19" r="3" />
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  </svg>
+                  Share
+                </button>
+              ) : null}
             </div>
 
             {activeReportTab === "preAssessment" ? (
@@ -5170,6 +5621,17 @@ function ReportPage() {
               <span>Recommendations</span>
             </button>
           </nav>
+        ) : null}
+        {showShareDialog && selectedSite && reportMarkedReady ? (
+          <ShareReportDialog
+            report={{
+              customer_site_id: selectedSite.customer_site_id,
+              site_id: selectedSite.site_id,
+              company_name: selectedSite.company_name,
+            }}
+            senderEmail={session?.email || ""}
+            onClose={() => setShowShareDialog(false)}
+          />
         ) : null}
       </section>
       {siteId ? <ChatWidget siteId={siteId} /> : null}
