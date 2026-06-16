@@ -22,6 +22,7 @@ import brWilliamsSampleReport from "../../backend/sample-report/data_structure.j
 import reportStructure from "./report_section_structure.json";
 import CreditsPage from "./CreditsPage.jsx";
 import BillingPage from "./BillingPage.jsx";
+import ChatWidget from "./ChatWidget.jsx";
 
 const SESSION_KEY = "automatisor_auth_workspace_v2";
 const REPORT_CONTEXT_KEY = "automatisor_selected_report_v1";
@@ -5171,6 +5172,7 @@ function ReportPage() {
           </nav>
         ) : null}
       </section>
+      {siteId ? <ChatWidget siteId={siteId} /> : null}
     </main>
   );
 }
