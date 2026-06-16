@@ -1,5 +1,12 @@
 import os
 import re
+import json
+import base64
+import binascii
+import hmac
+import hashlib
+import asyncio
+import html
 from pathlib import Path
 from typing import Any
 from datetime import datetime, timedelta, timezone
@@ -65,6 +72,10 @@ STRIPE_PUBLISHABLE_KEY = (
 PRICE_PER_CREDIT_USD_CENTS = 5000  # $50.00 per credit
 
 stripe.api_key = STRIPE_SECRET_KEY
+
+# Share feature
+APP_BASE_URL = os.getenv("APP_BASE_URL", "")
+SHARE_TOKEN_SECRET = os.getenv("SHARE_TOKEN_SECRET", "")
 
 SIGNUP_CREDITS = 2
 PRE_ASSESSMENT_PRICE = 2
@@ -259,6 +270,40 @@ def assert_work_email(email: Any) -> str:
     if not is_company_email_address(normalized):
         raise ValueError("Please use your work email address")
     return normalized
+
+
+def encode_share_token(recipient_email: str, site_id: str, shared_by_customer_id: str) -> str:
+    """Create HMAC-signed token for share links."""
+    if not SHARE_TOKEN_SECRET:
+        raise HTTPException(status_code=500, detail="Missing SHARE_TOKEN_SECRET")
+    payload = json.dumps(
+        {"recipient_email": recipient_email, "site_id": site_id, "shared_by": shared_by_customer_id},
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(payload).rstrip(b"=")
+    signature = hmac.new(SHARE_TOKEN_SECRET.encode("utf-8"), encoded, hashlib.sha256).digest()
+    return f"{encoded.decode('ascii')}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode('ascii')}"
+
+
+def decode_share_token(raw_token: Any) -> dict[str, str] | None:
+    """Decode and verify HMAC-signed share token."""
+    token = str(raw_token or "").strip()
+    if not token or not SHARE_TOKEN_SECRET:
+        return None
+    try:
+        encoded, raw_signature = token.split(".", 1)
+        expected = hmac.new(SHARE_TOKEN_SECRET.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+        signature = base64.urlsafe_b64decode(raw_signature + "=" * (-len(raw_signature) % 4))
+        if not hmac.compare_digest(expected, signature):
+            return None
+        payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+        recipient_email = assert_work_email(payload.get("recipient_email"))
+        site_id = clean_required(payload.get("site_id"), "Site")
+        shared_by = clean_optional(payload.get("shared_by"))  # Optional for backward compat
+        return {"recipient_email": recipient_email, "site_id": site_id, "shared_by": shared_by}
+    except (binascii.Error, ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
 
 
 def clean_required(raw: Any, label: str) -> str:
@@ -892,29 +937,27 @@ def hydrate_recommendation_site_row(row: dict[str, Any], account: dict[str, Any]
     }
 
 
-async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, site_id: str | None, customer_id: str | None) -> dict[str, Any] | None:
-    if not account_id or not site_id:
-        return None
-    assignment_rows = await db.request(
-        "GET",
-        "/rest/v1/automatisor_customer_sites",
-        params={
-            "select": "customer_site_id,metadata,recommendations,notes,report_metadata,rating_metadata,is_report_ready",
-            "customer_id": f"eq.{customer_id}",
-            "account_id": f"eq.{account_id}",
-            "site_id": f"eq.{site_id}",
-            "limit": 1,
-        },
-    )
-    assignment = assignment_rows[0] if assignment_rows else None
-    if customer_id and not assignment:
+_ASSIGNMENT_SELECT = (
+    "customer_site_id,assigned_via,metadata,recommendations,notes,report_metadata,rating_metadata,is_report_ready,account_id"
+)
+
+
+async def _hydrate_account_site_with_assignment(
+    db: SupabaseAdmin,
+    assignment: dict[str, Any] | None,
+    *,
+    account_id: str | None,
+    site_id: str,
+) -> dict[str, Any] | None:
+    resolved_account_id = account_id or (assignment.get("account_id") if assignment else None)
+    if not resolved_account_id:
         return None
     data = await db.request(
         "GET",
         "/rest/v1/account_sites",
         params={
             "select": "site_id,account_id,full_address,company_name,metadata,created_at",
-            "account_id": f"eq.{account_id}",
+            "account_id": f"eq.{resolved_account_id}",
             "site_id": f"eq.{site_id}",
             "is_archived": "eq.false",
             "limit": 1,
@@ -925,6 +968,7 @@ async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, sit
         return None
     if assignment:
         row["customer_site_id"] = assignment.get("customer_site_id")
+        row["assigned_via"] = assignment.get("assigned_via") or "user_added_site"
         row["customer_site_metadata"] = assignment.get("metadata") or {}
         row["recommendations"] = await hydrate_recommendations(db, assignment.get("recommendations") or {})
         row["notes"] = assignment.get("notes") or ""
@@ -934,6 +978,59 @@ async def find_account_site_by_id(db: SupabaseAdmin, account_id: str | None, sit
     return row
 
 
+async def find_account_site_by_id(
+    db: SupabaseAdmin,
+    account_id: str | None,
+    site_id: str | None,
+    customer_id: str | None,
+    *,
+    customer_site_id: str | None = None,
+) -> dict[str, Any] | None:
+    if not site_id:
+        return None
+
+    assignment: dict[str, Any] | None = None
+    if customer_site_id and customer_id:
+        assignment = await find_customer_site_assignment(db, customer_id, customer_site_id)
+        if assignment and assignment.get("site_id") != site_id:
+            assignment = None
+
+    if not assignment and customer_id:
+        base_params: dict[str, str] = {
+            "select": _ASSIGNMENT_SELECT,
+            "customer_id": f"eq.{customer_id}",
+            "site_id": f"eq.{site_id}",
+            "limit": "1",
+        }
+        if account_id:
+            base_params["account_id"] = f"eq.{account_id}"
+
+        owned_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_customer_sites",
+            params={**base_params, "assigned_via": "in.(user_added_site,dev_added_site)"},
+        )
+        assignment = owned_rows[0] if owned_rows else None
+
+        if not assignment:
+            shared_rows = await db.request(
+                "GET",
+                "/rest/v1/automatisor_customer_sites",
+                params={**base_params, "assigned_via": "eq.shared_site"},
+            )
+            assignment = shared_rows[0] if shared_rows else None
+
+    if customer_id and not assignment:
+        return None
+
+    return await _hydrate_account_site_with_assignment(
+        db,
+        assignment,
+        account_id=account_id,
+        site_id=site_id,
+    )
+
+
 async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> list[dict[str, Any]]:
     if not customer_id:
         return []
@@ -941,39 +1038,50 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
         "GET",
         "/rest/v1/automatisor_customer_sites",
         params={
-            "select": "customer_site_id,site_id,account_id,metadata,recommendations,notes,report_metadata,rating_metadata,is_report_ready,created_at",
+            "select": "customer_site_id,site_id,account_id,assigned_via,metadata,recommendations,notes,report_metadata,rating_metadata,is_report_ready,created_at,shared_by",
             "customer_id": f"eq.{customer_id}",
             "order": "created_at.desc",
         },
     )
-    site_ids = []
-    for row in assignment_rows or []:
-        site_id = row.get("site_id")
-        if site_id and site_id not in site_ids:
-            site_ids.append(site_id)
-    if not site_ids:
+    if not assignment_rows:
         return []
-    data = await db.request(
+    
+    # Get unique site_ids for fetching site details
+    unique_site_ids = list(set(row["site_id"] for row in assignment_rows if row.get("site_id")))
+    if not unique_site_ids:
+        return []
+    
+    # Fetch site details for all unique sites
+    site_details = await db.request(
         "GET",
         "/rest/v1/account_sites",
         params={
             "select": "site_id,account_id,full_address,company_name,created_at,metadata",
-            "site_id": f"in.({','.join(site_ids)})",
+            "site_id": f"in.({','.join(unique_site_ids)})",
             "is_archived": "eq.false",
-            "order": "created_at.desc",
         },
     )
-    assignment_by_site = {row["site_id"]: row for row in assignment_rows or [] if row.get("site_id")}
-    hydrated_recommendations = await hydrate_recommendations_by_assignment(db, assignment_rows or [])
+    
+    # Create lookup dict for site details
+    site_details_by_id = {row["site_id"]: row for row in site_details or [] if row.get("site_id")}
+    
+    # Hydrate recommendations for all assignments
+    hydrated_recommendations = await hydrate_recommendations_by_assignment(db, assignment_rows)
+    
+    # Build result list with ALL assignments (including duplicate shared sites)
     sites = []
-    for row in data or []:
-        assignment = assignment_by_site.get(row.get("site_id"))
-        if not assignment:
+    for assignment in assignment_rows:
+        site_id = assignment.get("site_id")
+        site_detail = site_details_by_id.get(site_id)
+        if not site_detail:
             continue
+        
         sites.append(
             {
-                **row,
+                **site_detail,
                 "customer_site_id": assignment.get("customer_site_id"),
+                "assigned_via": assignment.get("assigned_via") or "user_added_site",
+                "shared_by": assignment.get("shared_by"),
                 "customer_site_metadata": assignment.get("metadata") or {},
                 "recommendations": hydrated_recommendations.get(assignment.get("customer_site_id")) or {},
                 "notes": assignment.get("notes") or "",
@@ -1206,6 +1314,25 @@ async def find_duplicate_account_site(db: SupabaseAdmin, account_id: str, site: 
     return None
 
 
+async def find_customer_site_assignment(
+    db: SupabaseAdmin,
+    customer_id: str,
+    customer_site_id: str,
+) -> dict[str, Any] | None:
+    """Find a customer site assignment by customer_id and customer_site_id."""
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_sites",
+        params={
+            "select": "customer_site_id,customer_id,site_id,account_id,assigned_via,metadata,recommendations,notes,report_metadata,rating_metadata,is_report_ready,created_at",
+            "customer_id": f"eq.{customer_id}",
+            "customer_site_id": f"eq.{customer_site_id}",
+            "limit": 1,
+        },
+    )
+    return rows[0] if rows else None
+
+
 async def ensure_customer_site_assignment(
     db: SupabaseAdmin,
     customer_id: str,
@@ -1217,15 +1344,26 @@ async def ensure_customer_site_assignment(
     generated_at: str | None = None,
     address_validation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # Only check for existing owned sites, not shared sites
+    # This allows users to add their own copy of a shared site
+    query_params = {
+        "select": "customer_site_id,metadata",
+        "customer_id": f"eq.{customer_id}",
+        "site_id": f"eq.{site_id}",
+        "limit": 1,
+    }
+    
+    # For owned sites, only check for other owned sites
+    # For shared sites, check for the exact share (handled by unique constraint)
+    if assigned_via in ("user_added_site", "dev_added_site"):
+        query_params["assigned_via"] = f"in.(user_added_site,dev_added_site)"
+    else:
+        query_params["assigned_via"] = f"eq.{assigned_via}"
+    
     existing = await db.request(
         "GET",
         "/rest/v1/automatisor_customer_sites",
-        params={
-            "select": "customer_site_id,metadata",
-            "customer_id": f"eq.{customer_id}",
-            "site_id": f"eq.{site_id}",
-            "limit": 1,
-        },
+        params=query_params,
     )
     row = existing[0] if existing else None
     metadata = build_customer_site_metadata(
@@ -1253,7 +1391,7 @@ async def ensure_customer_site_assignment(
             json_body=payload,
             headers={"Prefer": "return=minimal"},
         )
-        return {"customerSiteId": row["customer_site_id"], "metadata": metadata}
+        return {"customerSiteId": row["customer_site_id"], "metadata": metadata, "wasExisting": True}
     created = await db.request(
         "POST",
         "/rest/v1/automatisor_customer_sites",
@@ -1262,7 +1400,185 @@ async def ensure_customer_site_assignment(
         headers={"Prefer": "return=representation"},
     )
     result = created[0]
-    return {"customerSiteId": result["customer_site_id"], "metadata": result.get("metadata") or metadata}
+    return {"customerSiteId": result["customer_site_id"], "metadata": result.get("metadata") or metadata, "wasExisting": False}
+
+
+_SHARE_SOURCE_SELECT = (
+    "customer_site_id,site_id,account_id,metadata,recommendations,report_metadata,is_report_ready,assigned_via"
+)
+
+
+def _is_share_source_row(row: dict[str, Any] | None, site_id: str) -> bool:
+    return bool(
+        row
+        and row.get("site_id") == site_id
+        and row.get("is_report_ready")
+    )
+
+
+async def find_share_source_assignment(
+    db: SupabaseAdmin,
+    site_id: str,
+    shared_by_customer_id: str | None = None,
+    *,
+    source_customer_site_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Resolve the sharer's report row to copy — never another customer's assignment."""
+    if source_customer_site_id and shared_by_customer_id:
+        explicit = await find_customer_site_assignment(
+            db, shared_by_customer_id, source_customer_site_id
+        )
+        if _is_share_source_row(explicit, site_id):
+            return explicit
+
+    if shared_by_customer_id:
+        owned_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_customer_sites",
+            params={
+                "select": _SHARE_SOURCE_SELECT,
+                "customer_id": f"eq.{shared_by_customer_id}",
+                "site_id": f"eq.{site_id}",
+                "is_report_ready": "eq.true",
+                "assigned_via": "in.(user_added_site,dev_added_site)",
+                "limit": 1,
+            },
+        )
+        if owned_rows:
+            return owned_rows[0]
+
+        shared_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_customer_sites",
+            params={
+                "select": _SHARE_SOURCE_SELECT,
+                "customer_id": f"eq.{shared_by_customer_id}",
+                "site_id": f"eq.{site_id}",
+                "is_report_ready": "eq.true",
+                "assigned_via": "eq.shared_site",
+                "limit": 1,
+            },
+        )
+        if shared_rows:
+            return shared_rows[0]
+        return None
+
+    # Legacy share tokens without shared_by — fall back to any ready owned row for the site.
+    legacy_rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_sites",
+        params={
+            "select": _SHARE_SOURCE_SELECT,
+            "site_id": f"eq.{site_id}",
+            "is_report_ready": "eq.true",
+            "assigned_via": "eq.user_added_site",
+            "order": "created_at.asc",
+            "limit": 1,
+        },
+    )
+    return legacy_rows[0] if legacy_rows else None
+
+
+async def ensure_shared_site_assignment(
+    db: SupabaseAdmin,
+    customer_id: str,
+    site_id: str,
+    shared_by_customer_id: str | None = None,
+    *,
+    source_customer_site_id: str | None = None,
+) -> dict[str, Any]:
+    """Ensure shared site assignment exists for recipient. Allows multiple shares from different users."""
+
+    async def load_share_source() -> dict[str, Any] | None:
+        return await find_share_source_assignment(
+            db,
+            site_id,
+            shared_by_customer_id,
+            source_customer_site_id=source_customer_site_id,
+        )
+
+    def shared_payload_from_source(source: dict[str, Any]) -> dict[str, Any]:
+        shared_metadata = dict(source.get("metadata") or {})
+        shared_metadata.pop("last_pre_assessment_requested_at", None)
+        return {
+            "metadata": shared_metadata,
+            "recommendations": source.get("recommendations") or {},
+            "report_metadata": source.get("report_metadata") or {},
+            "is_report_ready": bool(source.get("is_report_ready")),
+        }
+
+    # Check if this specific (recipient, site, sharer) combo already exists
+    if shared_by_customer_id:
+        existing = await db.request(
+            "GET",
+            "/rest/v1/automatisor_customer_sites",
+            params={
+                "select": "customer_site_id,site_id,account_id,assigned_via,shared_by,is_report_ready,report_metadata",
+                "customer_id": f"eq.{customer_id}",
+                "site_id": f"eq.{site_id}",
+                "assigned_via": "eq.shared_site",
+                "shared_by": f"eq.{shared_by_customer_id}",
+                "limit": 1,
+            },
+        )
+        if existing:
+            existing_row = existing[0]
+            source = await load_share_source()
+            if source and (
+                not existing_row.get("is_report_ready")
+                or not (existing_row.get("report_metadata") or {})
+            ):
+                await db.request(
+                    "PATCH",
+                    "/rest/v1/automatisor_customer_sites",
+                    params={"customer_site_id": f"eq.{existing_row['customer_site_id']}"},
+                    json_body=shared_payload_from_source(source),
+                    headers={"Prefer": "return=minimal"},
+                )
+            return existing_row
+
+    source = await load_share_source()
+    if not source:
+        raise HTTPException(status_code=404, detail="The shared report is no longer available.")
+
+    json_body = {
+        "customer_id": customer_id,
+        "site_id": source["site_id"],
+        "account_id": source["account_id"],
+        "assigned_via": "shared_site",
+        **shared_payload_from_source(source),
+    }
+    if shared_by_customer_id:
+        json_body["shared_by"] = shared_by_customer_id
+
+    created = await db.request(
+        "POST",
+        "/rest/v1/automatisor_customer_sites",
+        params={"select": "customer_site_id,site_id,account_id,assigned_via,shared_by"},
+        json_body=json_body,
+        headers={"Prefer": "return=representation"},
+    )
+    return created[0]
+
+
+async def find_owned_customer_site_assignment(
+    db: SupabaseAdmin,
+    customer_id: str,
+    site_id: str,
+) -> dict[str, Any] | None:
+    """Return the customer's owned assignment for a site, if one exists."""
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_sites",
+        params={
+            "select": "customer_site_id,metadata",
+            "customer_id": f"eq.{customer_id}",
+            "site_id": f"eq.{site_id}",
+            "assigned_via": "in.(user_added_site,dev_added_site)",
+            "limit": 1,
+        },
+    )
+    return rows[0] if rows else None
 
 
 async def insert_account_site_if_missing(
@@ -1276,26 +1592,33 @@ async def insert_account_site_if_missing(
 ) -> dict[str, Any]:
     duplicate_row = await find_duplicate_account_site(db, account_id, site)
     if duplicate_row:
-        assignment = await ensure_customer_site_assignment(
-            db,
-            customer_id,
-            account_id,
-            duplicate_row["site_id"],
-            address_validation=customer_site_validation,
+        site_id = duplicate_row["site_id"]
+    else:
+        created = await db.request(
+            "POST",
+            "/rest/v1/account_sites",
+            params={"select": "site_id"},
+            json_body=site_insert_row(account_id, company_name, site),
+            headers={"Prefer": "return=representation"},
         )
+        site_id = created[0].get("site_id") if created else None
+
+    if not site_id:
+        raise HTTPException(status_code=500, detail="Could not save site")
+
+    # Check before writing — do not create/update the assignment first
+    existing_owned = await find_owned_customer_site_assignment(db, customer_id, site_id)
+    if existing_owned:
+        metadata = existing_owned.get("metadata") or {}
+        already_requested = bool(metadata.get("last_pre_assessment_requested_at"))
         return {
             "status": "already_exists",
-            "siteId": duplicate_row["site_id"],
-            "customerSiteId": assignment["customerSiteId"],
+            "siteId": site_id,
+            "customerSiteId": existing_owned["customer_site_id"],
+            "can_proceed": not already_requested,
+            "reason": "owned_assignment_exists",
         }
-    created = await db.request(
-        "POST",
-        "/rest/v1/account_sites",
-        params={"select": "site_id"},
-        json_body=site_insert_row(account_id, company_name, site),
-        headers={"Prefer": "return=representation"},
-    )
-    site_id = created[0].get("site_id") if created else None
+
     assignment = await ensure_customer_site_assignment(
         db,
         customer_id,
@@ -1303,7 +1626,13 @@ async def insert_account_site_if_missing(
         site_id,
         address_validation=customer_site_validation,
     )
-    return {"status": "created", "siteId": site_id, "customerSiteId": assignment["customerSiteId"]}
+    return {
+        "status": "created",
+        "siteId": site_id,
+        "customerSiteId": assignment["customerSiteId"],
+        "can_proceed": True,
+        "reason": "created",
+    }
 
 
 async def build_workspace_state(db: SupabaseAdmin, email: str, requested_account_id: str | None = None) -> dict[str, Any]:
@@ -1517,6 +1846,146 @@ async def send_pre_assessment_approval_email(email: str, company_name: str, site
         raise HTTPException(status_code=500, detail=f"Failed to send approval email: {response.text}")
 
 
+def build_report_share_email(sharer_email: str, company_name: str, site_address: str, share_url: str) -> str:
+    """Build HTML email for report sharing - matches pre-assessment email design."""
+    safe_sharer = html.escape(sharer_email)
+    safe_company = html.escape(company_name or "Site pre-assessment")
+    safe_address = html.escape(site_address or "")
+    safe_url = html.escape(share_url, quote=True)
+    return f"""<!doctype html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f6f7fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;background:#f6f7fb">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:560px;width:100%">
+        <tr>
+          <td style="background:#030149;padding:24px 32px">
+            <span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:-0.3px">AutomatiSOR</span>
+            <span style="color:#f25c19;font-size:18px;font-weight:700"> ·</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:36px 32px 28px">
+            <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#030149;letter-spacing:-0.4px">
+              Report shared with you
+            </h1>
+            <p style="margin:0 0 14px;font-size:15px;color:#4a4a44;line-height:1.65">
+              {safe_sharer} shared an AutomatiSOR facility pre-assessment report with you.
+              Sign in to view the report on the app.
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">
+              <tr>
+                <td style="padding:12px 14px;border:1px solid #ebebea;border-radius:10px;background:#fbfbfa">
+                  <div style="font-size:12px;color:#7a7a72;margin-bottom:6px">Company</div>
+                  <div style="font-size:15px;color:#030149;font-weight:700;letter-spacing:-0.2px">{safe_company}</div>
+                  <div style="height:10px"></div>
+                  <div style="font-size:12px;color:#7a7a72;margin-bottom:6px">Site address</div>
+                  <div style="font-size:14px;color:#030149;font-weight:600">{safe_address}</div>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0 0">
+              <tr>
+                <td align="center">
+                  <a href="{safe_url}" style="display:inline-block;padding:14px 28px;border-radius:10px;background:#f25c19;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:-0.2px">View report</a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr><td style="padding:0 32px"><hr style="border:none;border-top:1px solid #ebebea;margin:0"></td></tr>
+        <tr>
+          <td style="padding:20px 32px;text-align:center">
+            <p style="margin:0;font-size:12px;color:#a0a09a;line-height:1.6">
+              AutomatiSOR<br>
+              Questions? Reply to this email or contact
+              <a href="mailto:notifications@automatisor.com" style="color:#7a7a72">notifications@automatisor.com</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+
+async def send_report_share_email(
+    recipient_email: str,
+    sharer_email: str,
+    company_name: str,
+    site_address: str,
+    share_url: str,
+) -> None:
+    """Send share report email via Resend."""
+    if not RESEND_API_KEY:
+        raise RuntimeError("Missing RESEND_API_KEY")
+    if not RESEND_FROM_EMAIL:
+        raise RuntimeError("Missing RESEND_FROM_EMAIL")
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+            json={
+                "from": RESEND_FROM_EMAIL,
+                "to": [recipient_email],
+                "subject": f"{sharer_email} shared an AutomatiSOR report with you",
+                "html": build_report_share_email(sharer_email, company_name, site_address, share_url),
+            },
+        )
+    if response.is_error:
+        raise RuntimeError(f"Failed to send share email: {response.text}")
+
+
+async def resolve_sender_report_assignment(
+    db: SupabaseAdmin,
+    customer_id: str,
+    *,
+    customer_site_id: str | None = None,
+    site_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Resolve the sender's report row for sharing, with site_id fallback."""
+    if customer_site_id:
+        assignment = await find_customer_site_assignment(db, customer_id, customer_site_id)
+        if assignment and (not site_id or assignment.get("site_id") == site_id):
+            return assignment
+    if site_id:
+        return await find_share_source_assignment(
+            db,
+            site_id,
+            customer_id,
+            source_customer_site_id=customer_site_id,
+        )
+    return None
+
+
+def validate_share_recipients(raw_emails: Any, sender_email: str) -> tuple[list[str], list[dict[str, str]]]:
+    """Validate share recipient emails."""
+    values = raw_emails if isinstance(raw_emails, list) else re.split(r"[,;\s]+", str(raw_emails or ""))
+    valid: list[str] = []
+    errors: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw in values:
+        email = normalize_email(raw)
+        if not email:
+            continue
+        if email in seen:
+            errors.append({"email": email, "reason": "Duplicate address"})
+            continue
+        seen.add(email)
+        if email == sender_email:
+            errors.append({"email": email, "reason": "You cannot share a report with yourself"})
+            continue
+        try:
+            valid.append(assert_work_email(email))
+        except ValueError as exc:
+            errors.append({"email": email, "reason": str(exc)})
+    if not valid and not errors:
+        errors.append({"email": "", "reason": "Enter at least one work email"})
+    return valid, errors
+
+
 async def send_slack_pre_assessment_notification(
     *,
     company_name: str,
@@ -1719,12 +2188,49 @@ async def handle_verify_otp(response: Response, request: Request, body: dict[str
         )
         db = get_admin_db()
         customer = await find_customer_by_email(db, email)
+        share_payload = decode_share_token(body.get("share_token"))
+        matching_share = share_payload if share_payload and share_payload["recipient_email"] == email else None
+        
+        if matching_share and not is_dry_run_request(request, body):
+            # Handle share link onboarding
+            if not customer:
+                # NEW: Don't create customer yet, let Step 1 handle it
+                return {
+                    "status": "verified",
+                    "email": email,
+                    "user_mode": "new_user",
+                    "next_step": "onboarding_step1",
+                    "share_token": body.get("share_token"),  # Pass token forward
+                    "customer_id": None,
+                    "account_id": None,
+                    "credits_used_total": 0,
+                    "credits_used_this_month": 0,
+                }
+            else:
+                # Existing customer, proceed as before
+                await mark_customer_verified(db, email)
+                await touch_customer_login(db, customer["customer_id"])
+                shared_assignment = await ensure_shared_site_assignment(
+                    db, customer["customer_id"], matching_share["site_id"], matching_share.get("shared_by")
+                )
+                workspace = await build_workspace_payload(db, email)
+                return {
+                    "status": "verified",
+                    "user_id": (auth_data.get("user") or {}).get("id"),
+                    **workspace,
+                    "share_destination": {
+                        "customer_site_id": shared_assignment["customer_site_id"],
+                        "site_id": shared_assignment["site_id"],
+                        "account_id": shared_assignment["account_id"],
+                    },
+                }
+        
         if not customer:
             return {
                 "status": "verified",
                 "email": email,
                 "user_mode": "new_user",
-                "next_step": "onboarding",
+                "next_step": "onboarding_step1",
                 "customer_id": None,
                 "account_id": None,
                 "credits_used_total": 0,
@@ -1739,8 +2245,9 @@ async def handle_verify_otp(response: Response, request: Request, body: dict[str
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@app.post("/api/onboarding/complete")
-async def handle_complete_onboarding(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+@app.post("/api/onboarding/step1")
+async def handle_onboarding_step1(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Handle Step 1 of onboarding: collect personal info and terms acceptance."""
     try:
         email = assert_work_email(body.get("email") or body.get("work_email"))
         first_name = clean_required(body.get("first_name"), "First name")
@@ -1749,13 +2256,17 @@ async def handle_complete_onboarding(request: Request, body: dict[str, Any] = Bo
             body.get("customer_company_name") or body.get("company_name"),
             "Company name",
         )
+        terms_accepted = body.get("terms_accepted")
+        if not terms_accepted:
+            raise ValueError("You must accept the Terms & Conditions")
+        
+        share_token = body.get("share_token")
         dry_run = is_dry_run_request(request, body)
-
-        customer = {"customerId": None}
-        site_result = {"status": "pending_confirmation", "siteId": None}
 
         if not dry_run:
             db = get_admin_db()
+            
+            # Create/update customer record
             customer = await upsert_customer(
                 db,
                 {
@@ -1770,6 +2281,92 @@ async def handle_complete_onboarding(request: Request, body: dict[str, Any] = Bo
             await mark_customer_verified(db, email)
             full_name = f"{first_name} {last_name}".strip()
             await create_stripe_customer(db, customer["customerId"], email, full_name)
+            
+            # Handle share token if present
+            if share_token:
+                share_payload = decode_share_token(share_token)
+                if share_payload and share_payload["recipient_email"] == email:
+                    # Check if already synced (existing user had it auto-created)
+                    existing_assignment = await db.request(
+                        "GET",
+                        "/rest/v1/automatisor_customer_sites",
+                        params={
+                            "select": "customer_site_id,site_id,account_id,assigned_via,shared_by",
+                            "customer_id": f"eq.{customer['customerId']}",
+                            "site_id": f"eq.{share_payload['site_id']}",
+                            "assigned_via": "eq.shared_site",
+                            "shared_by": f"eq.{share_payload.get('shared_by')}",
+                            "limit": 1,
+                        },
+                    )
+                    
+                    if existing_assignment:
+                        # Already synced - use existing assignment
+                        shared_assignment = existing_assignment[0]
+                    else:
+                        # New user - create assignment now
+                        shared_assignment = await ensure_shared_site_assignment(
+                            db, customer["customerId"], share_payload["site_id"], share_payload.get("shared_by")
+                        )
+                    
+                    workspace = await build_workspace_payload(db, email)
+                    return {
+                        "status": "step1_complete",
+                        "next_step": "share_destination",
+                        **workspace,
+                        "share_destination": {
+                            "customer_site_id": shared_assignment["customer_site_id"],
+                            "site_id": shared_assignment["site_id"],
+                            "account_id": shared_assignment["account_id"],
+                        },
+                    }
+            
+            # Normal flow: proceed to step 2
+            workspace = await build_workspace_payload(db, email)
+            return {
+                "status": "step1_complete",
+                "next_step": "onboarding_step2",
+                **workspace,
+            }
+
+        # Dry run response
+        return {
+            "status": "step1_complete",
+            "email": email,
+            "user_mode": "new_user",
+            "next_step": "onboarding_step2",
+            "customer_id": None,
+            "account_id": None,
+            "company_name": customer_company_name,
+            "company_domain": "",
+            "credits_used_total": 0,
+            "credits_used_this_month": 0,
+            "dry_run": dry_run,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/onboarding/complete")
+async def handle_complete_onboarding(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Handle Step 2 of onboarding: site addition and pre-assessment setup.
+    Note: Customer must already exist from Step 1."""
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        dry_run = is_dry_run_request(request, body)
+
+        site_result = {"status": "pending_confirmation", "siteId": None}
+
+        if not dry_run:
+            db = get_admin_db()
+            
+            # Customer should already exist from Step 1
+            customer = await find_customer_by_email(db, email)
+            if not customer:
+                raise HTTPException(status_code=400, detail="Customer record not found. Please complete Step 1 first.")
+            
+            # Site addition will be handled via the existing NewSitePage flow
+            # This endpoint just confirms completion and returns workspace state
             workspace = await build_workspace_payload(db, email)
             return {
                 "status": "onboarding_complete",
@@ -1784,9 +2381,9 @@ async def handle_complete_onboarding(request: Request, body: dict[str, Any] = Bo
             "email": email,
             "user_mode": "existing_user",
             "next_step": "workspace",
-            "customer_id": customer["customerId"],
+            "customer_id": None,
             "account_id": None,
-            "company_name": customer_company_name,
+            "company_name": "",
             "company_domain": "",
             "credits_used_total": 0,
             "credits_used_this_month": 0,
@@ -1825,6 +2422,7 @@ async def handle_add_account_site(request: Request, body: dict[str, Any] = Body(
                     params={
                         "select": "site_id",
                         "customer_id": f"eq.{existing_customer['customer_id']}",
+                        "assigned_via": "neq.shared_site",
                         "limit": 1,
                     },
                 )
@@ -1880,6 +2478,9 @@ async def handle_add_account_site(request: Request, body: dict[str, Any] = Body(
                 **workspace,
                 "site_status": site_result["status"],
                 "site_id": site_result["siteId"],
+                "customer_site_id": site_result.get("customerSiteId"),
+                "can_proceed": site_result.get("can_proceed", True),
+                "site_reason": site_result.get("reason"),
                 "dry_run": dry_run,
             }
 
@@ -1898,6 +2499,8 @@ async def handle_add_account_site(request: Request, body: dict[str, Any] = Body(
             "site_status": site_result["status"],
             "site_id": site_result["siteId"],
             "customer_site_id": site_result.get("customerSiteId"),
+            "can_proceed": site_result.get("can_proceed", True),
+            "site_reason": site_result.get("reason"),
             "dry_run": dry_run,
         }
     except ValueError as exc:
@@ -2031,6 +2634,129 @@ async def add_customer_context_wishlist(body: dict[str, Any] = Body(default={}))
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.post("/api/share/resolve")
+async def resolve_share_token(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Resolve share token to validate and get site details."""
+    payload = decode_share_token(body.get("share_token"))
+    if not payload:
+        raise HTTPException(status_code=422, detail="Invalid share link.")
+    db = get_admin_db()
+    sites = await db.request(
+        "GET",
+        "/rest/v1/account_sites",
+        params={
+            "select": "site_id,company_name,full_address",
+            "site_id": f"eq.{payload['site_id']}",
+            "is_archived": "eq.false",
+            "limit": 1,
+        },
+    )
+    if not sites:
+        raise HTTPException(status_code=404, detail="The shared facility is no longer available.")
+    site = sites[0]
+    return {
+        "status": "valid",
+        "recipient_email": payload["recipient_email"],
+        "site_id": payload["site_id"],
+        "company_name": site.get("company_name") or "",
+        "full_address": site.get("full_address") or "",
+    }
+
+
+@app.post("/api/reports/share")
+async def share_report(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Share a report with work email recipients."""
+    try:
+        customer_site_id = clean_optional(body.get("customer_site_id"))
+        site_id = clean_optional(body.get("site_id"))
+        if not customer_site_id and not site_id:
+            raise ValueError("Report is required")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    db = get_admin_db()
+    sender = await get_authenticated_customer(db, request)
+    assignment = await resolve_sender_report_assignment(
+        db,
+        sender["customer_id"],
+        customer_site_id=customer_site_id or None,
+        site_id=site_id or None,
+    )
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Report not found.")
+    if not assignment.get("is_report_ready"):
+        raise HTTPException(status_code=422, detail="Only ready reports can be shared.")
+    recipients, recipient_errors = validate_share_recipients(body.get("emails"), sender["email"])
+    if recipient_errors:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Correct the rejected email addresses before sending.", "recipient_errors": recipient_errors},
+        )
+    if not APP_BASE_URL:
+        raise HTTPException(status_code=500, detail="Missing APP_BASE_URL")
+
+    # AUTO-SYNC: Create shared assignments immediately for existing users
+    for recipient_email in recipients:
+        recipient_customer = await find_customer_by_email(db, recipient_email)
+        if recipient_customer:
+            # User exists - create shared assignment immediately
+            try:
+                await ensure_shared_site_assignment(
+                    db,
+                    recipient_customer["customer_id"],
+                    assignment["site_id"],
+                    sender["customer_id"],
+                    source_customer_site_id=assignment["customer_site_id"],
+                )
+            except HTTPException as exc:
+                print(
+                    f"Auto-sync shared assignment failed for {recipient_email}: "
+                    f"{exc.status_code} {exc.detail}"
+                )
+            except Exception as exc:
+                print(f"Auto-sync shared assignment failed for {recipient_email}: {exc}")
+    
+    site_rows = await db.request(
+        "GET",
+        "/rest/v1/account_sites",
+        params={
+            "select": "site_id,company_name,full_address",
+            "site_id": f"eq.{assignment['site_id']}",
+            "limit": 1,
+        },
+    )
+    site = site_rows[0] if site_rows else {}
+    semaphore = asyncio.Semaphore(3)  # Resend free tier: max 3 concurrent
+
+    async def send_one(recipient: str) -> dict[str, str]:
+        token = encode_share_token(recipient, assignment["site_id"], sender["customer_id"])
+        share_url = f"{APP_BASE_URL}/auth?share={token}"
+        try:
+            async with semaphore:
+                await send_report_share_email(
+                    recipient,
+                    sender["email"],
+                    site.get("company_name") or "",
+                    site.get("full_address") or "",
+                    share_url,
+                )
+            return {"email": recipient, "status": "sent"}
+        except Exception as exc:
+            error_msg = str(exc)
+            if "rate limit" in error_msg.lower() or "429" in error_msg:
+                return {"email": recipient, "status": "failed", "message": "Rate limit reached, try again later"}
+            return {"email": recipient, "status": "failed", "message": error_msg}
+
+    results = await asyncio.gather(*(send_one(recipient) for recipient in recipients))
+
+    return {
+        "status": "complete",
+        "sent": sum(r["status"] == "sent" for r in results),
+        "failed": sum(r["status"] == "failed" for r in results),
+        "results": results,
+    }
+
+
 @app.post("/api/auth/logout")
 async def auth_logout(response: Response) -> dict[str, str]:
     response.delete_cookie("access_token", httponly=True, secure=COOKIE_SECURE, samesite="lax", path="/")
@@ -2042,6 +2768,7 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
     try:
         email = assert_work_email(body.get("email") or body.get("work_email"))
         requested_account_id = clean_optional(body.get("account_id"))
+        requested_customer_site_id = clean_optional(body.get("customer_site_id"))
         site_id = clean_required(body.get("site_id"), "Site")
         confirmed = bool(body.get("confirmed"))
         if not confirmed:
@@ -2059,11 +2786,44 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
             requested_account_id or active_account["account_id"] if active_account else requested_account_id,
             site_id,
             customer["customer_id"],
+            customer_site_id=requested_customer_site_id,
         )
         if not site:
             raise HTTPException(status_code=422, detail="Selected site was not found for this customer")
+        assignment_metadata = site.get("customer_site_metadata") or {}
+        already_requested = bool(assignment_metadata.get("last_pre_assessment_requested_at"))
+        if not already_requested and not is_dry_run_request(request, body):
+            prior_site_billing = await db.request(
+                "GET",
+                "/rest/v1/automatisor_billing",
+                params={
+                    "select": "billing_id",
+                    "customer_id": f"eq.{customer['customer_id']}",
+                    "site_id": f"eq.{site_id}",
+                    "usage_type": "eq.pre_assessment_request",
+                    "limit": 1,
+                },
+            )
+            already_requested = bool(prior_site_billing)
         requested_at = datetime.now(timezone.utc).isoformat()
         if not is_dry_run_request(request, body):
+            if already_requested:
+                print(
+                    f"pre-assessment skip billing: customer={customer['customer_id']} site={site_id} "
+                    f"assigned_via={site.get('assigned_via')} already_requested={already_requested}"
+                )
+                usage = await get_customer_usage_state(db, customer["customer_id"])
+                return {
+                    "status": "running",
+                    "email": email,
+                    "account_id": site["account_id"],
+                    "site_id": site["site_id"],
+                    "customer_site_id": site.get("customer_site_id"),
+                    "credits_used_total": usage["creditsUsedTotal"],
+                    "credits_used_this_month": usage["creditsUsedThisMonth"],
+                    "pre_assessment_price_credits": PRE_ASSESSMENT_PRICE,
+                    "message": "Pre-assessment is already running for this site.",
+                }
             stripe_customer_id = customer.get("stripe_customer_id")
             # First report is always free — skip payment method gate for it.
             prior_billing_rows = await db.request(
@@ -2106,6 +2866,10 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
                 site["account_id"],
                 site["site_id"],
                 requested_at=requested_at,
+            )
+            print(
+                f"pre-assessment billing insert: customer={customer['customer_id']} site={site_id} "
+                f"customer_site_id={site.get('customer_site_id')}"
             )
             await insert_billing_usage(
                 db,
