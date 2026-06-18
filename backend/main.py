@@ -13,7 +13,6 @@ from datetime import datetime, timedelta, timezone
 
 import stripe
 import httpx
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -3385,7 +3384,7 @@ async def accounts_new_user_alias(request: Request, body: dict[str, Any] = Body(
 # ── Billing cron ──────────────────────────────────────────────────────────────
 
 async def run_billing_cron() -> None:
-    """Runs daily at 01:00 UTC. Bills all customers whose billing period has ended."""
+    """Triggered by the platform cron. Bills all customers whose billing period has ended."""
     db = get_admin_db()
     now = datetime.now(timezone.utc)
 
@@ -3451,6 +3450,17 @@ async def _process_billing_period(db: SupabaseAdmin, customer: dict[str, Any], n
         return
 
     amount_cents = total_credits * PRICE_PER_CREDIT_USD_CENTS
+    cycle_identity = hashlib.sha256(
+        "|".join(
+            [
+                str(customer_id),
+                str(period_start or ""),
+                str(customer.get("billing_period_end") or ""),
+                str(total_credits),
+                str(amount_cents),
+            ]
+        ).encode("utf-8")
+    ).hexdigest()
     period_label = ""
     if period_start and customer.get("billing_period_end"):
         try:
@@ -3465,31 +3475,17 @@ async def _process_billing_period(db: SupabaseAdmin, customer: dict[str, Any], n
         amount=amount_cents,
         currency="usd",
         description=f"Automatisor — {total_credits} credit{'s' if total_credits != 1 else ''} ({period_label})",
+        idempotency_key=f"billing-item-{cycle_identity}",
     )
     invoice = stripe.Invoice.create(
         customer=stripe_customer_id,
         auto_advance=True,
         collection_method="charge_automatically",
         default_payment_method=customer["payment_method_id"],
+        idempotency_key=f"billing-invoice-{cycle_identity}",
     )
-    stripe.Invoice.pay(invoice.id)
+    stripe.Invoice.pay(invoice.id, idempotency_key=f"billing-pay-{cycle_identity}")
     print(f"[billing-cron] Charged {customer.get('email')}: ${amount_cents / 100:.2f} ({total_credits} credits)")
-
-
-# ── APScheduler lifecycle ─────────────────────────────────────────────────────
-
-_scheduler = AsyncIOScheduler(timezone="UTC")
-
-
-@app.on_event("startup")
-async def start_scheduler() -> None:
-    _scheduler.add_job(run_billing_cron, "cron", hour=1, minute=0)
-    _scheduler.start()
-
-
-@app.on_event("shutdown")
-async def stop_scheduler() -> None:
-    _scheduler.shutdown(wait=False)
 
 
 def register_vercel_service_api_aliases() -> None:

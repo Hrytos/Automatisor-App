@@ -135,6 +135,7 @@ function inlineMarkdown(text) {
  */
 export default function ChatWidget({ siteId }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
@@ -348,7 +349,12 @@ export default function ChatWidget({ siteId }) {
         className="chat-widget-toggle"
         type="button"
         aria-label={isOpen ? "Close report assistant" : "Open report assistant"}
-        onClick={() => setIsOpen((v) => !v)}
+        onClick={() => {
+          setIsOpen((v) => {
+            if (v) setIsMaximized(false);
+            return !v;
+          });
+        }}
       >
         {isOpen ? (
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -367,7 +373,12 @@ export default function ChatWidget({ siteId }) {
 
       {/* Panel */}
       {isOpen && (
-        <div className="chat-widget-panel" role="dialog" aria-label="Report assistant">
+        <div
+          className={`chat-widget-panel${isMaximized ? " chat-widget-panel-maximized" : ""}`}
+          role="dialog"
+          aria-label="Report assistant"
+          aria-expanded={isMaximized}
+        >
           {/* Header */}
           <div className="chat-widget-header">
             <div className="chat-widget-header-left">
@@ -429,14 +440,40 @@ export default function ChatWidget({ siteId }) {
               <span className="chat-widget-title" title={headerTitle}>{headerTitle}</span>
             </div>
 
-            <button
-              className="chat-widget-new-btn"
-              type="button"
-              onClick={handleNewChat}
-              disabled={loading}
-            >
-              + New
-            </button>
+            <div className="chat-widget-header-actions">
+              <button
+                className="chat-widget-icon-btn"
+                type="button"
+                aria-label={isMaximized ? "Restore chat size" : "Maximize chat"}
+                title={isMaximized ? "Restore" : "Maximize"}
+                onClick={() => setIsMaximized((v) => !v)}
+              >
+                {isMaximized ? (
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M8 4H4v4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M4 4l6 6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M16 20h4v-4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M20 20l-6-6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M15 4h5v5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M9 20H4v-5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M14 10l6-6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M4 20l6-6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </button>
+
+              <button
+                className="chat-widget-new-btn"
+                type="button"
+                onClick={handleNewChat}
+                disabled={loading}
+              >
+                + New
+              </button>
+            </div>
           </div>
 
           {/* Messages */}

@@ -28,4 +28,5 @@ package-mode = false
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.3"
+pytest-asyncio = "^1.4.0"
 
