@@ -22,8 +22,33 @@ import brWilliamsSampleReport from "../../backend/sample-report/data_structure.j
 import reportStructure from "./report_section_structure.json";
 import CreditsPage from "./CreditsPage.jsx";
 import BillingPage from "./BillingPage.jsx";
+import ChatWidget from "./ChatWidget.jsx";
 import ShareReportDialog from "./ShareReportDialog.jsx";
-import { isFreeEmail } from "free-email-domains-list";
+
+const _PERSONAL_DOMAINS = new Set([
+  "gmail.com","googlemail.com","yahoo.com","yahoo.co.uk","yahoo.co.in","yahoo.fr","yahoo.de",
+  "yahoo.es","yahoo.it","yahoo.ca","yahoo.com.au","yahoo.com.br","yahoo.com.mx","yahoo.com.ar",
+  "hotmail.com","hotmail.co.uk","hotmail.fr","hotmail.de","hotmail.it","hotmail.es","hotmail.ca",
+  "hotmail.com.br","hotmail.com.ar","live.com","live.co.uk","live.fr","live.de","live.it",
+  "live.es","live.ca","live.com.au","live.com.br","live.com.ar","outlook.com","outlook.fr",
+  "outlook.de","outlook.it","outlook.es","outlook.co.uk","msn.com","passport.com",
+  "icloud.com","me.com","mac.com","aol.com","aim.com","verizon.net","att.net","sbcglobal.net",
+  "bellsouth.net","comcast.net","cox.net","charter.net","earthlink.net","juno.com",
+  "protonmail.com","protonmail.ch","pm.me","tutanota.com","tutanota.de","tutamail.com",
+  "tuta.io","keemail.me","zoho.com","yandex.com","yandex.ru","mail.ru","inbox.ru","list.ru",
+  "bk.ru","gmx.com","gmx.de","gmx.net","gmx.at","gmx.ch","web.de","freenet.de","t-online.de",
+  "mail.com","email.com","usa.com","myself.com","consultant.com","post.com","contractor.net",
+  "dr.com","engineer.com","worker.com","techie.com","who.net",
+  "rediffmail.com","indiatimes.com","sify.com","in.com","fastmail.com","fastmail.fm",
+  "hushmail.com","hush.com","hushmail.me","mailinator.com","guerrillamail.com","spam4.me",
+  "trashmail.com","trashmail.me","trashmail.net","trashmail.org","trashmail.io",
+  "yopmail.com","yopmail.fr","tempmail.com","temp-mail.org","tmpmail.net","tmpmail.org",
+  "discard.email","throwam.com","sharklasers.com","rtrtr.com","dispostable.com",
+]);
+function isFreeEmail(email) {
+  const domain = String(email || "").trim().toLowerCase().split("@")[1] || "";
+  return _PERSONAL_DOMAINS.has(domain);
+}
 
 const SESSION_KEY = "automatisor_auth_workspace_v2";
 const REPORT_CONTEXT_KEY = "automatisor_selected_report_v1";
@@ -5437,33 +5462,35 @@ function ReportPage() {
         {selectedSite ? (
           <section className="workspace-card workspace-card-modern workspace-card-wide report-view-card">
             <div className="tab-row report-tab-row" role="tablist" aria-label="Report sections">
-              <button
-                type="button"
-                className={`tab-btn ${activeReportTab === "preAssessment" ? "tab-btn-active" : ""}`}
-                onClick={() => setActiveReportTab("preAssessment")}
-                role="tab"
-                aria-selected={activeReportTab === "preAssessment"}
-              >
-                Pre-assessment
-              </button>
-              <button
-                type="button"
-                className={`tab-btn ${activeReportTab === "notes" ? "tab-btn-active" : ""}`}
-                onClick={() => setActiveReportTab("notes")}
-                role="tab"
-                aria-selected={activeReportTab === "notes"}
-              >
-                Notes
-              </button>
-              <button
-                type="button"
-                className={`tab-btn ${activeReportTab === "recommendations" ? "tab-btn-active" : ""}`}
-                onClick={() => setActiveReportTab("recommendations")}
-                role="tab"
-                aria-selected={activeReportTab === "recommendations"}
-              >
-                Recommendations
-              </button>
+              <div className="report-tab-group">
+                <button
+                  type="button"
+                  className={`tab-btn ${activeReportTab === "preAssessment" ? "tab-btn-active" : ""}`}
+                  onClick={() => setActiveReportTab("preAssessment")}
+                  role="tab"
+                  aria-selected={activeReportTab === "preAssessment"}
+                >
+                  Pre-assessment
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${activeReportTab === "notes" ? "tab-btn-active" : ""}`}
+                  onClick={() => setActiveReportTab("notes")}
+                  role="tab"
+                  aria-selected={activeReportTab === "notes"}
+                >
+                  Notes
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${activeReportTab === "recommendations" ? "tab-btn-active" : ""}`}
+                  onClick={() => setActiveReportTab("recommendations")}
+                  role="tab"
+                  aria-selected={activeReportTab === "recommendations"}
+                >
+                  Recommendations
+                </button>
+              </div>
               {reportMarkedReady ? (
                 <button
                   type="button"
@@ -5633,6 +5660,7 @@ function ReportPage() {
           />
         ) : null}
       </section>
+      {siteId ? <ChatWidget siteId={siteId} /> : null}
     </main>
   );
 }

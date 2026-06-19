@@ -1,5 +1,30 @@
 import React, { useState } from "react";
-import { DOMAINS as PERSONAL_EMAIL_DOMAINS } from "free-email-domains-list";
+
+// Common personal/consumer email domains — work emails should not be from these.
+const PERSONAL_EMAIL_DOMAINS = new Set([
+  "gmail.com","googlemail.com","yahoo.com","yahoo.co.uk","yahoo.co.in","yahoo.fr","yahoo.de",
+  "yahoo.es","yahoo.it","yahoo.ca","yahoo.com.au","yahoo.com.br","yahoo.com.mx","yahoo.com.ar",
+  "hotmail.com","hotmail.co.uk","hotmail.fr","hotmail.de","hotmail.it","hotmail.es","hotmail.ca",
+  "hotmail.com.br","hotmail.com.ar","live.com","live.co.uk","live.fr","live.de","live.it",
+  "live.es","live.ca","live.com.au","live.com.br","live.com.ar","outlook.com","outlook.fr",
+  "outlook.de","outlook.it","outlook.es","outlook.co.uk","msn.com","passport.com",
+  "icloud.com","me.com","mac.com","aol.com","aim.com","verizon.net","att.net","sbcglobal.net",
+  "bellsouth.net","comcast.net","cox.net","charter.net","earthlink.net","juno.com",
+  "protonmail.com","protonmail.ch","pm.me","tutanota.com","tutanota.de","tutamail.com",
+  "tuta.io","keemail.me","zoho.com","yandex.com","yandex.ru","mail.ru","inbox.ru","list.ru",
+  "bk.ru","gmx.com","gmx.de","gmx.net","gmx.at","gmx.ch","web.de","freenet.de","t-online.de",
+  "mail.com","email.com","usa.com","myself.com","consultant.com","post.com","contractor.net",
+  "dr.com","engineer.com","worker.com","techie.com","who.net",
+  "rediffmail.com","indiatimes.com","sify.com","in.com","fastmail.com","fastmail.fm",
+  "hushmail.com","hush.com","hushmail.me","guerrillamail.com","mailinator.com","throwam.com",
+  "sharklasers.com","guerrillamailblock.com","grr.la","guerrillamail.info","guerrillamail.biz",
+  "guerrillamail.de","guerrillamail.net","guerrillamail.org","spam4.me","trashmail.com",
+  "trashmail.me","trashmail.net","trashmail.org","trashmail.io","dispostable.com",
+  "yopmail.com","yopmail.fr","cool.fr.nf","jetable.fr.nf","nospam.ze.tc","nomail.xl.cx",
+  "mega.zik.dj","speed.1s.fr","courriel.fr.nf","moncourrier.fr.nf","monemail.fr.nf",
+  "monmail.fr.nf","tempmail.com","temp-mail.org","tmpmail.net","tmpmail.org",
+  "throwabletransmail.org","throwam.com","rtrtr.com","discard.email",
+]);
 
 function normalizeEmail(raw) {
   return String(raw || "").trim().toLowerCase();

@@ -13,7 +13,6 @@ from datetime import datetime, timedelta, timezone
 
 import stripe
 import httpx
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,9 +23,11 @@ from supabase import Client, create_client
 try:
     from .address_normalization import canonical_zip, normalize_full_address, normalize_state, normalize_street_line
     from .address_validator import validate_company_site
+    from .chat import router as chat_router
 except ImportError:
     from address_normalization import canonical_zip, normalize_full_address, normalize_state, normalize_street_line
     from address_validator import validate_company_site
+    from chat import router as chat_router
 
 BACKEND_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BACKEND_DIR.parent
@@ -43,7 +44,9 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
-COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true") != "false"
+VERCEL_ENV = os.getenv("VERCEL_ENV", "")
+IS_PRODUCTION = VERCEL_ENV == "production" or os.getenv("ENV", "") == "production"
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true" if IS_PRODUCTION else "false") != "false"
 SERVER_DRY_RUN = "--dry" in os.sys.argv or os.getenv("AUTOMATISOR_DRY") == "1"
 
 def _parse_cors_origins(raw: str | None) -> list[str]:
@@ -116,12 +119,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(chat_router)
 
 SERVICE_API_PREFIXES = (
     "/account-sites",
     "/accounts",
     "/address-validation",
     "/billing",
+    "/chat",
     "/credits",
     "/customer-context",
     "/customer-sites",
@@ -2508,12 +2513,15 @@ async def handle_add_account_site(request: Request, body: dict[str, Any] = Body(
 
 
 @app.post("/api/workspace/state")
-async def workspace_state(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+async def workspace_state(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     try:
-        email = assert_work_email(body.get("email") or body.get("work_email"))
         db = get_admin_db()
+        expected_email = clean_optional(body.get("email") or body.get("work_email")) or None
+        customer = await get_authenticated_customer(db, request, expected_email=expected_email)
         requested_account_id = clean_optional(body.get("active_account_id"))
-        return await build_workspace_payload(db, email, requested_account_id)
+        return await build_workspace_payload(db, customer["email"], requested_account_id)
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -3376,7 +3384,7 @@ async def accounts_new_user_alias(request: Request, body: dict[str, Any] = Body(
 # ── Billing cron ──────────────────────────────────────────────────────────────
 
 async def run_billing_cron() -> None:
-    """Runs daily at 01:00 UTC. Bills all customers whose billing period has ended."""
+    """Triggered by the platform cron. Bills all customers whose billing period has ended."""
     db = get_admin_db()
     now = datetime.now(timezone.utc)
 
@@ -3442,6 +3450,17 @@ async def _process_billing_period(db: SupabaseAdmin, customer: dict[str, Any], n
         return
 
     amount_cents = total_credits * PRICE_PER_CREDIT_USD_CENTS
+    cycle_identity = hashlib.sha256(
+        "|".join(
+            [
+                str(customer_id),
+                str(period_start or ""),
+                str(customer.get("billing_period_end") or ""),
+                str(total_credits),
+                str(amount_cents),
+            ]
+        ).encode("utf-8")
+    ).hexdigest()
     period_label = ""
     if period_start and customer.get("billing_period_end"):
         try:
@@ -3456,31 +3475,17 @@ async def _process_billing_period(db: SupabaseAdmin, customer: dict[str, Any], n
         amount=amount_cents,
         currency="usd",
         description=f"Automatisor — {total_credits} credit{'s' if total_credits != 1 else ''} ({period_label})",
+        idempotency_key=f"billing-item-{cycle_identity}",
     )
     invoice = stripe.Invoice.create(
         customer=stripe_customer_id,
         auto_advance=True,
         collection_method="charge_automatically",
         default_payment_method=customer["payment_method_id"],
+        idempotency_key=f"billing-invoice-{cycle_identity}",
     )
-    stripe.Invoice.pay(invoice.id)
+    stripe.Invoice.pay(invoice.id, idempotency_key=f"billing-pay-{cycle_identity}")
     print(f"[billing-cron] Charged {customer.get('email')}: ${amount_cents / 100:.2f} ({total_credits} credits)")
-
-
-# ── APScheduler lifecycle ─────────────────────────────────────────────────────
-
-_scheduler = AsyncIOScheduler(timezone="UTC")
-
-
-@app.on_event("startup")
-async def start_scheduler() -> None:
-    _scheduler.add_job(run_billing_cron, "cron", hour=1, minute=0)
-    _scheduler.start()
-
-
-@app.on_event("shutdown")
-async def stop_scheduler() -> None:
-    _scheduler.shutdown(wait=False)
 
 
 def register_vercel_service_api_aliases() -> None:
