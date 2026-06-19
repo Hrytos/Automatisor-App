@@ -403,7 +403,7 @@ export default function ChatWidget({ siteId }) {
             />
           </svg>
         )}
-        <span className="chat-widget-toggle-label">{isOpen ? "Close" : "Ask automatisor"}</span>
+        <span className="chat-widget-toggle-label">{isOpen ? "Close" : "Ask Automatisor"}</span>
       </button>
 
       {/* Panel */}
