@@ -229,6 +229,19 @@ def normalize_email(raw: Any) -> str:
     return str(raw or "").strip().lower()
 
 
+def _parse_trusted_bypass_emails(raw: str | None) -> set[str]:
+    if not raw:
+        return set()
+    return {normalize_email(part) for part in raw.split(",") if part.strip()}
+
+
+TRUSTED_AUTH_BYPASS_EMAILS = _parse_trusted_bypass_emails(os.getenv("TRUSTED_AUTH_BYPASS_EMAILS"))
+
+
+def is_trusted_bypass_email(email: str) -> bool:
+    return normalize_email(email) in TRUSTED_AUTH_BYPASS_EMAILS
+
+
 def normalize_domain(raw: Any) -> str:
     value = str(raw or "").strip().lower()
     if "://" in value:
@@ -2096,6 +2109,20 @@ async def send_supabase_otp(email: str) -> None:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _supabase_auth_response(session: Any, user: Any) -> dict[str, Any]:
+    return {
+        "session": {
+            "access_token": getattr(session, "access_token", None),
+            "refresh_token": getattr(session, "refresh_token", None),
+            "expires_in": getattr(session, "expires_in", None),
+            "token_type": getattr(session, "token_type", None),
+        }
+        if session
+        else None,
+        "user": {"id": getattr(user, "id", None)} if user else None,
+    }
+
+
 async def verify_supabase_otp(email: str, otp: str) -> dict[str, Any]:
     try:
         auth = get_auth_client()
@@ -2106,21 +2133,36 @@ async def verify_supabase_otp(email: str, otp: str) -> dict[str, Any]:
                 "type": "email",
             }
         )
-        session = response.session
-        user = response.user
-        return {
-            "session": {
-                "access_token": getattr(session, "access_token", None),
-                "refresh_token": getattr(session, "refresh_token", None),
-                "expires_in": getattr(session, "expires_in", None),
-                "token_type": getattr(session, "token_type", None),
-            }
-            if session
-            else None,
-            "user": {"id": getattr(user, "id", None)} if user else None,
-        }
+        return _supabase_auth_response(response.session, response.user)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc) or "Invalid or expired OTP") from exc
+
+
+async def mint_supabase_session_for_email(email: str) -> dict[str, Any]:
+    """Issue a Supabase session without sending email (trusted allowlist only)."""
+    db = get_admin_db()
+    link_payload = await db.request(
+        "POST",
+        "/auth/v1/admin/generate_link",
+        json_body={"type": "magiclink", "email": email},
+    )
+    payload = link_payload or {}
+    nested = payload.get("properties") or {}
+    email_otp = payload.get("email_otp") or nested.get("email_otp")
+    if not email_otp:
+        raise HTTPException(status_code=500, detail="Could not create trusted login session")
+    try:
+        auth = get_auth_client()
+        response = auth.auth.verify_otp(
+            {
+                "email": email,
+                "token": str(email_otp),
+                "type": "email",
+            }
+        )
+        return _supabase_auth_response(response.session, response.user)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc) or "Could not create trusted login session") from exc
 
 
 @app.get("/api/frontend-config")
@@ -2149,7 +2191,12 @@ async def handle_check_email(body: dict[str, Any] = Body(default={})) -> dict[st
         email = assert_work_email(body.get("email") or body.get("work_email"))
         db = get_admin_db()
         customer = await find_customer_by_email(db, email)
-        return {"email": email, "user_mode": "existing_user" if customer else "new_user", "company_email": True}
+        return {
+            "email": email,
+            "user_mode": "existing_user" if customer else "new_user",
+            "company_email": True,
+            "trusted_bypass": is_trusted_bypass_email(email),
+        }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -2160,6 +2207,14 @@ async def handle_request_otp(request: Request, body: dict[str, Any] = Body(defau
         email = assert_work_email(body.get("email") or body.get("work_email"))
         db = get_admin_db()
         customer = await find_customer_by_email(db, email)
+        if is_trusted_bypass_email(email):
+            return {
+                "status": "trusted_bypass",
+                "email": email,
+                "user_mode": "existing_user" if customer else "new_user",
+                "trusted_bypass": True,
+                "dry_run": is_dry_run_request(request, body),
+            }
         await send_supabase_otp(email)
         return {
             "status": "otp_sent",
@@ -2171,6 +2226,78 @@ async def handle_request_otp(request: Request, body: dict[str, Any] = Body(defau
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+async def complete_auth_for_verified_email(
+    response: Response,
+    request: Request,
+    email: str,
+    auth_data: dict[str, Any],
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    session = auth_data.get("session") or {}
+    if not session.get("access_token"):
+        raise HTTPException(status_code=422, detail="Invalid or expired OTP")
+    response.set_cookie(
+        "access_token",
+        session["access_token"],
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+        path="/",
+        max_age=60 * 60,
+    )
+    db = get_admin_db()
+    customer = await find_customer_by_email(db, email)
+    share_payload = decode_share_token(body.get("share_token"))
+    matching_share = share_payload if share_payload and share_payload["recipient_email"] == email else None
+
+    if matching_share and not is_dry_run_request(request, body):
+        if not customer:
+            return {
+                "status": "verified",
+                "email": email,
+                "user_mode": "new_user",
+                "next_step": "onboarding_step1",
+                "share_token": body.get("share_token"),
+                "customer_id": None,
+                "account_id": None,
+                "credits_used_total": 0,
+                "credits_used_this_month": 0,
+            }
+        await mark_customer_verified(db, email)
+        await touch_customer_login(db, customer["customer_id"])
+        shared_assignment = await ensure_shared_site_assignment(
+            db, customer["customer_id"], matching_share["site_id"], matching_share.get("shared_by")
+        )
+        workspace = await build_workspace_payload(db, email)
+        return {
+            "status": "verified",
+            "user_id": (auth_data.get("user") or {}).get("id"),
+            **workspace,
+            "share_destination": {
+                "customer_site_id": shared_assignment["customer_site_id"],
+                "site_id": shared_assignment["site_id"],
+                "account_id": shared_assignment["account_id"],
+            },
+        }
+
+    if not customer:
+        return {
+            "status": "verified",
+            "email": email,
+            "user_mode": "new_user",
+            "next_step": "onboarding_step1",
+            "customer_id": None,
+            "account_id": None,
+            "credits_used_total": 0,
+            "credits_used_this_month": 0,
+        }
+    if not is_dry_run_request(request, body):
+        await mark_customer_verified(db, email)
+        await touch_customer_login(db, customer["customer_id"])
+    workspace = await build_workspace_state(db, email)
+    return {"status": "verified", "user_id": (auth_data.get("user") or {}).get("id"), **workspace}
+
+
 @app.post("/api/auth/verify-otp")
 async def handle_verify_otp(response: Response, request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     try:
@@ -2179,73 +2306,19 @@ async def handle_verify_otp(response: Response, request: Request, body: dict[str
         if not re.fullmatch(r"\d{6}", otp):
             raise ValueError("Enter a valid 6-digit OTP")
         auth_data = await verify_supabase_otp(email, otp)
-        session = auth_data.get("session") or {}
-        if not session.get("access_token"):
-            raise HTTPException(status_code=422, detail="Invalid or expired OTP")
-        response.set_cookie(
-            "access_token",
-            session["access_token"],
-            httponly=True,
-            secure=COOKIE_SECURE,
-            samesite="lax",
-            path="/",
-            max_age=60 * 60,
-        )
-        db = get_admin_db()
-        customer = await find_customer_by_email(db, email)
-        share_payload = decode_share_token(body.get("share_token"))
-        matching_share = share_payload if share_payload and share_payload["recipient_email"] == email else None
-        
-        if matching_share and not is_dry_run_request(request, body):
-            # Handle share link onboarding
-            if not customer:
-                # NEW: Don't create customer yet, let Step 1 handle it
-                return {
-                    "status": "verified",
-                    "email": email,
-                    "user_mode": "new_user",
-                    "next_step": "onboarding_step1",
-                    "share_token": body.get("share_token"),  # Pass token forward
-                    "customer_id": None,
-                    "account_id": None,
-                    "credits_used_total": 0,
-                    "credits_used_this_month": 0,
-                }
-            else:
-                # Existing customer, proceed as before
-                await mark_customer_verified(db, email)
-                await touch_customer_login(db, customer["customer_id"])
-                shared_assignment = await ensure_shared_site_assignment(
-                    db, customer["customer_id"], matching_share["site_id"], matching_share.get("shared_by")
-                )
-                workspace = await build_workspace_payload(db, email)
-                return {
-                    "status": "verified",
-                    "user_id": (auth_data.get("user") or {}).get("id"),
-                    **workspace,
-                    "share_destination": {
-                        "customer_site_id": shared_assignment["customer_site_id"],
-                        "site_id": shared_assignment["site_id"],
-                        "account_id": shared_assignment["account_id"],
-                    },
-                }
-        
-        if not customer:
-            return {
-                "status": "verified",
-                "email": email,
-                "user_mode": "new_user",
-                "next_step": "onboarding_step1",
-                "customer_id": None,
-                "account_id": None,
-                "credits_used_total": 0,
-                "credits_used_this_month": 0,
-            }
-        if not is_dry_run_request(request, body):
-            await mark_customer_verified(db, email)
-            await touch_customer_login(db, customer["customer_id"])
-        workspace = await build_workspace_state(db, email)
-        return {"status": "verified", "user_id": (auth_data.get("user") or {}).get("id"), **workspace}
+        return await complete_auth_for_verified_email(response, request, email, auth_data, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/auth/trusted-login")
+async def handle_trusted_login(response: Response, request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        if not is_trusted_bypass_email(email):
+            raise HTTPException(status_code=403, detail="Trusted login is not enabled for this email")
+        auth_data = await mint_supabase_session_for_email(email)
+        return await complete_auth_for_verified_email(response, request, email, auth_data, body)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

@@ -3457,6 +3457,65 @@ function NewUserPage() {
     navigate("/workspace");
   }
 
+  function applyVerifiedAuthPayload(payload) {
+    if (payload.share_destination) {
+      const routeState = {
+        accountId: payload.share_destination.account_id,
+        siteId: payload.share_destination.site_id,
+        customerSiteId: payload.share_destination.customer_site_id,
+      };
+      persistState(buildSessionFromPayload(sessionState, { ...payload, next_step: "workspace" }));
+      saveReportContext(routeState);
+      navigate("/workspace/report", { state: routeState });
+      return;
+    }
+
+    if (payload.next_step === "workspace") {
+      persistState({
+        email: payload.email || sessionState.email || email,
+        userMode: payload.user_mode || sessionState.userMode,
+        nextStep: "workspace",
+        authVerified: true,
+      });
+      showWorkspace(payload);
+    } else if (payload.next_step === "onboarding_step1") {
+      persistState({
+        email: payload.email || sessionState.email || email,
+        userMode: payload.user_mode || sessionState.userMode,
+        nextStep: "onboarding_step1",
+        authVerified: true,
+      });
+      setStage("onboarding_step1");
+      if (payload.share_token) {
+        setSessionState((current) => ({ ...current, shareToken: payload.share_token }));
+      }
+    } else if (payload.next_step === "onboarding_step2") {
+      persistState({
+        email: payload.email || sessionState.email || email,
+        userMode: payload.user_mode || sessionState.userMode,
+        nextStep: "onboarding_step2",
+        authVerified: true,
+      });
+      setStage("onboarding_step2");
+      setOnboarding((current) => ({
+        ...current,
+        customer_company_name: sessionState.companyName || "",
+      }));
+    } else {
+      persistState({
+        email: payload.email || sessionState.email || email,
+        userMode: payload.user_mode || sessionState.userMode,
+        nextStep: "onboarding_step1",
+        authVerified: true,
+      });
+      setStage("onboarding_step1");
+      setOnboarding((current) => ({
+        ...current,
+        customer_company_name: sessionState.companyName || "",
+      }));
+    }
+  }
+
   const step1Ready = Boolean(
     onboarding.first_name &&
       onboarding.last_name &&
@@ -3495,18 +3554,36 @@ function NewUserPage() {
         method: "POST",
         body: JSON.stringify({ email }),
       });
+      const normalized = checked.email || normalizeEmail(email);
+      setEmail(normalized);
+
+      if (checked.trusted_bypass) {
+        const payload = await fetchJson("/api/auth/trusted-login", {
+          method: "POST",
+          body: JSON.stringify({
+            email: normalized,
+            share_token: shareToken || undefined,
+          }),
+        });
+        persistState({
+          email: normalized,
+          userMode: checked.user_mode || payload.user_mode || "new_user",
+          authVerified: false,
+        });
+        applyVerifiedAuthPayload(payload);
+        return;
+      }
+
       const requested = await fetchJson("/api/auth/request-otp", {
         method: "POST",
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: normalized }),
       });
-      const normalized = checked.email || normalizeEmail(email);
       persistState({
         email: normalized,
         userMode: checked.user_mode || requested.user_mode || "new_user",
         nextStep: "otp",
         authVerified: false,
       });
-      setEmail(normalized);
       setStage("otp");
       setOtp("");
     } catch (error) {
@@ -3532,65 +3609,7 @@ function NewUserPage() {
           share_token: shareToken || undefined
         }),
       });
-      
-      // Handle share destination - navigate directly to shared report
-      if (payload.share_destination) {
-        const routeState = {
-          accountId: payload.share_destination.account_id,
-          siteId: payload.share_destination.site_id,
-          customerSiteId: payload.share_destination.customer_site_id,
-        };
-        persistState(buildSessionFromPayload(sessionState, { ...payload, next_step: "workspace" }));
-        saveReportContext(routeState);
-        navigate("/workspace/report", { state: routeState });
-        return;
-      }
-      
-      if (payload.next_step === "workspace") {
-        persistState({
-          email: payload.email || sessionState.email || email,
-          userMode: payload.user_mode || sessionState.userMode,
-          nextStep: "workspace",
-          authVerified: true,
-        });
-        showWorkspace(payload);
-      } else if (payload.next_step === "onboarding_step1") {
-        persistState({
-          email: payload.email || sessionState.email || email,
-          userMode: payload.user_mode || sessionState.userMode,
-          nextStep: "onboarding_step1",
-          authVerified: true,
-        });
-        setStage("onboarding_step1");
-        if (payload.share_token) {
-          setSessionState((current) => ({ ...current, shareToken: payload.share_token }));
-        }
-      } else if (payload.next_step === "onboarding_step2") {
-        persistState({
-          email: payload.email || sessionState.email || email,
-          userMode: payload.user_mode || sessionState.userMode,
-          nextStep: "onboarding_step2",
-          authVerified: true,
-        });
-        setStage("onboarding_step2");
-        setOnboarding((current) => ({
-          ...current,
-          customer_company_name: sessionState.companyName || "",
-        }));
-      } else {
-        // Legacy support or fallback to step 1
-        persistState({
-          email: payload.email || sessionState.email || email,
-          userMode: payload.user_mode || sessionState.userMode,
-          nextStep: "onboarding_step1",
-          authVerified: true,
-        });
-        setStage("onboarding_step1");
-        setOnboarding((current) => ({
-          ...current,
-          customer_company_name: sessionState.companyName || "",
-        }));
-      }
+      applyVerifiedAuthPayload(payload);
     } catch (error) {
       setFormError(error.message || "Could not verify OTP.");
     } finally {
