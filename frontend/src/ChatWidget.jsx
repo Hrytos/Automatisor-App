@@ -145,6 +145,7 @@ export default function ChatWidget({ siteId }) {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
+  const [feedbackState, setFeedbackState] = useState({});
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -298,9 +299,10 @@ export default function ChatWidget({ siteId }) {
         setInput(text);
         return;
       }
+      const assistantMessageId = data.assistant_message_id || `assistant-${Date.now()}`;
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.reply, ts: new Date().toISOString() },
+        { id: assistantMessageId, role: "assistant", content: data.reply, ts: new Date().toISOString(), metadata: {} },
       ]);
       // Update session in list: set title on first message, bump updated_at always
       setSessions((prev) =>
@@ -323,6 +325,35 @@ export default function ChatWidget({ siteId }) {
     }
   }
 
+  async function handleFeedback(messageId, feedback) {
+    if (!siteId || !activeSessionId || !messageId) return;
+    setFeedbackState((prev) => ({ ...prev, [messageId]: feedback }));
+    try {
+      const res = await fetch("/api/chat/feedback", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteId,
+          session_id: activeSessionId,
+          message_id: messageId,
+          feedback,
+        }),
+      });
+      const data = await res.json();
+      if (data.detail) {
+        throw new Error(data.detail);
+      }
+    } catch {
+      setError("Could not save feedback.");
+      setFeedbackState((prev) => {
+        const next = { ...prev };
+        delete next[messageId];
+        return next;
+      });
+    }
+  }
+
   function handleKeyDown(event) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -334,6 +365,10 @@ export default function ChatWidget({ siteId }) {
     if (session.title) return session.title;
     const date = new Date(session.created_at);
     return `Chat - ${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  }
+
+  function getMessageFeedback(message) {
+    return feedbackState[message.id] || message?.metadata?.feedback?.value || "";
   }
 
   // Title shown in the header for the active session
@@ -484,28 +519,58 @@ export default function ChatWidget({ siteId }) {
               <p className="chat-widget-status">Ask anything about this report.</p>
             ) : (
               messages.map((msg, i) => (
-                <div key={i} className={`chat-widget-message chat-widget-message-${msg.role}`}>
+                <div key={msg.id || i} className={`chat-widget-message chat-widget-message-${msg.role}`}>
                   <span className="chat-widget-message-role">
-                    {msg.role === "user" ? "You" : "AI"}
+                    {msg.role === "user" ? "You" : "Automatisor"}
                   </span>
                   {msg.role === "assistant"
-                    ? <div className="chat-widget-message-content chat-md">{renderMarkdown(msg.content)}</div>
+                    ? (
+                      <>
+                        <div className="chat-widget-message-content chat-md">{renderMarkdown(msg.content)}</div>
+                        <div className="chat-widget-feedback-row" aria-label="Feedback controls">
+                          <button
+                            type="button"
+                            className={`chat-widget-feedback-btn${getMessageFeedback(msg) === "up" ? " active" : ""}`}
+                            aria-label="Helpful response"
+                            title="Helpful"
+                            onClick={() => handleFeedback(msg.id, "up")}
+                            disabled={!msg.id}
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <path d="M7 11v9H4v-9h3zm4 9h6.6a2 2 0 0 0 2-1.6l1.2-7a2 2 0 0 0-2-2.4H13l1-4.8a2 2 0 0 0-2-2.4L7 11v9h4z" strokeWidth="2" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            className={`chat-widget-feedback-btn${getMessageFeedback(msg) === "down" ? " active" : ""}`}
+                            aria-label="Unhelpful response"
+                            title="Not helpful"
+                            onClick={() => handleFeedback(msg.id, "down")}
+                            disabled={!msg.id}
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <path d="M7 13V4H4v9h3zm4-9h6.6a2 2 0 0 1 2 1.6l1.2 7a2 2 0 0 1-2 2.4H13l1 4.8a2 2 0 0 1-2 2.4L7 13V4h4z" strokeWidth="2" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                        </div>
+                      </>
+                    )
                     : <p className="chat-widget-message-content">{msg.content}</p>
                   }
                 </div>
               ))
-            )}
-            {loading && (
-              <div className="chat-widget-message chat-widget-message-assistant">
-                <span className="chat-widget-message-role">AI</span>
-                <p className="chat-widget-message-content chat-widget-typing">thinking</p>
-              </div>
             )}
             <div ref={messagesEndRef} />
           </div>
 
           {/* Error */}
           {error && <p className="chat-widget-error">{error}</p>}
+
+          {loading && (
+            <div className="chat-widget-typing-row" aria-live="polite">
+              <span className="chat-widget-typing-label">Automatisor is thinking...</span>
+            </div>
+          )}
 
           {/* Input */}
           <form className="chat-widget-form" onSubmit={handleSend}>
@@ -527,7 +592,7 @@ export default function ChatWidget({ siteId }) {
               disabled={loading || !input.trim() || !activeSessionId}
               aria-label="Send message"
             >
-              {loading ? "thinking" : "Send"}
+              Send
             </button>
           </form>
         </div>

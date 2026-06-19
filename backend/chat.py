@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from uuid import uuid4
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -109,6 +110,48 @@ def _looks_like_disallowed_output(reply: str) -> bool:
     return bool(_DISALLOWED_OUTPUT_PATTERN.search(normalized))
 
 
+def _ensure_message_schema(message: dict[str, object]) -> dict[str, object]:
+    normalized = dict(message or {})
+    if not normalized.get("id"):
+        normalized["id"] = uuid4().hex
+    metadata = normalized.get("metadata")
+    if not isinstance(metadata, dict):
+        normalized["metadata"] = {}
+    return normalized
+
+
+def _ensure_message_list_schema(messages: list[dict[str, object]]) -> list[dict[str, object]]:
+    return [_ensure_message_schema(message) for message in messages]
+
+
+def _build_feedback_follow_up(message: str) -> str:
+    normalized = _normalize_safety_text(message)
+    if any(term in normalized for term in ("robot", "robotic", "picking")):
+        return "What should Automatisor focus on next for this site: impact, fit, costs, or implementation risk?"
+    if any(term in normalized for term in ("staff", "labor", "workforce")):
+        return "What should Automatisor focus on next for this site: staffing pressure, manual workload, or automation opportunities?"
+    if any(term in normalized for term in ("cost", "roi", "save")):
+        return "What should Automatisor focus on next for this site: cost drivers, ROI, or operational savings?"
+    if any(term in normalized for term in ("safety", "injur", "strain")):
+        return "What should Automatisor focus on next for this site: safety risks, repetitive handling, or workload reduction?"
+    return "What should Automatisor focus on next for this site: bottlenecks, automation options, or expected impact?"
+
+
+def _store_feedback_on_messages(messages: list[dict[str, object]], message_id: str, feedback: str) -> list[dict[str, object]]:
+    next_messages: list[dict[str, object]] = []
+    for message in _ensure_message_list_schema(messages):
+        current = dict(message)
+        if current.get("id") == message_id and current.get("role") == "assistant":
+            metadata = dict(current.get("metadata") or {})
+            metadata["feedback"] = {
+                "value": feedback,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }
+            current["metadata"] = metadata
+        next_messages.append(current)
+    return next_messages
+
+
 
 # ---------------------------------------------------------------------------
 # GET /api/chat/sessions?site_id=...
@@ -211,7 +254,7 @@ async def get_history(request: Request, site_id: str = "", session_id: str = "")
     if not rows:
         return JSONResponse(status_code=404, content={"detail": "Session not found"})
 
-    return {"messages": rows[0].get("messages", [])}
+    return {"messages": _ensure_message_list_schema(list(rows[0].get("messages", []) or []))}
 
 
 # ---------------------------------------------------------------------------
@@ -370,12 +413,12 @@ async def send_message(request: Request):
     if not session_rows:
         return JSONResponse(status_code=404, content={"detail": "Session not found"})
 
-    stored_messages: list = list(session_rows[0].get("messages", []) or [])
+    stored_messages: list = _ensure_message_list_schema(list(session_rows[0].get("messages", []) or []))
     is_first_message = len(stored_messages) == 0
 
     # Append user message
     now_iso = datetime.now(timezone.utc).isoformat()
-    user_entry = {"role": "user", "content": message, "ts": now_iso}
+    user_entry = {"id": uuid4().hex, "role": "user", "content": message, "ts": now_iso}
     stored_messages.append(user_entry)
 
     # Build LLM window — last 20 messages
@@ -404,7 +447,14 @@ async def send_message(request: Request):
             return JSONResponse(status_code=502, content={"detail": f"LLM error: {exc}"})
 
     # Append assistant reply
-    assistant_entry = {"role": "assistant", "content": reply_text, "ts": datetime.now(timezone.utc).isoformat()}
+    assistant_message_id = uuid4().hex
+    assistant_entry = {
+        "id": assistant_message_id,
+        "role": "assistant",
+        "content": reply_text,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "metadata": {},
+    }
     stored_messages.append(assistant_entry)
 
     # Persist updated messages (+ auto-title on first message)
@@ -432,4 +482,75 @@ async def send_message(request: Request):
             content={"detail": "Failed to save chat history. Please retry."},
         )
 
-    return {"reply": reply_text, "title": auto_title}
+    return {"reply": reply_text, "title": auto_title, "assistant_message_id": assistant_message_id}
+
+
+@router.post("/api/chat/feedback")
+async def chat_feedback(request: Request):
+    SupabaseAdmin, get_authenticated_customer, infer_error_status = _resolve_main_deps()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"detail": "Invalid JSON body"})
+
+    site_id = body.get("site_id", "").strip()
+    session_id = body.get("session_id", "").strip()
+    message_id = body.get("message_id", "").strip()
+    feedback = body.get("feedback", "").strip().lower()
+
+    if not site_id or not session_id or not message_id:
+        return JSONResponse(status_code=400, content={"detail": "site_id, session_id, and message_id are required"})
+    if feedback not in {"up", "down"}:
+        return JSONResponse(status_code=400, content={"detail": "feedback must be 'up' or 'down'"})
+
+    db = SupabaseAdmin()
+
+    try:
+        customer = await get_authenticated_customer(db, request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        detail = str(exc)
+        return JSONResponse(status_code=infer_error_status(detail), content={"detail": detail})
+
+    customer_id = customer["customer_id"]
+
+    try:
+        session_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_chatbot",
+            params={
+                "session_id": f"eq.{session_id}",
+                "customer_id": f"eq.{customer_id}",
+                "site_id": f"eq.{site_id}",
+                "select": "messages",
+                "limit": "1",
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    if not session_rows:
+        return JSONResponse(status_code=404, content={"detail": "Session not found"})
+
+    messages = _ensure_message_list_schema(list(session_rows[0].get("messages", []) or []))
+    updated_messages = _store_feedback_on_messages(messages, message_id, feedback)
+
+    try:
+        await db.request(
+            "PATCH",
+            "/rest/v1/automatisor_chatbot",
+            params={
+                "session_id": f"eq.{session_id}",
+                "customer_id": f"eq.{customer_id}",
+                "site_id": f"eq.{site_id}",
+            },
+            json_body={
+                "messages": updated_messages,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    return {"ok": True}
