@@ -1450,6 +1450,8 @@ async def trigger_company_discovery(
     status = clean_optional(discovery.get("status")) or "idle"
     if status == "running":
         raise HTTPException(status_code=422, detail="Facility discovery is already running for this company.")
+    if status == "review":
+        raise HTTPException(status_code=422, detail="Facility discovery is awaiting review for this company.")
     if status == "ready":
         raise HTTPException(status_code=422, detail="Facilities are already available for this company.")
     requested_at = datetime.now(timezone.utc).isoformat()
@@ -3191,7 +3193,7 @@ async def discover_company_facilities(request: Request, body: dict[str, Any] = B
                 "message": "Dry run: facility discovery would start.",
             }
         company = await trigger_company_discovery(db, customer["customer_id"], customer_context_id)
-        schedule_company_discovery_on_worker([customer_context_id], send_email=True)
+        schedule_company_discovery_on_worker([customer_context_id], send_email=False)
         return {
             "status": "running",
             "company": company,
@@ -3235,7 +3237,7 @@ async def discover_company_facilities_bulk(body: dict[str, Any] = Body(default={
                     }
                 )
         if enqueued_ids:
-            schedule_company_discovery_on_worker(enqueued_ids, send_email=True)
+            schedule_company_discovery_on_worker(enqueued_ids, send_email=False)
         return {"status": "ok", "results": results}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

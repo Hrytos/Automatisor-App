@@ -260,7 +260,7 @@ function normalizeCompanyDiscovery(raw) {
 
 function canViewCompanyFacilities(company) {
   const status = companyDiscoveryStatus(company);
-  return status === "running" || status === "ready";
+  return status === "ready";
 }
 
 function recommendationText(value) {
@@ -2979,34 +2979,10 @@ function CompanyDiscoveryPanel({
 }) {
   const discovery = normalizeCompanyDiscovery(company?.discovery || {});
   const status = discovery.status || "idle";
+  const ready = status === "ready";
   const companySites = discovery.company_sites;
   const hasReadyResults = companySites.length > 0;
   const wishlistedSiteIds = new Set((wishlist || []).map((item) => item.site_id).filter(Boolean));
-
-  if (status === "running") {
-    return (
-      <div className="report-running-panel">
-        <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
-          ...
-        </div>
-        <p className="workspace-eyebrow">Job running</p>
-        <h2 className="workspace-page-title">Facilities are still being discovered</h2>
-        <p className="workspace-page-copy">
-          We&apos;re finding facilities for this company. We&apos;ll email you when they&apos;re ready.
-        </p>
-        <div className="pre-assessment-summary-grid">
-          <div className="workspace-summary-chip">
-            <span className="workspace-summary-label">Company</span>
-            <span className="workspace-summary-value">{company?.company_name || "-"}</span>
-          </div>
-          <div className="workspace-summary-chip">
-            <span className="workspace-summary-label">Domain</span>
-            <span className="workspace-summary-value">{company?.company_domain || "-"}</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (status === "idle") {
     return (
@@ -3032,6 +3008,31 @@ function CompanyDiscoveryPanel({
         <button type="button" className="btn-primary" disabled={discovering} onClick={onDiscover}>
           {discovering ? "Starting..." : "Show More Facilities"}
         </button>
+      </div>
+    );
+  }
+
+  if (!ready) {
+    return (
+      <div className="report-running-panel">
+        <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
+          ...
+        </div>
+        <p className="workspace-eyebrow">Job running</p>
+        <h2 className="workspace-page-title">Facilities are still being discovered</h2>
+        <p className="workspace-page-copy">
+          We&apos;re finding facilities for this company. We&apos;ll email you when they&apos;re ready.
+        </p>
+        <div className="pre-assessment-summary-grid">
+          <div className="workspace-summary-chip">
+            <span className="workspace-summary-label">Company</span>
+            <span className="workspace-summary-value">{company?.company_name || "-"}</span>
+          </div>
+          <div className="workspace-summary-chip">
+            <span className="workspace-summary-label">Domain</span>
+            <span className="workspace-summary-value">{company?.company_domain || "-"}</span>
+          </div>
+        </div>
       </div>
     );
   }
