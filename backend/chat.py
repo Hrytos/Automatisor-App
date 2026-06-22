@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from enum import Enum
 from uuid import uuid4
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +48,27 @@ _DISALLOWED_OUTPUT_PATTERN = re.compile(
     r"(^subject\s*:|^hi\s|^hello\s|^dear\s|best regards|kind regards|sincerely,|thanks,\s*$)",
     re.IGNORECASE | re.MULTILINE,
 )
+_ARTIFACT_REQUEST_PATTERN = re.compile(
+    r"\b(csv|xlsx|excel|spreadsheet|pdf|doc|docx|ppt|pptx|powerpoint|slide deck|"
+    r"download(?:able)?|download link|export|import|attachment|file)\b",
+    re.IGNORECASE,
+)
+_ARTIFACT_OFFER_PATTERN = re.compile(
+    r"\b(would you like|if you want|i can|can provide|shall i|should i|"
+    r"download(?:able)?|download link|export|import|csv|xlsx|excel|spreadsheet|"
+    r"pdf|doc|docx|ppt|pptx|powerpoint|slide deck|attachment|file)\b",
+    re.IGNORECASE,
+)
+_MISSING_DATA_REPLY_PATTERN = re.compile(
+    r"\b(not stated|not available|not included|does not provide|doesn't provide|"
+    r"no explicit|no mention|cannot confirm|can't confirm|cannot determine|"
+    r"don't have|do not have|lacks|lacking|unclear|unknown)\b",
+    re.IGNORECASE,
+)
+class ChatIntent(str, Enum):
+    REPORT_ANALYSIS = "report_analysis"
+    OUT_OF_SCOPE_ARTIFACT_REQUEST = "out_of_scope_artifact_request"
+    OUT_OF_SCOPE_EXTERNAL_CONTENT = "out_of_scope_external_content"
 
 
 def _get_openai_key() -> str:
@@ -73,7 +95,10 @@ def _build_report_context_payload(site_row: dict) -> str:
 def _normalize_reply_text(raw_reply: str) -> str:
     reply = str(raw_reply or "").strip()
     if reply in {"", ".", "..", "...", "…"}:
-        return "I can only answer questions about this report, and that information isn't available here."
+        return (
+            "That information is not available in this report.\n"
+            "If you want, I can check the closest related detail that is available in this site report."
+        )
     return reply
 
 
@@ -88,26 +113,108 @@ def _is_disallowed_request(message: str) -> bool:
     return has_action and has_artifact
 
 
-def _build_refusal_follow_up(message: str) -> str:
+def _is_artifact_request(message: str) -> bool:
     normalized = _normalize_safety_text(message)
-    if "robot" in normalized or "robotic" in normalized or "picking" in normalized:
-        return "Try asking: What does the report say about the fit, expected impact, and implementation considerations of robotic picking for this site?"
-    if "staff" in normalized or "labor" in normalized or "workforce" in normalized:
-        return "Try asking: What does the report say about staffing pressure, labor bottlenecks, and where automation could reduce manual workload at this site?"
-    if "cost" in normalized or "roi" in normalized or "save" in normalized:
-        return "Try asking: What does the report say about the likely operational benefits and cost-related drivers for automation at this site?"
-    if "safety" in normalized or "injur" in normalized or "strain" in normalized:
-        return "Try asking: What does the report say about safety risks, repetitive handling, and where automation could reduce physical strain at this site?"
-    return "Try asking: What does the report say about the most relevant operational bottlenecks, automation opportunities, and expected impact for this site?"
+    return bool(_ARTIFACT_REQUEST_PATTERN.search(normalized))
 
 
-def _build_disallowed_request_response(message: str) -> str:
-    return f"{_REFUSAL_LINE}\n{_build_refusal_follow_up(message)}"
+def _classify_intent(message: str) -> ChatIntent:
+    if _is_disallowed_request(message):
+        return ChatIntent.OUT_OF_SCOPE_EXTERNAL_CONTENT
+    if _is_artifact_request(message):
+        return ChatIntent.OUT_OF_SCOPE_ARTIFACT_REQUEST
+    return ChatIntent.REPORT_ANALYSIS
+
+
+def _build_disallowed_request_response() -> str:
+    return _REFUSAL_LINE
+
+
+def _build_artifact_request_response() -> str:
+    return (
+        "I can only analyze and explain this report in chat. "
+        "I cannot generate files, exports, or downloadable links."
+    )
+
+
+def _build_missing_data_follow_up(message: str) -> str:
+    normalized = _normalize_safety_text(message)
+    if any(term in normalized for term in ("union", "collective bargaining", "unionized")):
+        return "Would you like me to look at the hiring pressure and labor signals that are actually shown in the report?"
+    if any(term in normalized for term in ("turnover", "attrition", "retention", "tenure")):
+        return "Would you like me to break down the hiring urgency and chronically open roles that the report does show?"
+    if any(term in normalized for term in ("recruit", "hiring", "warehouse", "labor", "workforce")):
+        return "Would you like me to look at which roles appear most chronically open in the report?"
+    if any(term in normalized for term in ("cost", "roi", "save")):
+        return "Would you like me to look at the labor-cost signals and growth indicators that are available in the report?"
+    if any(term in normalized for term in ("safety", "injur", "strain")):
+        return "Would you like me to look at the manual-work and dockside-risk signals that are available in the report?"
+    return "Would you like me to look at the closest related report signal that is available?"
+
+
+def _ensure_missing_data_follow_up(reply: str, message: str) -> str:
+    text = str(reply or "").strip()
+    if not text:
+        return text
+    if "?" in text:
+        return text
+    if not _MISSING_DATA_REPLY_PATTERN.search(text):
+        return text
+    return f"{text}\n\n{_build_missing_data_follow_up(message)}"
 
 
 def _looks_like_disallowed_output(reply: str) -> bool:
     normalized = _normalize_reply_text(reply)
     return bool(_DISALLOWED_OUTPUT_PATTERN.search(normalized))
+
+
+def _sanitize_artifact_drift(reply: str) -> str:
+    text = str(reply or "").strip()
+    if not text:
+        return text
+
+    lines = text.splitlines()
+    cleaned_lines: list[str] = []
+    in_artifact_block = False
+    removed_any = False
+
+    for raw_line in lines:
+        line = raw_line.strip()
+
+        # Drop unsolicited CSV code blocks entirely if they appear in analysis mode.
+        if line.lower().startswith("```csv"):
+            in_artifact_block = True
+            removed_any = True
+            continue
+        if in_artifact_block:
+            if line.startswith("```"):
+                in_artifact_block = False
+            removed_any = True
+            continue
+
+        if _ARTIFACT_OFFER_PATTERN.search(line) and (
+            "would you like" in line.lower()
+            or "if you want" in line.lower()
+            or "i can" in line.lower()
+            or "download" in line.lower()
+            or "export" in line.lower()
+            or "import" in line.lower()
+        ):
+            removed_any = True
+            continue
+
+        cleaned_lines.append(raw_line)
+
+    cleaned = "\n".join(cleaned_lines).strip()
+    if cleaned:
+        return cleaned
+
+    if removed_any:
+        return (
+            "That information is not available in this report. "
+            "I can continue analyzing relevant report details directly in chat if helpful."
+        )
+    return text
 
 
 def _ensure_message_schema(message: dict[str, object]) -> dict[str, object]:
@@ -122,19 +229,6 @@ def _ensure_message_schema(message: dict[str, object]) -> dict[str, object]:
 
 def _ensure_message_list_schema(messages: list[dict[str, object]]) -> list[dict[str, object]]:
     return [_ensure_message_schema(message) for message in messages]
-
-
-def _build_feedback_follow_up(message: str) -> str:
-    normalized = _normalize_safety_text(message)
-    if any(term in normalized for term in ("robot", "robotic", "picking")):
-        return "What should Automatisor focus on next for this site: impact, fit, costs, or implementation risk?"
-    if any(term in normalized for term in ("staff", "labor", "workforce")):
-        return "What should Automatisor focus on next for this site: staffing pressure, manual workload, or automation opportunities?"
-    if any(term in normalized for term in ("cost", "roi", "save")):
-        return "What should Automatisor focus on next for this site: cost drivers, ROI, or operational savings?"
-    if any(term in normalized for term in ("safety", "injur", "strain")):
-        return "What should Automatisor focus on next for this site: safety risks, repetitive handling, or workload reduction?"
-    return "What should Automatisor focus on next for this site: bottlenecks, automation options, or expected impact?"
 
 
 def _store_feedback_on_messages(messages: list[dict[str, object]], message_id: str, feedback: str) -> list[dict[str, object]]:
@@ -430,8 +524,11 @@ async def send_message(request: Request):
         *[{"role": m["role"], "content": m["content"]} for m in llm_window],
     ]
 
-    if _is_disallowed_request(message):
-        reply_text = _build_disallowed_request_response(message)
+    intent = _classify_intent(message)
+    if intent == ChatIntent.OUT_OF_SCOPE_EXTERNAL_CONTENT:
+        reply_text = _build_disallowed_request_response()
+    elif intent == ChatIntent.OUT_OF_SCOPE_ARTIFACT_REQUEST:
+        reply_text = _build_artifact_request_response()
     else:
         # Call OpenAI
         try:
@@ -442,7 +539,10 @@ async def send_message(request: Request):
             )
             reply_text = _normalize_reply_text(completion.choices[0].message.content or "")
             if _looks_like_disallowed_output(reply_text):
-                reply_text = _build_disallowed_request_response(message)
+                reply_text = _build_disallowed_request_response()
+            else:
+                reply_text = _sanitize_artifact_drift(reply_text)
+                reply_text = _ensure_missing_data_follow_up(reply_text, message)
         except Exception as exc:
             return JSONResponse(status_code=502, content={"detail": f"LLM error: {exc}"})
 

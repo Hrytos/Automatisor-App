@@ -45,14 +45,42 @@ def test_is_disallowed_request_matches_email_drafting():
     )
 
 
+def test_classify_intent_distinguishes_report_vs_blocked_modes():
+    assert chat._classify_intent("What are the top labor bottlenecks for this site?") == chat.ChatIntent.REPORT_ANALYSIS
+    assert chat._classify_intent("Can you export this as CSV?") == chat.ChatIntent.OUT_OF_SCOPE_ARTIFACT_REQUEST
+    assert chat._classify_intent("Write an email to pitch this automation") == chat.ChatIntent.OUT_OF_SCOPE_EXTERNAL_CONTENT
+
+
 def test_build_disallowed_request_response_is_intent_aware():
-    reply = chat._build_disallowed_request_response(
-        "Write an email pitching robotic picking for this site"
-    )
+    reply = chat._build_disallowed_request_response()
     assert reply.startswith("I can only answer questions about this report.")
-    assert "Try asking:" in reply
-    assert "robotic picking" in reply.lower()
+    assert "Try asking:" not in reply
     assert "[topic]" not in reply
+
+
+def test_sanitize_artifact_drift_removes_unsolicited_export_offer_only():
+    raw = (
+        "No, union status is not stated in this report.\n"
+        "- There are no direct references to union activity.\n"
+        "Would you like this as a CSV export?"
+    )
+    cleaned = chat._sanitize_artifact_drift(raw)
+    assert "No, union status is not stated in this report." in cleaned
+    assert "CSV" not in cleaned
+
+
+def test_ensure_missing_data_follow_up_adds_related_question():
+    reply = "Not stated in this report."
+    updated = chat._ensure_missing_data_follow_up(reply, "Does this site have a labor turnover problem?")
+    assert updated.startswith("Not stated in this report.")
+    assert "?" in updated
+    assert "turnover" in updated.lower() or "hiring urgency" in updated.lower()
+
+
+def test_ensure_missing_data_follow_up_skips_out_of_scope_style_replies():
+    reply = "I can only answer questions about this report."
+    updated = chat._ensure_missing_data_follow_up(reply, "Write an email to the warehouse manager")
+    assert updated == reply
 
 
 def test_ensure_message_schema_adds_id_and_metadata():
@@ -96,7 +124,32 @@ async def test_send_message_short_circuits_disallowed_request(monkeypatch):
     )
 
     assert response["reply"].startswith("I can only answer questions about this report.")
-    assert "Try asking:" in response["reply"]
+    assert "Try asking:" not in response["reply"]
+
+
+@pytest.mark.asyncio
+async def test_send_message_short_circuits_artifact_request(monkeypatch):
+    monkeypatch.setattr(chat, "_resolve_main_deps", _fake_deps)
+    monkeypatch.setattr(chat, "_get_openai_key", lambda: "test-key")
+
+    class ForbiddenOpenAI:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("OpenAI should not be called for artifact requests")
+
+    monkeypatch.setattr(chat, "AsyncOpenAI", ForbiddenOpenAI)
+
+    response = await chat.send_message(
+        FakeRequest(
+            {
+                "site_id": "site-1",
+                "session_id": "session-1",
+                "message": "Please export this report as CSV and give me a download link",
+            }
+        )
+    )
+
+    assert response["reply"].startswith("I can only analyze and explain this report in chat.")
+    assert "Try asking:" not in response["reply"]
 
 
 @pytest.mark.asyncio
@@ -138,7 +191,105 @@ async def test_send_message_replaces_disallowed_model_output(monkeypatch):
     )
 
     assert response["reply"].startswith("I can only answer questions about this report.")
-    assert "Try asking:" in response["reply"]
+    assert "Try asking:" not in response["reply"]
+
+
+@pytest.mark.asyncio
+async def test_send_message_sanitizes_unsolicited_artifact_offer(monkeypatch):
+    monkeypatch.setattr(chat, "_resolve_main_deps", _fake_deps)
+    monkeypatch.setattr(chat, "_get_openai_key", lambda: "test-key")
+
+    class FakeCompletion:
+        def __init__(self):
+            self.choices = [
+                type(
+                    "Choice",
+                    (),
+                    {
+                        "message": type(
+                            "Message",
+                            (),
+                            {
+                                "content": (
+                                    "No, union status is not stated in this report.\n"
+                                    "- There are no direct references to union activity.\n"
+                                    "Would you like this as a downloadable CSV?"
+                                )
+                            },
+                        )()
+                    },
+                )
+            ]
+
+    class FakeOpenAI:
+        def __init__(self, *args, **kwargs):
+            self.chat = type("ChatApi", (), {})()
+            self.chat.completions = type("Completions", (), {"create": self.create})()
+
+        async def create(self, *args, **kwargs):
+            return FakeCompletion()
+
+    monkeypatch.setattr(chat, "AsyncOpenAI", FakeOpenAI)
+
+    response = await chat.send_message(
+        FakeRequest(
+            {
+                "site_id": "site-1",
+                "session_id": "session-1",
+                "message": "site in union state?",
+            }
+        )
+    )
+
+    assert "union status is not stated" in response["reply"].lower()
+    assert "csv" not in response["reply"].lower()
+    assert "download" not in response["reply"].lower()
+
+
+@pytest.mark.asyncio
+async def test_send_message_appends_follow_up_for_missing_data(monkeypatch):
+    monkeypatch.setattr(chat, "_resolve_main_deps", _fake_deps)
+    monkeypatch.setattr(chat, "_get_openai_key", lambda: "test-key")
+
+    class FakeCompletion:
+        def __init__(self):
+            self.choices = [
+                type(
+                    "Choice",
+                    (),
+                    {
+                        "message": type(
+                            "Message",
+                            (),
+                            {"content": "Not stated in this report."},
+                        )()
+                    },
+                )
+            ]
+
+    class FakeOpenAI:
+        def __init__(self, *args, **kwargs):
+            self.chat = type("ChatApi", (), {})()
+            self.chat.completions = type("Completions", (), {"create": self.create})()
+
+        async def create(self, *args, **kwargs):
+            return FakeCompletion()
+
+    monkeypatch.setattr(chat, "AsyncOpenAI", FakeOpenAI)
+
+    response = await chat.send_message(
+        FakeRequest(
+            {
+                "site_id": "site-1",
+                "session_id": "session-1",
+                "message": "Does this site have a labor turnover problem?",
+            }
+        )
+    )
+
+    assert response["reply"].startswith("Not stated in this report.")
+    assert "?" in response["reply"]
+    assert "turnover" in response["reply"].lower() or "hiring urgency" in response["reply"].lower()
 
 
 @pytest.mark.asyncio
