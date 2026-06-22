@@ -24,6 +24,8 @@ import CreditsPage from "./CreditsPage.jsx";
 import BillingPage from "./BillingPage.jsx";
 import ChatWidget from "./ChatWidget.jsx";
 import ShareReportDialog from "./ShareReportDialog.jsx";
+import TermsContent from "./TermsContent.jsx";
+import PrivacyContent from "./PrivacyContent.jsx";
 
 const _PERSONAL_DOMAINS = new Set([
   "gmail.com","googlemail.com","yahoo.com","yahoo.co.uk","yahoo.co.in","yahoo.fr","yahoo.de",
@@ -3208,44 +3210,18 @@ function TermsModal({ show, onClose }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content terms-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>Terms & Conditions</h3>
+        <div className="modal-header terms-modal-header">
           <button
             type="button"
             className="modal-close-btn"
             onClick={onClose}
-            aria-label="Close"
+            aria-label="Close terms and conditions"
           >
             ✕
           </button>
         </div>
         <div className="modal-body">
-          <p>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt 
-            ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco 
-            laboris nisi ut aliquip ex ea commodo consequat.
-          </p>
-          <p>
-            Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla 
-            pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt 
-            mollit anim id est laborum.
-          </p>
-          <p>
-            Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, 
-            totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae 
-            dicta sunt explicabo.
-          </p>
-          <p>
-            Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur 
-            magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem 
-            ipsum quia dolor sit amet, consectetur, adipisci velit.
-          </p>
-          <p>
-            Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi 
-            ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate 
-            velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla 
-            pariatur.
-          </p>
+          <TermsContent />
         </div>
       </div>
     </div>
@@ -3257,45 +3233,19 @@ function PrivacyModal({ show, onClose }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content terms-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>Privacy Policy</h3>
+      <div className="modal-content privacy-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header privacy-modal-header">
           <button
             type="button"
             className="modal-close-btn"
             onClick={onClose}
-            aria-label="Close"
+            aria-label="Close privacy policy"
           >
             ✕
           </button>
         </div>
         <div className="modal-body">
-          <p>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt 
-            ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco 
-            laboris nisi ut aliquip ex ea commodo consequat.
-          </p>
-          <p>
-            Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla 
-            pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt 
-            mollit anim id est laborum.
-          </p>
-          <p>
-            Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, 
-            totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae 
-            dicta sunt explicabo.
-          </p>
-          <p>
-            Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur 
-            magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem 
-            ipsum quia dolor sit amet, consectetur, adipisci velit.
-          </p>
-          <p>
-            Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi 
-            ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate 
-            velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla 
-            pariatur.
-          </p>
+          <PrivacyContent />
         </div>
       </div>
     </div>
