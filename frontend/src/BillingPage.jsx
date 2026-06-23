@@ -49,7 +49,15 @@ function loadSession() {
   }
 }
 
-async function fetchJson(url, options = {}) {
+function clearSession() {
+  try {
+    window.sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    // Ignore.
+  }
+}
+
+async function fetchJson(url, options = {}, { onUnauthorized } = {}) {
   const res = await fetch(url, {
     credentials: "same-origin",
     headers: {
@@ -59,6 +67,13 @@ async function fetchJson(url, options = {}) {
     ...options,
   });
   const payload = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    clearSession();
+    if (onUnauthorized) onUnauthorized(payload.detail || "Session expired. Please sign in again.");
+    const error = new Error(payload.detail || "Session expired. Please sign in again.");
+    error.status = 401;
+    throw error;
+  }
   if (!res.ok) {
     const error = new Error(payload.detail || "Request failed.");
     error.code = payload.code || res.headers.get("x-error-code") || "";
@@ -101,12 +116,23 @@ function formatCurrency(amount) {
 }
 
 // ── Card setup form (rendered inside Stripe Elements) ────────
-function CardSetupForm({ email, customerId, onSuccess, onCancel }) {
+function CardSetupForm({ email, customerId, onSuccess, onCancel, onUnauthorized }) {
   const stripe = useStripe();
   const elements = useElements();
   const [busy, setBusy] = useState(false);
   const [cardError, setCardError] = useState("");
   const [cardStatus, setCardStatus] = useState("");
+
+  async function billingFetch(url, body = {}) {
+    return fetchJson(
+      url,
+      {
+        method: "POST",
+        body: JSON.stringify({ email, ...body }),
+      },
+      { onUnauthorized },
+    );
+  }
 
   async function handleSubmit(e) {
     e?.preventDefault();
@@ -118,10 +144,7 @@ function CardSetupForm({ email, customerId, onSuccess, onCancel }) {
     setCardError("");
     setCardStatus("Preparing secure card form…");
     try {
-      const { client_secret } = await fetchJson("/api/stripe/setup-intent", {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
+      const { client_secret } = await billingFetch("/api/stripe/setup-intent");
       setCardStatus("Confirming card with Stripe…");
       const { setupIntent, error } = await stripe.confirmCardSetup(client_secret, {
         payment_method: { card: elements.getElement(CardElement) },
@@ -132,11 +155,8 @@ function CardSetupForm({ email, customerId, onSuccess, onCancel }) {
         return;
       }
       setCardStatus("Saving card to your account…");
-      await fetchJson("/api/stripe/confirm-payment-method", {
-        method: "POST",
-        body: JSON.stringify({
-          payment_method_id: setupIntent.payment_method,
-        }),
+      await billingFetch("/api/stripe/confirm-payment-method", {
+        payment_method_id: setupIntent.payment_method,
       });
       setCardStatus("Card saved. Refreshing billing details…");
       onSuccess();
@@ -176,6 +196,7 @@ function CardSetupForm({ email, customerId, onSuccess, onCancel }) {
 
 // ── Page component ───────────────────────────────────────────
 export default function BillingPage() {
+  const navigate = useNavigate();
   const [session] = useRequireSession();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -187,18 +208,42 @@ export default function BillingPage() {
   const [payingInvoiceId, setPayingInvoiceId] = useState(null);
   const [payError, setPayError] = useState("");
 
+  function handleUnauthorized(message) {
+    navigate("/auth", { replace: true, state: { message } });
+  }
+
+  function billingRequest(url, options = {}) {
+    const parsedBody =
+      typeof options.body === "string" && options.body
+        ? JSON.parse(options.body)
+        : options.body && typeof options.body === "object"
+          ? options.body
+          : {};
+    return fetchJson(
+      url,
+      {
+        ...options,
+        body: JSON.stringify({
+          email: session?.email || "",
+          ...parsedBody,
+        }),
+      },
+      { onUnauthorized: handleUnauthorized },
+    );
+  }
+
   function loadData(silent = false) {
     if (!session?.email) return;
     if (!silent) setLoading(true);
-    fetchJson("/api/billing/invoices", {
-      method: "POST",
-      body: JSON.stringify({}),
-    })
+    billingRequest("/api/billing/invoices", { method: "POST" })
       .then((payload) => {
         setInvoices(payload.invoices || []);
         setPaymentMethod(payload.payment_method || null);
       })
-      .catch((err) => setError(err.message || "Could not load invoices."))
+      .catch((err) => {
+        if (err.status === 401) return;
+        setError(err.message || "Could not load invoices.");
+      })
       .finally(() => setLoading(false));
   }
 
@@ -255,7 +300,7 @@ export default function BillingPage() {
     setPayingInvoiceId(invoiceId);
     setPayError("");
     try {
-      const { url } = await fetchJson("/api/billing/get-invoice-url", {
+      const { url } = await billingRequest("/api/billing/get-invoice-url", {
         method: "POST",
         body: JSON.stringify({ invoice_id: invoiceId }),
       });
@@ -263,6 +308,7 @@ export default function BillingPage() {
       // Reload so the draft now shows as open with its hosted URL
       loadData();
     } catch (err) {
+      if (err.status === 401) return;
       setPayError(err.message || "Could not open payment page. Please try again.");
     } finally {
       setPayingInvoiceId(null);
@@ -319,6 +365,7 @@ export default function BillingPage() {
                 <CardSetupForm
                   email={session.email}
                   customerId={session.customerId}
+                  onUnauthorized={handleUnauthorized}
                   onSuccess={() => { setShowCardSetup(false); loadData(); }}
                   onCancel={() => setShowCardSetup(false)}
                 />

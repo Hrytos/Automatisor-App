@@ -44,6 +44,11 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
+RECOMMENDATION_SYSTEM_URL = os.getenv("RECOMMENDATION_SYSTEM_URL", "").strip().rstrip("/")
+RECOMMENDATION_WORKER_SECRET = (
+    os.getenv("RECOMMENDATION_WORKER_SECRET", "").strip()
+    or os.getenv("INTERNAL_API_KEY", "").strip()
+)
 VERCEL_ENV = os.getenv("VERCEL_ENV", "")
 IS_PRODUCTION = VERCEL_ENV == "production" or os.getenv("ENV", "") == "production"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true" if IS_PRODUCTION else "false") != "false"
@@ -127,6 +132,7 @@ SERVICE_API_PREFIXES = (
     "/address-validation",
     "/billing",
     "/chat",
+    "/companies",
     "/credits",
     "/customer-context",
     "/customer-sites",
@@ -140,6 +146,13 @@ SERVICE_API_PREFIXES = (
 USAGE_TYPE_LABELS: dict[str, str] = {
     "pre_assessment_request": "Pre-Assessment Request",
 }
+
+EVENT_TYPE_WISH_LIST = "wish_list"
+EVENT_TYPE_USER_ADDED_COMPANY = "user_added_company"
+
+CUSTOMER_CONTEXT_SELECT = (
+    "customer_context_id,customer_id,site_id,account_id,event_type,metadata,notes,created_at,updated_at"
+)
 
 
 @app.middleware("http")
@@ -1038,7 +1051,7 @@ async def find_account_site_by_id(
             )
             assignment = shared_rows[0] if shared_rows else None
 
-    if customer_id and not assignment:
+    if customer_id and not assignment and not account_id:
         return None
 
     return await _hydrate_account_site_with_assignment(
@@ -1174,7 +1187,56 @@ async def list_customer_wishlist(db: SupabaseAdmin, customer_id: str | None) -> 
                 "site_metadata": site.get("metadata") or {},
             }
         )
+    requested_site_ids = await site_ids_with_pre_assessment_requested(db, customer_id, site_ids)
+    if requested_site_ids:
+        for requested_site_id in requested_site_ids:
+            try:
+                await remove_customer_wishlist_item(db, customer_id, requested_site_id)
+            except Exception as exc:
+                print(f"Stale wishlist cleanup failed for site {requested_site_id}: {exc}")
+        wishlist = [item for item in wishlist if item.get("site_id") not in requested_site_ids]
     return wishlist
+
+
+async def site_ids_with_pre_assessment_requested(
+    db: SupabaseAdmin,
+    customer_id: str,
+    site_ids: list[str],
+) -> set[str]:
+    if not customer_id or not site_ids:
+        return set()
+    requested: set[str] = set()
+    assignment_rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_sites",
+        params={
+            "select": "site_id,metadata",
+            "customer_id": f"eq.{customer_id}",
+            "site_id": f"in.({','.join(site_ids)})",
+        },
+    )
+    for row in assignment_rows or []:
+        site_id = clean_optional(row.get("site_id"))
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        if site_id and metadata.get("last_pre_assessment_requested_at"):
+            requested.add(site_id)
+    remaining = [site_id for site_id in site_ids if site_id not in requested]
+    if remaining:
+        billing_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_billing",
+            params={
+                "select": "site_id",
+                "customer_id": f"eq.{customer_id}",
+                "site_id": f"in.({','.join(remaining)})",
+                "usage_type": "eq.pre_assessment_request",
+            },
+        )
+        for row in billing_rows or []:
+            site_id = clean_optional(row.get("site_id"))
+            if site_id:
+                requested.add(site_id)
+    return requested
 
 
 async def add_customer_wishlist_item(
@@ -1252,6 +1314,455 @@ async def add_customer_wishlist_item(
         "full_address": site.get("full_address") or "",
         "site_metadata": site.get("metadata") or {},
     }
+
+
+async def remove_customer_wishlist_item(
+    db: SupabaseAdmin,
+    customer_id: str,
+    site_id: str,
+) -> bool:
+    customer_id = clean_optional(customer_id)
+    site_id = clean_optional(site_id)
+    if not customer_id or not site_id:
+        return False
+    await db.request(
+        "DELETE",
+        "/rest/v1/automatisor_customer_context",
+        params={
+            "customer_id": f"eq.{customer_id}",
+            "site_id": f"eq.{site_id}",
+            "event_type": f"eq.{EVENT_TYPE_WISH_LIST}",
+        },
+        headers={"Prefer": "return=minimal"},
+    )
+    return True
+
+
+async def clear_wishlist_after_pre_assessment(
+    db: SupabaseAdmin,
+    customer_id: str,
+    site_id: str,
+    *,
+    request: Request | None = None,
+    body: dict[str, Any] | None = None,
+) -> None:
+    if request is not None and body is not None and is_dry_run_request(request, body):
+        return
+    try:
+        await remove_customer_wishlist_item(db, customer_id, site_id)
+    except Exception as exc:
+        print(f"Wishlist removal after pre-assessment failed: {exc}")
+
+
+def default_company_discovery_metadata() -> dict[str, Any]:
+    return {"discovery": {"status": "idle", "company_sites": [], "errors": []}}
+
+
+def discovery_from_metadata(metadata: Any) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return default_company_discovery_metadata()["discovery"]
+    discovery = metadata.get("discovery")
+    if not isinstance(discovery, dict):
+        return default_company_discovery_metadata()["discovery"]
+    return {
+        "status": clean_optional(discovery.get("status")) or "idle",
+        "requested_at": clean_optional(discovery.get("requested_at")) or None,
+        "ready_at": clean_optional(discovery.get("ready_at")) or None,
+        "company_sites": discovery.get("company_sites") if isinstance(discovery.get("company_sites"), list) else [],
+        "errors": discovery.get("errors") if isinstance(discovery.get("errors"), list) else [],
+    }
+
+
+async def hydrate_company_discovery(db: SupabaseAdmin, metadata: Any) -> dict[str, Any]:
+    discovery = discovery_from_metadata(metadata)
+    payload = {
+        "status": discovery["status"],
+        "requested_at": discovery.get("requested_at"),
+        "ready_at": discovery.get("ready_at"),
+        "company_sites": discovery.get("company_sites") or [],
+    }
+    hydrated = hydrate_recommendations_from_site_map(payload, await fetch_recommendation_site_map(db, _discovery_site_ids(discovery)))
+    if discovery.get("requested_at"):
+        hydrated["requested_at"] = discovery["requested_at"]
+    if discovery.get("ready_at"):
+        hydrated["ready_at"] = discovery["ready_at"]
+    errors = discovery.get("errors")
+    if errors:
+        hydrated["errors"] = errors
+    return hydrated
+
+
+def _discovery_site_ids(discovery: dict[str, Any]) -> list[str]:
+    site_ids: list[str] = []
+    for item in discovery.get("company_sites") or []:
+        if not isinstance(item, dict):
+            continue
+        site_id = clean_optional(item.get("site_id"))
+        if site_id and site_id not in site_ids:
+            site_ids.append(site_id)
+    return site_ids
+
+
+async def _hydrate_customer_company_row(db: SupabaseAdmin, row: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    discovery = await hydrate_company_discovery(db, metadata)
+    return {
+        **row,
+        "notes": row.get("notes") or "",
+        "company_name": account.get("company_name") or "",
+        "company_domain": account.get("account_domain") or "",
+        "discovery": discovery,
+    }
+
+
+async def list_customer_companies(db: SupabaseAdmin, customer_id: str | None) -> list[dict[str, Any]]:
+    if not customer_id:
+        return []
+    context_rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_context",
+        params={
+            "select": CUSTOMER_CONTEXT_SELECT,
+            "customer_id": f"eq.{customer_id}",
+            "event_type": f"eq.{EVENT_TYPE_USER_ADDED_COMPANY}",
+            "order": "created_at.desc",
+        },
+    )
+    account_ids: list[str] = []
+    for row in context_rows or []:
+        account_id = clean_optional(row.get("account_id"))
+        if account_id and account_id not in account_ids:
+            account_ids.append(account_id)
+    account_map: dict[str, dict[str, Any]] = {}
+    if account_ids:
+        account_rows = await db.request(
+            "GET",
+            "/rest/v1/accounts",
+            params={
+                "select": "account_id,company_name,account_domain",
+                "account_id": f"in.({','.join(account_ids)})",
+            },
+        )
+        account_map = {row["account_id"]: row for row in account_rows or [] if row.get("account_id")}
+    companies: list[dict[str, Any]] = []
+    for row in context_rows or []:
+        account = account_map.get(row.get("account_id")) or {}
+        companies.append(await _hydrate_customer_company_row(db, row, account))
+    return companies
+
+
+async def find_customer_company_by_id(
+    db: SupabaseAdmin,
+    customer_id: str,
+    customer_context_id: str,
+) -> dict[str, Any] | None:
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_context",
+        params={
+            "select": CUSTOMER_CONTEXT_SELECT,
+            "customer_context_id": f"eq.{customer_context_id}",
+            "customer_id": f"eq.{customer_id}",
+            "event_type": f"eq.{EVENT_TYPE_USER_ADDED_COMPANY}",
+            "limit": 1,
+        },
+    )
+    row = rows[0] if rows else None
+    if not row:
+        return None
+    account_rows = await db.request(
+        "GET",
+        "/rest/v1/accounts",
+        params={
+            "select": "account_id,company_name,account_domain",
+            "account_id": f"eq.{row.get('account_id')}",
+            "limit": 1,
+        },
+    )
+    account = account_rows[0] if account_rows else {}
+    return await _hydrate_customer_company_row(db, row, account)
+
+
+async def save_customer_company(
+    db: SupabaseAdmin,
+    customer_id: str,
+    org_name: str,
+    domain: str,
+) -> dict[str, Any]:
+    account = await upsert_account(db, org_name, domain)
+    account_id = account["accountId"]
+    existing_rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_context",
+        params={
+            "select": CUSTOMER_CONTEXT_SELECT,
+            "customer_id": f"eq.{customer_id}",
+            "account_id": f"eq.{account_id}",
+            "event_type": f"eq.{EVENT_TYPE_USER_ADDED_COMPANY}",
+            "limit": 1,
+        },
+    )
+    if existing_rows:
+        account_rows = await db.request(
+            "GET",
+            "/rest/v1/accounts",
+            params={
+                "select": "account_id,company_name,account_domain",
+                "account_id": f"eq.{account_id}",
+                "limit": 1,
+            },
+        )
+        account_row = account_rows[0] if account_rows else {}
+        return await _hydrate_customer_company_row(db, existing_rows[0], account_row)
+    now = datetime.now(timezone.utc).isoformat()
+    created = await db.request(
+        "POST",
+        "/rest/v1/automatisor_customer_context",
+        params={"select": CUSTOMER_CONTEXT_SELECT},
+        json_body={
+            "customer_id": customer_id,
+            "account_id": account_id,
+            "site_id": None,
+            "event_type": EVENT_TYPE_USER_ADDED_COMPANY,
+            "metadata": default_company_discovery_metadata(),
+            "created_at": now,
+            "updated_at": now,
+        },
+        headers={"Prefer": "return=representation"},
+    )
+    account_rows = await db.request(
+        "GET",
+        "/rest/v1/accounts",
+        params={
+            "select": "account_id,company_name,account_domain",
+            "account_id": f"eq.{account_id}",
+            "limit": 1,
+        },
+    )
+    account_row = account_rows[0] if account_rows else {"company_name": org_name, "account_domain": domain}
+    return await _hydrate_customer_company_row(db, created[0], account_row)
+
+
+async def trigger_company_discovery(
+    db: SupabaseAdmin,
+    customer_id: str,
+    customer_context_id: str,
+) -> dict[str, Any]:
+    company = await find_customer_company_by_id(db, customer_id, customer_context_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found.")
+    discovery = company.get("discovery") or {}
+    status = clean_optional(discovery.get("status")) or "idle"
+    if status == "running":
+        raise HTTPException(status_code=422, detail="Facility discovery is already running for this company.")
+    if status == "review":
+        raise HTTPException(status_code=422, detail="Facility discovery is awaiting review for this company.")
+    if status == "ready":
+        raise HTTPException(status_code=422, detail="Facilities are already available for this company.")
+    requested_at = datetime.now(timezone.utc).isoformat()
+    metadata = company.get("metadata") if isinstance(company.get("metadata"), dict) else default_company_discovery_metadata()
+    metadata = {
+        **metadata,
+        "discovery": {
+            **discovery_from_metadata(metadata),
+            "status": "running",
+            "requested_at": requested_at,
+            "ready_at": None,
+            "errors": [],
+        },
+    }
+    await db.request(
+        "PATCH",
+        "/rest/v1/automatisor_customer_context",
+        params={"customer_context_id": f"eq.{customer_context_id}"},
+        json_body={"metadata": metadata, "updated_at": requested_at},
+        headers={"Prefer": "return=minimal"},
+    )
+    updated = await find_customer_company_by_id(db, customer_id, customer_context_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Company not found.")
+    return updated
+
+
+async def _enqueue_company_discovery_on_worker(
+    customer_context_ids: list[str],
+    *,
+    send_email: bool = True,
+) -> bool:
+    if not RECOMMENDATION_SYSTEM_URL:
+        print("RECOMMENDATION_SYSTEM_URL not set; skipping company discovery enqueue")
+        return False
+    if not RECOMMENDATION_WORKER_SECRET:
+        print("RECOMMENDATION_WORKER_SECRET not set; skipping company discovery enqueue")
+        return False
+    ids = [clean_optional(item) for item in customer_context_ids]
+    ids = [item for item in ids if item]
+    if not ids:
+        return False
+
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {RECOMMENDATION_WORKER_SECRET}",
+    }
+
+    if len(ids) == 1:
+        url = f"{RECOMMENDATION_SYSTEM_URL}/recommendations/company-discovery"
+        payload = {
+            "customer_context_id": ids[0],
+            "send_email": send_email,
+        }
+    else:
+        url = f"{RECOMMENDATION_SYSTEM_URL}/recommendations/company-discovery/bulk"
+        payload = {
+            "customer_context_ids": ids,
+            "send_email": send_email,
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+        if response.is_error:
+            print(
+                f"Company discovery enqueue failed ({response.status_code}): {response.text}"
+            )
+            return False
+        print(
+            f"Company discovery enqueued for {len(ids)} company context(s): "
+            f"{response.status_code} {response.text[:200]}",
+            flush=True,
+        )
+        return True
+    except Exception as exc:
+        print(f"Company discovery enqueue failed: {exc}")
+        return False
+
+
+SITE_RECOMMENDATION_DEFAULT_LIMIT = 5
+
+
+async def _enqueue_site_recommendations_on_worker(
+    customer_site_id: str,
+    *,
+    limit: int = SITE_RECOMMENDATION_DEFAULT_LIMIT,
+) -> bool:
+    if not RECOMMENDATION_SYSTEM_URL:
+        print("RECOMMENDATION_SYSTEM_URL not set; skipping site recommendations enqueue")
+        return False
+    if not RECOMMENDATION_WORKER_SECRET:
+        print("RECOMMENDATION_WORKER_SECRET not set; skipping site recommendations enqueue")
+        return False
+    customer_site_id = clean_optional(customer_site_id)
+    if not customer_site_id:
+        return False
+
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {RECOMMENDATION_WORKER_SECRET}",
+    }
+
+    url = f"{RECOMMENDATION_SYSTEM_URL}/recommendations/site-recommendations"
+    payload = {
+        "customer_site_id": customer_site_id,
+        "limit": limit,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+        if response.is_error:
+            print(
+                f"Site recommendations enqueue failed ({response.status_code}): {response.text}"
+            )
+            return False
+        print(
+            f"Site recommendations worker accepted enqueue for customer_site_id={customer_site_id}: "
+            f"{response.status_code} {response.text[:200]}",
+            flush=True,
+        )
+        return True
+    except Exception as exc:
+        print(f"Site recommendations enqueue failed: {exc}")
+        return False
+
+
+async def maybe_start_site_recommendations(
+    db: SupabaseAdmin,
+    site: dict[str, Any],
+    *,
+    assignment_customer_site_id: str | None = None,
+) -> None:
+    customer_site_id = clean_optional(assignment_customer_site_id) or clean_optional(
+        site.get("customer_site_id")
+    )
+    if not customer_site_id:
+        print("Site recommendations skip: missing customer_site_id")
+        return
+
+    fresh_recommendations = await fetch_assignment_recommendations(db, customer_site_id)
+    current_status = site_recommendations_status({"recommendations": fresh_recommendations})
+    if current_status in ("running", "review", "ready"):
+        print(
+            f"Site recommendations skip: customer_site_id={customer_site_id} "
+            f"status={current_status or 'idle'}"
+        )
+        return
+
+    enqueued = await _enqueue_site_recommendations_on_worker(customer_site_id)
+    if not enqueued:
+        print(
+            f"Site recommendations enqueue failed for customer_site_id={customer_site_id}",
+            flush=True,
+        )
+        return
+
+    await mark_site_recommendations_running(db, customer_site_id)
+    print(f"Site recommendations started: customer_site_id={customer_site_id}")
+
+
+def site_recommendations_status(site: dict[str, Any]) -> str:
+    recommendations = site.get("recommendations") or {}
+    if not isinstance(recommendations, dict):
+        return ""
+    return clean_optional(recommendations.get("status")) or ""
+
+
+def should_enqueue_site_recommendations(site: dict[str, Any]) -> bool:
+    return site_recommendations_status(site) not in ("running", "review", "ready")
+
+
+async def fetch_assignment_recommendations(
+    db: SupabaseAdmin,
+    customer_site_id: str,
+) -> dict[str, Any]:
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_sites",
+        params={
+            "select": "recommendations",
+            "customer_site_id": f"eq.{customer_site_id}",
+            "limit": 1,
+        },
+    )
+    if not rows:
+        return {}
+    recommendations = rows[0].get("recommendations") or {}
+    return recommendations if isinstance(recommendations, dict) else {}
+
+
+async def mark_site_recommendations_running(db: SupabaseAdmin, customer_site_id: str) -> None:
+    await db.request(
+        "PATCH",
+        "/rest/v1/automatisor_customer_sites",
+        params={"customer_site_id": f"eq.{customer_site_id}"},
+        json_body={
+            "recommendations": {
+                "status": "running",
+                "company_sites": [],
+                "nearby_sites": [],
+            },
+        },
+        headers={"Prefer": "return=minimal"},
+    )
 
 
 async def upsert_account(db: SupabaseAdmin, org_name: str, domain: str) -> dict[str, str]:
@@ -2715,6 +3226,219 @@ async def add_customer_context_wishlist(body: dict[str, Any] = Body(default={}))
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.post("/api/companies")
+async def save_company(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        org_name = clean_required(body.get("org_name") or body.get("company_name"), "Company name")
+        domain = normalize_domain(body.get("org_domain") or body.get("company_domain"))
+        if not domain:
+            raise ValueError("Company domain is required")
+        db = get_admin_db()
+        customer = await find_customer_by_email(db, email)
+        if not customer:
+            raise HTTPException(status_code=422, detail="Customer not found")
+        company = await save_customer_company(db, customer["customer_id"], org_name, domain)
+        return {"status": "saved", "company": company}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/companies/bulk")
+async def save_companies_bulk(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        raw_items = body.get("items")
+        if not isinstance(raw_items, list) or not raw_items:
+            raise ValueError("items is required")
+        db = get_admin_db()
+        customer = await find_customer_by_email(db, email)
+        if not customer:
+            raise HTTPException(status_code=422, detail="Customer not found")
+        results: list[dict[str, Any]] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                results.append({"status": "failed", "error": "Invalid item"})
+                continue
+            org_name = clean_optional(item.get("org_name") or item.get("company_name"))
+            domain = normalize_domain(item.get("org_domain") or item.get("company_domain"))
+            if not org_name and not domain:
+                continue
+            try:
+                org_name = clean_required(org_name, "Company name")
+                if not domain:
+                    raise ValueError("Company domain is required")
+                company = await save_customer_company(db, customer["customer_id"], org_name, domain)
+                results.append({"status": "ok", "company": company})
+            except ValueError as exc:
+                results.append(
+                    {
+                        "status": "failed",
+                        "org_name": org_name or "",
+                        "org_domain": domain or "",
+                        "error": str(exc),
+                    }
+                )
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+                results.append(
+                    {
+                        "status": "failed",
+                        "org_name": org_name or "",
+                        "org_domain": domain or "",
+                        "error": detail,
+                        "error_code": exc.status_code,
+                    }
+                )
+        if not results:
+            raise ValueError("Add at least one company with a name and domain")
+        return {"status": "ok", "results": results}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/companies/list")
+async def list_companies(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        db = get_admin_db()
+        customer = await find_customer_by_email(db, email)
+        if not customer:
+            raise HTTPException(status_code=422, detail="Customer not found")
+        companies = await list_customer_companies(db, customer["customer_id"])
+        return {"status": "ok", "companies": companies}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/companies/notes")
+async def save_customer_company_notes(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        customer_context_id = clean_required(body.get("customer_context_id"), "Company")
+        notes = str(body.get("notes") or "")
+        db = get_admin_db()
+        customer = await find_customer_by_email(db, email)
+        if not customer:
+            raise HTTPException(status_code=422, detail="Customer not found")
+        company = await find_customer_company_by_id(db, customer["customer_id"], customer_context_id)
+        if not company:
+            raise HTTPException(status_code=422, detail="Company not found")
+        await db.request(
+            "PATCH",
+            "/rest/v1/automatisor_customer_context",
+            params={"customer_context_id": f"eq.{customer_context_id}"},
+            json_body={
+                "notes": notes,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            headers={"Prefer": "return=minimal"},
+        )
+        updated = await find_customer_company_by_id(db, customer["customer_id"], customer_context_id)
+        return {
+            "status": "saved",
+            "customer_context_id": customer_context_id,
+            "notes": notes,
+            "company": updated,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/companies/discover")
+async def discover_company_facilities(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        customer_context_id = clean_required(body.get("customer_context_id"), "Company")
+        db = get_admin_db()
+        customer = await find_customer_by_email(db, email)
+        if not customer:
+            raise HTTPException(status_code=422, detail="Customer not found")
+        if is_dry_run_request(request, body):
+            company = await find_customer_company_by_id(db, customer["customer_id"], customer_context_id)
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found.")
+            return {
+                "status": "running",
+                "company": company,
+                "message": "Dry run: facility discovery would start.",
+            }
+        enqueued = await _enqueue_company_discovery_on_worker(
+            [customer_context_id],
+            send_email=False,
+        )
+        if not enqueued:
+            raise HTTPException(
+                status_code=503,
+                detail="Facility discovery service is unavailable. Please try again shortly.",
+            )
+        company = await trigger_company_discovery(db, customer["customer_id"], customer_context_id)
+        return {
+            "status": "running",
+            "company": company,
+            "message": "Facility discovery is running. We'll email you when the sites are ready.",
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/companies/discover/bulk")
+async def discover_company_facilities_bulk(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        raw_ids = body.get("customer_context_ids")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValueError("customer_context_ids is required")
+        customer_context_ids = [clean_required(item, "Company") for item in raw_ids]
+        db = get_admin_db()
+        customer = await find_customer_by_email(db, email)
+        if not customer:
+            raise HTTPException(status_code=422, detail="Customer not found")
+        eligible_ids: list[str] = []
+        for customer_context_id in customer_context_ids:
+            company = await find_customer_company_by_id(db, customer["customer_id"], customer_context_id)
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found.")
+            status = clean_optional((company.get("discovery") or {}).get("status")) or "idle"
+            if status in {"running", "review", "ready"}:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Facility discovery cannot start for {customer_context_id} with status {status}.",
+                )
+            eligible_ids.append(customer_context_id)
+
+        if eligible_ids:
+            enqueued = await _enqueue_company_discovery_on_worker(eligible_ids, send_email=False)
+            if not enqueued:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Facility discovery service is unavailable. Please try again shortly.",
+                )
+
+        results: list[dict[str, Any]] = []
+        for customer_context_id in customer_context_ids:
+            try:
+                company = await trigger_company_discovery(db, customer["customer_id"], customer_context_id)
+                results.append(
+                    {
+                        "customer_context_id": customer_context_id,
+                        "status": "running",
+                        "company": company,
+                    }
+                )
+            except HTTPException as exc:
+                results.append(
+                    {
+                        "customer_context_id": customer_context_id,
+                        "status": "failed",
+                        "error": exc.detail if isinstance(exc.detail, str) else str(exc.detail),
+                    }
+                )
+        return {"status": "ok", "results": results}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @app.post("/api/share/resolve")
 async def resolve_share_token(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     """Resolve share token to validate and get site details."""
@@ -2893,6 +3617,20 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
                     f"pre-assessment skip billing: customer={customer['customer_id']} site={site_id} "
                     f"assigned_via={site.get('assigned_via')} already_requested={already_requested}"
                 )
+                existing_customer_site_id = clean_optional(site.get("customer_site_id"))
+                if existing_customer_site_id:
+                    await maybe_start_site_recommendations(
+                        db,
+                        site,
+                        assignment_customer_site_id=existing_customer_site_id,
+                    )
+                await clear_wishlist_after_pre_assessment(
+                    db,
+                    customer["customer_id"],
+                    site_id,
+                    request=request,
+                    body=body,
+                )
                 usage = await get_customer_usage_state(db, customer["customer_id"])
                 return {
                     "status": "running",
@@ -2941,12 +3679,17 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
                         status_code=402,
                         detail="Your account has an unpaid invoice. Please pay your outstanding balance to continue using the service.",
                     )
-            await ensure_customer_site_assignment(
+            assignment = await ensure_customer_site_assignment(
                 db,
                 customer["customer_id"],
                 site["account_id"],
                 site["site_id"],
                 requested_at=requested_at,
+            )
+            await maybe_start_site_recommendations(
+                db,
+                site,
+                assignment_customer_site_id=assignment.get("customerSiteId"),
             )
             print(
                 f"pre-assessment billing insert: customer={customer['customer_id']} site={site_id} "
@@ -2990,6 +3733,13 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
                 )
             except Exception as slack_exc:
                 print(f"Slack notification failed: {slack_exc}")
+        await clear_wishlist_after_pre_assessment(
+            db,
+            customer["customer_id"],
+            site_id,
+            request=request,
+            body=body,
+        )
         usage = await get_customer_usage_state(db, customer["customer_id"])
         return {
             "status": "running",
@@ -3001,6 +3751,223 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
             "credits_used_this_month": usage["creditsUsedThisMonth"],
             "pre_assessment_price_credits": PRE_ASSESSMENT_PRICE,
             "message": "Pre-assessment request approved. The job is running and the user will receive an email on completion.",
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+async def _submit_pre_assessment_request(
+    db: SupabaseAdmin,
+    *,
+    request: Request,
+    body: dict[str, Any],
+    customer: dict[str, Any],
+    email: str,
+    account_id: str,
+    site_id: str,
+    customer_site_id: str | None = None,
+) -> dict[str, Any]:
+    site = await find_account_site_by_id(
+        db,
+        account_id,
+        site_id,
+        customer["customer_id"],
+        customer_site_id=customer_site_id,
+    )
+    if not site:
+        raise HTTPException(status_code=422, detail="Selected site was not found for this customer")
+    assignment_metadata = site.get("customer_site_metadata") or {}
+    already_requested = bool(assignment_metadata.get("last_pre_assessment_requested_at"))
+    if not already_requested and not is_dry_run_request(request, body):
+        prior_site_billing = await db.request(
+            "GET",
+            "/rest/v1/automatisor_billing",
+            params={
+                "select": "billing_id",
+                "customer_id": f"eq.{customer['customer_id']}",
+                "site_id": f"eq.{site_id}",
+                "usage_type": "eq.pre_assessment_request",
+                "limit": 1,
+            },
+        )
+        already_requested = bool(prior_site_billing)
+    requested_at = datetime.now(timezone.utc).isoformat()
+    if not is_dry_run_request(request, body):
+        if already_requested:
+            existing_customer_site_id = clean_optional(site.get("customer_site_id"))
+            if existing_customer_site_id:
+                await maybe_start_site_recommendations(
+                    db,
+                    site,
+                    assignment_customer_site_id=existing_customer_site_id,
+                )
+            await clear_wishlist_after_pre_assessment(
+                db,
+                customer["customer_id"],
+                site_id,
+                request=request,
+                body=body,
+            )
+            usage = await get_customer_usage_state(db, customer["customer_id"])
+            return {
+                "status": "running",
+                "account_id": site["account_id"],
+                "site_id": site["site_id"],
+                "customer_site_id": site.get("customer_site_id"),
+                "message": "Pre-assessment is already running for this site.",
+                "credits_used_total": usage["creditsUsedTotal"],
+                "credits_used_this_month": usage["creditsUsedThisMonth"],
+            }
+        stripe_customer_id = customer.get("stripe_customer_id")
+        prior_billing_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_billing",
+            params={"select": "billing_id", "customer_id": f"eq.{customer['customer_id']}", "limit": 1},
+        )
+        is_first_report = not bool(prior_billing_rows)
+        if stripe_customer_id and not is_first_report:
+            stripe_cust = stripe.Customer.retrieve(
+                stripe_customer_id,
+                expand=["invoice_settings.default_payment_method"],
+            )
+            has_default_pm = bool(
+                getattr(stripe_cust, "invoice_settings", None)
+                and getattr(stripe_cust.invoice_settings, "default_payment_method", None)
+            )
+            if not has_default_pm:
+                attached = stripe.PaymentMethod.list(customer=stripe_customer_id, type="card", limit=1)
+                has_default_pm = bool(attached.data)
+            if not has_default_pm:
+                raise HTTPException(
+                    status_code=402,
+                    detail="Add a payment method to continue using credits. You won't be charged until usage is billed.",
+                )
+            open_invoices = stripe.Invoice.list(customer=stripe_customer_id, status="open", limit=1)
+            if open_invoices.data:
+                raise HTTPException(
+                    status_code=402,
+                    detail="Your account has an unpaid invoice. Please pay your outstanding balance to continue using the service.",
+                )
+        assignment = await ensure_customer_site_assignment(
+            db,
+            customer["customer_id"],
+            site["account_id"],
+            site["site_id"],
+            requested_at=requested_at,
+        )
+        await maybe_start_site_recommendations(
+            db,
+            site,
+            assignment_customer_site_id=assignment.get("customerSiteId"),
+        )
+        await insert_billing_usage(
+            db,
+            customer_id=customer["customer_id"],
+            account_id=site["account_id"],
+            site_id=site["site_id"],
+            usage_type="pre_assessment_request",
+            credits_used=PRE_ASSESSMENT_PRICE,
+            metadata={"requested_at": requested_at},
+        )
+        try:
+            await send_pre_assessment_approval_email(
+                email,
+                site.get("company_name") or customer.get("company_name") or "",
+                site.get("full_address") or "",
+            )
+        except Exception as email_exc:
+            print(f"Pre-assessment approval email failed: {email_exc}")
+        try:
+            contact_name = " ".join(
+                part for part in [customer.get("first_name") or "", customer.get("last_name") or ""] if part
+            ).strip()
+            await send_slack_pre_assessment_notification(
+                company_name=site.get("company_name") or customer.get("company_name") or "",
+                site_address=site.get("full_address") or "",
+                contact_name=contact_name,
+                email=email,
+                designation=customer.get("designation") or "",
+                account_id=site.get("account_id"),
+                site_id=site.get("site_id"),
+                customer_site_id=site.get("customer_site_id"),
+            )
+        except Exception as slack_exc:
+            print(f"Slack notification failed: {slack_exc}")
+    await clear_wishlist_after_pre_assessment(
+        db,
+        customer["customer_id"],
+        site_id,
+        request=request,
+        body=body,
+    )
+    usage = await get_customer_usage_state(db, customer["customer_id"])
+    return {
+        "status": "running",
+        "account_id": site["account_id"],
+        "site_id": site["site_id"],
+        "customer_site_id": site.get("customer_site_id"),
+        "credits_used_total": usage["creditsUsedTotal"],
+        "credits_used_this_month": usage["creditsUsedThisMonth"],
+        "pre_assessment_price_credits": PRE_ASSESSMENT_PRICE,
+        "message": "Pre-assessment request approved.",
+    }
+
+
+@app.post("/api/pre-assessment/request/bulk")
+async def request_pre_assessment_bulk(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        confirmed = bool(body.get("confirmed"))
+        if not confirmed:
+            raise ValueError("Confirmation is required")
+        raw_items = body.get("items")
+        if not isinstance(raw_items, list) or not raw_items:
+            raise ValueError("items is required")
+        db = get_admin_db()
+        customer = await find_customer_by_email(db, email)
+        if not customer:
+            raise HTTPException(status_code=422, detail="Customer not found")
+        results: list[dict[str, Any]] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                results.append({"status": "failed", "error": "Invalid item"})
+                continue
+            account_id = clean_optional(item.get("account_id"))
+            site_id = clean_optional(item.get("site_id"))
+            customer_site_id = clean_optional(item.get("customer_site_id")) or None
+            if not account_id or not site_id:
+                results.append({"status": "failed", "error": "account_id and site_id are required", "site_id": site_id})
+                continue
+            try:
+                result = await _submit_pre_assessment_request(
+                    db,
+                    request=request,
+                    body=body,
+                    customer=customer,
+                    email=email,
+                    account_id=account_id,
+                    site_id=site_id,
+                    customer_site_id=customer_site_id,
+                )
+                results.append({"status": "ok", **result})
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+                results.append(
+                    {
+                        "status": "failed",
+                        "account_id": account_id,
+                        "site_id": site_id,
+                        "error": detail,
+                        "error_code": exc.status_code,
+                    }
+                )
+        usage = await get_customer_usage_state(db, customer["customer_id"])
+        return {
+            "status": "ok",
+            "results": results,
+            "credits_used_total": usage["creditsUsedTotal"],
+            "credits_used_this_month": usage["creditsUsedThisMonth"],
+            "pre_assessment_price_credits": PRE_ASSESSMENT_PRICE,
         }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
