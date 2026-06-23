@@ -1,7 +1,5 @@
 import json
 import os
-import re
-from enum import Enum
 from uuid import uuid4
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,45 +29,6 @@ def _resolve_main_deps():
 
 router = APIRouter()
 
-_REFUSAL_LINE = (
-    "I can only answer questions about this report. "
-    "I cannot write emails, campaigns, scripts, or outreach content."
-)
-_DISALLOWED_ACTION_PATTERN = re.compile(
-    r"\b(write|draft|compose|frame|create|generate|prepare|craft|build|outline|make)\b",
-    re.IGNORECASE,
-)
-_DISALLOWED_ARTIFACT_PATTERN = re.compile(
-    r"\b(email|e-mail|message|campaign|sequence|follow-up|follow up|outreach|proposal|pitch deck|"
-    r"sales pitch|cold call|call script|script|talk track|talking points|meeting script|cover letter)\b",
-    re.IGNORECASE,
-)
-_DISALLOWED_OUTPUT_PATTERN = re.compile(
-    r"(^subject\s*:|^hi\s|^hello\s|^dear\s|best regards|kind regards|sincerely,|thanks,\s*$)",
-    re.IGNORECASE | re.MULTILINE,
-)
-_ARTIFACT_REQUEST_PATTERN = re.compile(
-    r"\b(csv|xlsx|excel|spreadsheet|pdf|doc|docx|ppt|pptx|powerpoint|slide deck|"
-    r"download(?:able)?|download link|export|import|attachment|file)\b",
-    re.IGNORECASE,
-)
-_ARTIFACT_OFFER_PATTERN = re.compile(
-    r"\b(would you like|if you want|i can|can provide|shall i|should i|"
-    r"download(?:able)?|download link|export|import|csv|xlsx|excel|spreadsheet|"
-    r"pdf|doc|docx|ppt|pptx|powerpoint|slide deck|attachment|file)\b",
-    re.IGNORECASE,
-)
-_MISSING_DATA_REPLY_PATTERN = re.compile(
-    r"\b(not stated|not available|not included|does not provide|doesn't provide|"
-    r"no explicit|no mention|cannot confirm|can't confirm|cannot determine|"
-    r"don't have|do not have|lacks|lacking|unclear|unknown)\b",
-    re.IGNORECASE,
-)
-class ChatIntent(str, Enum):
-    REPORT_ANALYSIS = "report_analysis"
-    OUT_OF_SCOPE_ARTIFACT_REQUEST = "out_of_scope_artifact_request"
-    OUT_OF_SCOPE_EXTERNAL_CONTENT = "out_of_scope_external_content"
-
 
 def _get_openai_key() -> str:
     """Read at request time so the value is always current after dotenv load."""
@@ -82,139 +41,26 @@ def _serialize_context_payload(value):
     return str(value or "")
 
 
-def _build_report_context_payload(site_row: dict) -> str:
+def _build_report_context_payload(site_row: dict) -> dict:
     high_context = site_row.get("report_context_high")
     all_context = site_row.get("report_context_all")
-    payload = {
-        "report_context_high": high_context if high_context is not None else {},
-        "report_context_all": all_context if all_context is not None else {},
+    high_context_str = _serialize_context_payload(high_context if high_context is not None else {})
+    all_context_str = _serialize_context_payload(all_context if all_context is not None else {})
+    return {
+        "report_context_high": high_context_str,
+        "report_context_all": all_context_str,
     }
-    return _serialize_context_payload(payload)
+
+
+def _build_user_context_payload(row: dict | None) -> str:
+    metadata = row.get("metadata") if isinstance(row, dict) else {}
+    if not isinstance(metadata, dict):
+        return ""
+    return str(metadata.get("context") or "").strip()
 
 
 def _normalize_reply_text(raw_reply: str) -> str:
-    reply = str(raw_reply or "").strip()
-    if reply in {"", ".", "..", "...", "…"}:
-        return (
-            "That information is not available in this report.\n"
-            "If you want, I can check the closest related detail that is available in this site report."
-        )
-    return reply
-
-
-def _normalize_safety_text(text: str) -> str:
-    return re.sub(r"\s+", " ", str(text or "").strip().lower())
-
-
-def _is_disallowed_request(message: str) -> bool:
-    normalized = _normalize_safety_text(message)
-    has_action = bool(_DISALLOWED_ACTION_PATTERN.search(normalized))
-    has_artifact = bool(_DISALLOWED_ARTIFACT_PATTERN.search(normalized))
-    return has_action and has_artifact
-
-
-def _is_artifact_request(message: str) -> bool:
-    normalized = _normalize_safety_text(message)
-    return bool(_ARTIFACT_REQUEST_PATTERN.search(normalized))
-
-
-def _classify_intent(message: str) -> ChatIntent:
-    if _is_disallowed_request(message):
-        return ChatIntent.OUT_OF_SCOPE_EXTERNAL_CONTENT
-    if _is_artifact_request(message):
-        return ChatIntent.OUT_OF_SCOPE_ARTIFACT_REQUEST
-    return ChatIntent.REPORT_ANALYSIS
-
-
-def _build_disallowed_request_response() -> str:
-    return _REFUSAL_LINE
-
-
-def _build_artifact_request_response() -> str:
-    return (
-        "I can only analyze and explain this report in chat. "
-        "I cannot generate files, exports, or downloadable links."
-    )
-
-
-def _build_missing_data_follow_up(message: str) -> str:
-    normalized = _normalize_safety_text(message)
-    if any(term in normalized for term in ("union", "collective bargaining", "unionized")):
-        return "Would you like me to look at the hiring pressure and labor signals that are actually shown in the report?"
-    if any(term in normalized for term in ("turnover", "attrition", "retention", "tenure")):
-        return "Would you like me to break down the hiring urgency and chronically open roles that the report does show?"
-    if any(term in normalized for term in ("recruit", "hiring", "warehouse", "labor", "workforce")):
-        return "Would you like me to look at which roles appear most chronically open in the report?"
-    if any(term in normalized for term in ("cost", "roi", "save")):
-        return "Would you like me to look at the labor-cost signals and growth indicators that are available in the report?"
-    if any(term in normalized for term in ("safety", "injur", "strain")):
-        return "Would you like me to look at the manual-work and dockside-risk signals that are available in the report?"
-    return "Would you like me to look at the closest related report signal that is available?"
-
-
-def _ensure_missing_data_follow_up(reply: str, message: str) -> str:
-    text = str(reply or "").strip()
-    if not text:
-        return text
-    if "?" in text:
-        return text
-    if not _MISSING_DATA_REPLY_PATTERN.search(text):
-        return text
-    return f"{text}\n\n{_build_missing_data_follow_up(message)}"
-
-
-def _looks_like_disallowed_output(reply: str) -> bool:
-    normalized = _normalize_reply_text(reply)
-    return bool(_DISALLOWED_OUTPUT_PATTERN.search(normalized))
-
-
-def _sanitize_artifact_drift(reply: str) -> str:
-    text = str(reply or "").strip()
-    if not text:
-        return text
-
-    lines = text.splitlines()
-    cleaned_lines: list[str] = []
-    in_artifact_block = False
-    removed_any = False
-
-    for raw_line in lines:
-        line = raw_line.strip()
-
-        # Drop unsolicited CSV code blocks entirely if they appear in analysis mode.
-        if line.lower().startswith("```csv"):
-            in_artifact_block = True
-            removed_any = True
-            continue
-        if in_artifact_block:
-            if line.startswith("```"):
-                in_artifact_block = False
-            removed_any = True
-            continue
-
-        if _ARTIFACT_OFFER_PATTERN.search(line) and (
-            "would you like" in line.lower()
-            or "if you want" in line.lower()
-            or "i can" in line.lower()
-            or "download" in line.lower()
-            or "export" in line.lower()
-            or "import" in line.lower()
-        ):
-            removed_any = True
-            continue
-
-        cleaned_lines.append(raw_line)
-
-    cleaned = "\n".join(cleaned_lines).strip()
-    if cleaned:
-        return cleaned
-
-    if removed_any:
-        return (
-            "That information is not available in this report. "
-            "I can continue analyzing relevant report details directly in chat if helpful."
-        )
-    return text
+    return str(raw_reply or "").strip()
 
 
 def _ensure_message_schema(message: dict[str, object]) -> dict[str, object]:
@@ -487,6 +333,21 @@ async def send_message(request: Request):
         return JSONResponse(status_code=404, content={"detail": "Site not found"})
 
     report_context = _build_report_context_payload(site_rows[0])
+    try:
+        user_context_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_customer_context",
+            params={
+                "customer_id": f"eq.{customer_id}",
+                "event_type": "eq.user_context",
+                "select": "metadata,updated_at",
+                "order": "updated_at.desc",
+                "limit": "1",
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+    user_context = _build_user_context_payload(user_context_rows[0] if user_context_rows else None)
 
     # Verify session ownership and fetch messages
     try:
@@ -518,33 +379,27 @@ async def send_message(request: Request):
     # Build LLM window — last 20 messages
     llm_window = stored_messages[-20:]
     llm_messages = [
-        {"role": "system", "content": SYSTEM_PROMPT_TEMPLATE.format(
-            report_context=report_context
-        )},
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT_TEMPLATE.format(
+                report_context_high=report_context["report_context_high"],
+                report_context_all=report_context["report_context_all"],
+                user_context=user_context,
+            ),
+        },
         *[{"role": m["role"], "content": m["content"]} for m in llm_window],
     ]
 
-    intent = _classify_intent(message)
-    if intent == ChatIntent.OUT_OF_SCOPE_EXTERNAL_CONTENT:
-        reply_text = _build_disallowed_request_response()
-    elif intent == ChatIntent.OUT_OF_SCOPE_ARTIFACT_REQUEST:
-        reply_text = _build_artifact_request_response()
-    else:
-        # Call OpenAI
-        try:
-            client = AsyncOpenAI(api_key=_get_openai_key())
-            completion = await client.chat.completions.create(
-                model="gpt-5-mini",
-                messages=llm_messages,
-            )
-            reply_text = _normalize_reply_text(completion.choices[0].message.content or "")
-            if _looks_like_disallowed_output(reply_text):
-                reply_text = _build_disallowed_request_response()
-            else:
-                reply_text = _sanitize_artifact_drift(reply_text)
-                reply_text = _ensure_missing_data_follow_up(reply_text, message)
-        except Exception as exc:
-            return JSONResponse(status_code=502, content={"detail": f"LLM error: {exc}"})
+    # Call OpenAI
+    try:
+        client = AsyncOpenAI(api_key=_get_openai_key())
+        completion = await client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=llm_messages,
+        )
+        reply_text = _normalize_reply_text(completion.choices[0].message.content or "")
+    except Exception as exc:
+        return JSONResponse(status_code=502, content={"detail": f"LLM error: {exc}"})
 
     # Append assistant reply
     assistant_message_id = uuid4().hex

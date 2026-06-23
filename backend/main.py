@@ -1254,6 +1254,67 @@ async def add_customer_wishlist_item(
     }
 
 
+async def get_customer_user_context(
+    db: SupabaseAdmin,
+    customer_id: str,
+) -> dict[str, Any] | None:
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_context",
+        params={
+            "select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at",
+            "customer_id": f"eq.{customer_id}",
+            "event_type": "eq.user_context",
+            "order": "updated_at.desc",
+            "limit": 1,
+        },
+    )
+    return rows[0] if rows else None
+
+
+async def upsert_customer_user_context(
+    db: SupabaseAdmin,
+    customer_id: str,
+    account_id: str,
+    context_text: str,
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    existing = await get_customer_user_context(db, customer_id)
+    metadata = {"context": context_text}
+    if existing:
+        updated_rows = await db.request(
+            "PATCH",
+            "/rest/v1/automatisor_customer_context",
+            params={
+                "customer_context_id": f"eq.{existing['customer_context_id']}",
+                "select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at",
+            },
+            json_body={
+                "account_id": account_id,
+                "metadata": metadata,
+                "updated_at": now,
+            },
+            headers={"Prefer": "return=representation"},
+        )
+        return updated_rows[0]
+    created_rows = await db.request(
+        "POST",
+        "/rest/v1/automatisor_customer_context",
+        params={"select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at"},
+        json_body={
+            "customer_id": customer_id,
+            "site_id": None,
+            "account_id": account_id,
+            "event_type": "user_context",
+            "metadata": metadata,
+            "created_at": now,
+            "updated_at": now,
+        },
+        headers={"Prefer": "return=representation"},
+    )
+    return created_rows[0]
+
+
 async def upsert_account(db: SupabaseAdmin, org_name: str, domain: str) -> dict[str, str]:
     account_rows = await db.request(
         "GET",
@@ -2713,6 +2774,38 @@ async def add_customer_context_wishlist(body: dict[str, Any] = Body(default={}))
         }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/customer-context/user")
+async def get_customer_context_user(request: Request) -> dict[str, Any]:
+    db = get_admin_db()
+    customer = await get_authenticated_customer(db, request)
+    row = await get_customer_user_context(db, customer["customer_id"])
+    metadata = row.get("metadata") if isinstance(row, dict) and isinstance(row.get("metadata"), dict) else {}
+    return {
+        "status": "ok",
+        "customer_context": row,
+        "context": str(metadata.get("context") or ""),
+    }
+
+
+@app.post("/api/customer-context/user")
+async def save_customer_context_user(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    account_id = clean_required(body.get("account_id"), "Account")
+    context_text = str(body.get("context") or "").strip()
+    if len(context_text) > 8000:
+        raise HTTPException(status_code=422, detail="Context must be 8000 characters or fewer")
+    db = get_admin_db()
+    customer = await get_authenticated_customer(db, request)
+    account = await find_account_by_id(db, account_id)
+    if not account:
+        raise HTTPException(status_code=422, detail="Account not found")
+    row = await upsert_customer_user_context(db, customer["customer_id"], account_id, context_text)
+    return {
+        "status": "saved",
+        "customer_context": row,
+        "context": context_text,
+    }
 
 
 @app.post("/api/share/resolve")
