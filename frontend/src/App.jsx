@@ -276,6 +276,10 @@ function canDiscoverCompany(company) {
   return status === "idle" || status === "failed";
 }
 
+function hasStartedCompanyDiscovery(company) {
+  return companyDiscoveryStatus(company) !== "idle";
+}
+
 function normalizeCompanyDiscovery(raw) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   return {
@@ -2947,6 +2951,7 @@ function CompanyRow({
 }) {
   const companyId = company.customer_context_id || "";
   const showDiscover = canDiscoverCompany(company);
+  const showViewFacilities = companyId && hasStartedCompanyDiscovery(company);
 
   return (
     <article className="site-bar-item company-bar-item">
@@ -2963,8 +2968,8 @@ function CompanyRow({
         <p className="site-bar-address">{company.company_domain || ""}</p>
         {message ? <p className="company-row-message">{message}</p> : null}
       </div>
-      <div className="site-bar-actions">
-        <div className="site-bar-action-row">
+      <div className="site-bar-actions company-bar-actions">
+        <div className="site-bar-action-row company-bar-action-row">
           {showDiscover ? (
             <button
               type="button"
@@ -2975,7 +2980,7 @@ function CompanyRow({
               {discovering ? "Starting..." : "Show More Facilities"}
             </button>
           ) : null}
-          {companyId ? (
+          {showViewFacilities ? (
             <Link className="site-bar-link site-bar-link-primary" to={buildCompanyFacilitiesPath(companyId)}>
               View Facilities
             </Link>
@@ -3079,6 +3084,7 @@ function CompanyDiscoveryPanel({
         addingWishlistSiteId={addingWishlistSiteId}
         onAddToWishlist={onAddToWishlist}
         maxVisible={0}
+        layout="grid"
       />
     </div>
   );
@@ -6099,16 +6105,20 @@ function RecommendationSection({
   addingWishlistSiteId,
   onAddToWishlist,
   maxVisible = 3,
+  layout = "auto",
 }) {
   const filtered = recommendations.filter(hasHydratedRecommendationDetails);
   const visibleRecommendations = maxVisible ? filtered.slice(0, maxVisible) : filtered;
   if (!visibleRecommendations.length) return null;
-  const layoutClass =
-    visibleRecommendations.length === 1 ? "recommendation-list-single" : "recommendation-list-grid";
+  const useGridLayout = layout === "grid" || visibleRecommendations.length !== 1;
+  const layoutClass = useGridLayout ? "recommendation-list-grid" : "recommendation-list-single";
+  const countClass = useGridLayout
+    ? `recommendation-list-count-${Math.min(visibleRecommendations.length, 3)}`
+    : "";
   return (
     <section className="recommendation-section">
       <h2 className="workspace-card-title">{title}</h2>
-      <div className={`recommendation-list ${layoutClass}`}>
+      <div className={`recommendation-list ${layoutClass} ${countClass}`.trim()}>
         {visibleRecommendations.map((recommendation, index) => (
           <RecommendationCard
             key={recommendation.place_id || `${title}-${recommendationAddress(recommendation)}-${index}`}

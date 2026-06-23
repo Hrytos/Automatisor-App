@@ -40,7 +40,11 @@ async def test_maybe_start_site_recommendations_enqueues_when_idle(monkeypatch):
     db = FakeSupabaseAdmin()
     scheduled: list[str] = []
 
-    monkeypatch.setattr(main, "schedule_site_recommendations_on_worker", lambda customer_site_id: scheduled.append(customer_site_id))
+    async def fake_enqueue(customer_site_id: str, *, limit: int = main.SITE_RECOMMENDATION_DEFAULT_LIMIT):
+        scheduled.append(customer_site_id)
+        return True
+
+    monkeypatch.setattr(main, "_enqueue_site_recommendations_on_worker", fake_enqueue)
 
     await main.maybe_start_site_recommendations(
         db,
@@ -57,7 +61,11 @@ async def test_maybe_start_site_recommendations_skips_when_ready(monkeypatch):
     db = FakeSupabaseAdmin(recommendations={"status": "ready"})
     scheduled: list[str] = []
 
-    monkeypatch.setattr(main, "schedule_site_recommendations_on_worker", lambda customer_site_id: scheduled.append(customer_site_id))
+    async def fake_enqueue(customer_site_id: str, *, limit: int = main.SITE_RECOMMENDATION_DEFAULT_LIMIT):
+        scheduled.append(customer_site_id)
+        return True
+
+    monkeypatch.setattr(main, "_enqueue_site_recommendations_on_worker", fake_enqueue)
 
     await main.maybe_start_site_recommendations(
         db,
@@ -66,4 +74,22 @@ async def test_maybe_start_site_recommendations_skips_when_ready(monkeypatch):
     )
 
     assert scheduled == []
+    assert db.patch_calls == []
+
+
+@pytest.mark.asyncio
+async def test_maybe_start_site_recommendations_does_not_mark_running_when_enqueue_fails(monkeypatch):
+    db = FakeSupabaseAdmin()
+
+    async def fake_enqueue(customer_site_id: str, *, limit: int = main.SITE_RECOMMENDATION_DEFAULT_LIMIT):
+        return False
+
+    monkeypatch.setattr(main, "_enqueue_site_recommendations_on_worker", fake_enqueue)
+
+    await main.maybe_start_site_recommendations(
+        db,
+        {"recommendations": {}},
+        assignment_customer_site_id="site-assignment-1",
+    )
+
     assert db.patch_calls == []
