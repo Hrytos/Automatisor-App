@@ -1187,7 +1187,56 @@ async def list_customer_wishlist(db: SupabaseAdmin, customer_id: str | None) -> 
                 "site_metadata": site.get("metadata") or {},
             }
         )
+    requested_site_ids = await site_ids_with_pre_assessment_requested(db, customer_id, site_ids)
+    if requested_site_ids:
+        for requested_site_id in requested_site_ids:
+            try:
+                await remove_customer_wishlist_item(db, customer_id, requested_site_id)
+            except Exception as exc:
+                print(f"Stale wishlist cleanup failed for site {requested_site_id}: {exc}")
+        wishlist = [item for item in wishlist if item.get("site_id") not in requested_site_ids]
     return wishlist
+
+
+async def site_ids_with_pre_assessment_requested(
+    db: SupabaseAdmin,
+    customer_id: str,
+    site_ids: list[str],
+) -> set[str]:
+    if not customer_id or not site_ids:
+        return set()
+    requested: set[str] = set()
+    assignment_rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_sites",
+        params={
+            "select": "site_id,metadata",
+            "customer_id": f"eq.{customer_id}",
+            "site_id": f"in.({','.join(site_ids)})",
+        },
+    )
+    for row in assignment_rows or []:
+        site_id = clean_optional(row.get("site_id"))
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        if site_id and metadata.get("last_pre_assessment_requested_at"):
+            requested.add(site_id)
+    remaining = [site_id for site_id in site_ids if site_id not in requested]
+    if remaining:
+        billing_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_billing",
+            params={
+                "select": "site_id",
+                "customer_id": f"eq.{customer_id}",
+                "site_id": f"in.({','.join(remaining)})",
+                "usage_type": "eq.pre_assessment_request",
+            },
+        )
+        for row in billing_rows or []:
+            site_id = clean_optional(row.get("site_id"))
+            if site_id:
+                requested.add(site_id)
+    return requested
 
 
 async def add_customer_wishlist_item(
@@ -1265,6 +1314,44 @@ async def add_customer_wishlist_item(
         "full_address": site.get("full_address") or "",
         "site_metadata": site.get("metadata") or {},
     }
+
+
+async def remove_customer_wishlist_item(
+    db: SupabaseAdmin,
+    customer_id: str,
+    site_id: str,
+) -> bool:
+    customer_id = clean_optional(customer_id)
+    site_id = clean_optional(site_id)
+    if not customer_id or not site_id:
+        return False
+    await db.request(
+        "DELETE",
+        "/rest/v1/automatisor_customer_context",
+        params={
+            "customer_id": f"eq.{customer_id}",
+            "site_id": f"eq.{site_id}",
+            "event_type": f"eq.{EVENT_TYPE_WISH_LIST}",
+        },
+        headers={"Prefer": "return=minimal"},
+    )
+    return True
+
+
+async def clear_wishlist_after_pre_assessment(
+    db: SupabaseAdmin,
+    customer_id: str,
+    site_id: str,
+    *,
+    request: Request | None = None,
+    body: dict[str, Any] | None = None,
+) -> None:
+    if request is not None and body is not None and is_dry_run_request(request, body):
+        return
+    try:
+        await remove_customer_wishlist_item(db, customer_id, site_id)
+    except Exception as exc:
+        print(f"Wishlist removal after pre-assessment failed: {exc}")
 
 
 def default_company_discovery_metadata() -> dict[str, Any]:
@@ -3537,6 +3624,13 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
                         site,
                         assignment_customer_site_id=existing_customer_site_id,
                     )
+                await clear_wishlist_after_pre_assessment(
+                    db,
+                    customer["customer_id"],
+                    site_id,
+                    request=request,
+                    body=body,
+                )
                 usage = await get_customer_usage_state(db, customer["customer_id"])
                 return {
                     "status": "running",
@@ -3639,6 +3733,13 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
                 )
             except Exception as slack_exc:
                 print(f"Slack notification failed: {slack_exc}")
+        await clear_wishlist_after_pre_assessment(
+            db,
+            customer["customer_id"],
+            site_id,
+            request=request,
+            body=body,
+        )
         usage = await get_customer_usage_state(db, customer["customer_id"])
         return {
             "status": "running",
@@ -3700,6 +3801,13 @@ async def _submit_pre_assessment_request(
                     site,
                     assignment_customer_site_id=existing_customer_site_id,
                 )
+            await clear_wishlist_after_pre_assessment(
+                db,
+                customer["customer_id"],
+                site_id,
+                request=request,
+                body=body,
+            )
             usage = await get_customer_usage_state(db, customer["customer_id"])
             return {
                 "status": "running",
@@ -3785,6 +3893,13 @@ async def _submit_pre_assessment_request(
             )
         except Exception as slack_exc:
             print(f"Slack notification failed: {slack_exc}")
+    await clear_wishlist_after_pre_assessment(
+        db,
+        customer["customer_id"],
+        site_id,
+        request=request,
+        body=body,
+    )
     usage = await get_customer_usage_state(db, customer["customer_id"])
     return {
         "status": "running",

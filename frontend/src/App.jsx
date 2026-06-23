@@ -5174,26 +5174,46 @@ function WishlistPage() {
           items,
         }),
       });
-      const failed = (payload.results || []).filter((result) => result.status === "failed");
+      const results = Array.isArray(payload.results) ? payload.results : [];
+      const failed = results.filter((result) => result.status === "failed");
       if (failed.length) {
         setBulkReviewError(
           `${failed.length} request(s) could not be submitted. Check billing or try again.`,
         );
         return;
       }
+      const alreadyRunning = results.filter((result) =>
+        String(result.message || "").toLowerCase().includes("already running"),
+      );
+      const newlySubmitted = results.length - alreadyRunning.length;
+      const workspacePayload = await fetchJson("/api/workspace/state", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          active_account_id: session.activeAccountId || session.accountId || "",
+        }),
+      });
       setBulkReviewOpen(false);
-      setMessage("Pre-assessment requests submitted.");
       setSelectedSiteIds(new Set());
-      if (payload.credits_used_total !== undefined) {
-        const nextState = buildSessionFromPayload(session, {
-          ...workspace,
-          credits_used_total: payload.credits_used_total,
-          credits_used_this_month: payload.credits_used_this_month,
-        });
-        saveSession(nextState);
-        setSession(nextState);
-        setWorkspace(nextState);
+      if (alreadyRunning.length && !newlySubmitted) {
+        setMessage(
+          `${alreadyRunning.length} ${alreadyRunning.length === 1 ? "site was" : "sites were"} already in progress and ${alreadyRunning.length === 1 ? "has" : "have"} been removed from your wishlist.`,
+        );
+      } else if (alreadyRunning.length && newlySubmitted) {
+        setMessage(
+          `${newlySubmitted} pre-assessment request${newlySubmitted === 1 ? "" : "s"} submitted. ${alreadyRunning.length} ${alreadyRunning.length === 1 ? "site was" : "sites were"} already in progress and removed from your wishlist.`,
+        );
+      } else {
+        setMessage("Pre-assessment requests submitted.");
       }
+      const nextState = buildSessionFromPayload(session, {
+        ...workspacePayload,
+        credits_used_total: payload.credits_used_total ?? workspacePayload.credits_used_total,
+        credits_used_this_month: payload.credits_used_this_month ?? workspacePayload.credits_used_this_month,
+      });
+      saveSession(nextState);
+      setSession(nextState);
+      setWorkspace(nextState);
     } catch (nextError) {
       const detail = nextError.payload?.detail;
       const message =
