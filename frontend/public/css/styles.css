@@ -1047,6 +1047,16 @@
     grid-column: span 1;
   }
 
+  .company-entry-row {
+    grid-template-columns: 1fr;
+  }
+
+  .company-entry-actions {
+    justify-content: flex-end;
+    min-height: 0;
+    padding-bottom: 0;
+  }
+
   .workspace-map-toolbar {
     flex-direction: column;
     align-items: stretch;
@@ -2907,6 +2917,72 @@ footer {
   margin-top: 22px;
 }
 
+.companies-page {
+  margin-top: 24px;
+}
+
+.new-company-page {
+  margin-top: 24px;
+}
+
+.new-company-form {
+  grid-template-columns: 1fr;
+}
+
+.company-entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  grid-column: 1 / -1;
+}
+
+.company-entry-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: end;
+}
+
+.company-entry-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding-bottom: 2px;
+}
+
+.company-entry-icon-btn {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 999px;
+  background: #fff;
+  color: #f25c19;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.company-entry-icon-btn:hover {
+  border-color: rgba(242, 92, 25, 0.28);
+  background: rgba(242, 92, 25, 0.08);
+}
+
+.company-entry-icon-btn-remove {
+  color: #64748b;
+}
+
+.company-entry-icon-btn-remove:hover {
+  border-color: rgba(15, 23, 42, 0.18);
+  background: rgba(15, 23, 42, 0.04);
+  color: #334155;
+}
+
+.facilities-page {
+  margin-top: 24px;
+}
+
 .new-site-page .workspace-card-form {
   max-width: 980px;
 }
@@ -3835,6 +3911,53 @@ footer {
   justify-content: center;
 }
 
+.bulk-pre-assessment-review-modal {
+  max-height: min(90vh, 720px);
+  overflow: auto;
+}
+
+.bulk-pre-assessment-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 16px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.bulk-pre-assessment-review-item {
+  padding: 12px 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.bulk-pre-assessment-review-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.bulk-pre-assessment-review-address {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.review-site-summary {
+  grid-column: 1 / -1;
+  padding: 12px 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.bulk-pre-assessment-review-item .workspace-summary-chip {
+  margin: 0;
+}
+
 .report-page {
   max-width: 1480px;
   margin-top: 22px;
@@ -3898,6 +4021,7 @@ footer {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  text-decoration: none;
 }
 
 .report-share-button {
@@ -3923,6 +4047,10 @@ footer {
 
 .report-mobile-actions {
   display: none;
+}
+
+.report-mobile-actions-compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .report-running-panel {
@@ -3962,7 +4090,19 @@ footer {
 }
 
 .recommendation-list-grid {
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 1024px) {
+  .recommendation-list-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .recommendation-list-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .recommendation-list-single {
@@ -6058,6 +6198,10 @@ footer {
     overflow: hidden;
   }
 
+  .report-mobile-actions-compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .report-mobile-action {
     min-width: 0;
     width: 100%;
@@ -6280,6 +6424,10 @@ footer {
     box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
     backdrop-filter: blur(10px);
     overflow: hidden;
+  }
+
+  .report-mobile-actions-compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .report-mobile-action {
@@ -7652,4 +7800,40 @@ footer {
     height: 32px;
     font-size: 14px;
   }
+}
+
+.companies-bulk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.company-row-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 12px;
+}
+
+.company-bar-item,
+.wishlist-bar-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.company-row-message {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #6b6b63;
+}
+
+.form-success {
+  margin: 0 0 16px;
+  color: #166534;
+  font-size: 14px;
 }

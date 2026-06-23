@@ -15,6 +15,7 @@ import {
   Route,
   Routes,
   useNavigate,
+  useParams,
   useSearchParams,
 } from "react-router-dom";
 
@@ -265,6 +266,25 @@ function normalizeRecommendations(raw) {
     error: String(source.error || ""),
   };
 }
+
+function companyDiscoveryStatus(company) {
+  return String(company?.discovery?.status || "idle").trim() || "idle";
+}
+
+function canDiscoverCompany(company) {
+  const status = companyDiscoveryStatus(company);
+  return status === "idle" || status === "failed";
+}
+
+function normalizeCompanyDiscovery(raw) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  return {
+    status: String(source.status || ""),
+    company_sites: Array.isArray(source.company_sites) ? source.company_sites : [],
+    error: String(source.error || ""),
+  };
+}
+
 
 function recommendationText(value) {
   return String(value || "").trim();
@@ -2062,6 +2082,77 @@ function CandidateConfirmationModal({
   );
 }
 
+function BulkPreAssessmentReviewModal({
+  items,
+  preAssessmentPriceCredits = 2,
+  loading = false,
+  reviewError = "",
+  onCancel,
+  onConfirm,
+}) {
+  if (!items?.length) return null;
+
+  const siteCount = items.length;
+  const totalCredits = siteCount * preAssessmentPriceCredits;
+  const perSiteLabel = `${preAssessmentPriceCredits} credit${preAssessmentPriceCredits === 1 ? "" : "s"}`;
+  const totalCreditsLabel = `${totalCredits} credit${totalCredits === 1 ? "" : "s"}`;
+
+  return (
+    <div className="review-modal-backdrop" role="presentation" onMouseDown={onCancel}>
+      <section
+        className="review-modal bulk-pre-assessment-review-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bulkReviewModalTitle"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="review-modal-head">
+          <p className="workspace-eyebrow">Review</p>
+          <h2 id="bulkReviewModalTitle" className="workspace-card-title">
+            Review bulk pre-assessment
+          </h2>
+        </div>
+        <p className="workspace-copy">
+          You selected {siteCount} {siteCount === 1 ? "site" : "sites"}. Each pre-assessment costs{" "}
+          {perSiteLabel}.
+        </p>
+        <div className="bulk-pre-assessment-review-list">
+          {items.map((item) => (
+            <div
+              className="bulk-pre-assessment-review-item"
+              key={item.customer_context_id || item.site_id || `${item.account_id}-${item.full_address}`}
+            >
+              <p className="bulk-pre-assessment-review-title">{wishlistItemTitle(item)}</p>
+              {wishlistItemAddress(item) ? (
+                <p className="bulk-pre-assessment-review-address">{wishlistItemAddress(item)}</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+        <div className="pre-assessment-summary-grid review-summary-grid">
+          <div className="workspace-summary-chip">
+            <span className="workspace-summary-label">Sites selected</span>
+            <span className="workspace-summary-value">{siteCount}</span>
+          </div>
+          <div className="workspace-summary-chip">
+            <span className="workspace-summary-label">Total credits</span>
+            <span className="workspace-summary-value">{totalCreditsLabel}</span>
+          </div>
+        </div>
+        <p className={`form-error ${reviewError ? "" : "hidden"}`}>{reviewError}</p>
+        <div className="review-modal-actions">
+          <button type="button" className="btn-secondary" onClick={onCancel} disabled={loading}>
+            Cancel
+          </button>
+          <button type="button" className="btn-primary" onClick={onConfirm} disabled={loading}>
+            {loading ? "Please wait..." : "Confirm and proceed"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
   {
     inputId,
@@ -2765,7 +2856,7 @@ function WorkspaceMobileActions({ creditsUsed, onLogout }) {
   );
 }
 
-function WishlistRow({ item }) {
+function WishlistRow({ item, selected = false, onToggle = () => {} }) {
   const address = wishlistItemAddress(item);
   const mapsUrl = wishlistItemMapsUrl(item);
   const editDraft = {
@@ -2777,6 +2868,9 @@ function WishlistRow({ item }) {
   };
   return (
     <article className="site-bar-item wishlist-bar-item">
+      <label className="company-row-checkbox wishlist-row-checkbox">
+        <input type="checkbox" checked={selected} onChange={() => onToggle(item)} />
+      </label>
       <div className="site-bar-copy">
         <p className="site-bar-title">{wishlistItemTitle(item)}</p>
         {address && mapsUrl ? (
@@ -2802,22 +2896,191 @@ function WishlistRow({ item }) {
   );
 }
 
-function WorkspaceWishlistPanel({ wishlist }) {
+function WorkspaceWishlistPanel({ wishlist, selectedSiteIds, onToggleItem, onToggleAll, bulkLoading, onBulkRequest }) {
+  const allSelected = wishlist.length > 0 && wishlist.every((item) => selectedSiteIds.has(item.site_id));
   return (
     <section className="workspace-wishlist-panel" aria-label="Wishlist">
       {wishlist.length ? (
-        <div className="site-bar-list">
-          {wishlist.map((item) => (
-            <WishlistRow key={item.customer_context_id || item.site_id} item={item} />
-          ))}
-        </div>
+        <>
+          <div className="companies-bulk-toolbar">
+            <label className="company-row-checkbox">
+              <input type="checkbox" checked={allSelected} onChange={onToggleAll} />
+              <span>Select all</span>
+            </label>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={!selectedSiteIds.size || bulkLoading}
+              onClick={onBulkRequest}
+            >
+              {bulkLoading ? "Requesting..." : "Bulk request pre-assessment"}
+            </button>
+          </div>
+          <div className="site-bar-list">
+            {wishlist.map((item) => (
+              <WishlistRow
+                key={item.customer_context_id || item.site_id}
+                item={item}
+                selected={selectedSiteIds.has(item.site_id)}
+                onToggle={onToggleItem}
+              />
+            ))}
+          </div>
+        </>
       ) : (
         <div className="workspace-empty-state workspace-wishlist-empty">
           <h3>No wishlist sites yet</h3>
-          <p>Add recommendations to wishlist from a report, then request a pre-assessment from here.</p>
+          <p>Add recommendations to wishlist from a report or company facilities, then request a pre-assessment from here.</p>
         </div>
       )}
     </section>
+  );
+}
+
+function CompanyRow({
+  company,
+  selected = false,
+  onToggle = () => {},
+  discovering = false,
+  onDiscover = () => {},
+  message = "",
+}) {
+  const companyId = company.customer_context_id || "";
+  const showDiscover = canDiscoverCompany(company);
+
+  return (
+    <article className="site-bar-item company-bar-item">
+      <label className="company-row-checkbox">
+        <input
+          type="checkbox"
+          checked={selected}
+          disabled={!showDiscover}
+          onChange={() => onToggle(company)}
+        />
+      </label>
+      <div className="site-bar-copy">
+        <p className="site-bar-title">{company.company_name || "Saved company"}</p>
+        <p className="site-bar-address">{company.company_domain || ""}</p>
+        {message ? <p className="company-row-message">{message}</p> : null}
+      </div>
+      <div className="site-bar-actions">
+        <div className="site-bar-action-row">
+          {showDiscover ? (
+            <button
+              type="button"
+              className="site-bar-link site-bar-link-primary"
+              disabled={discovering}
+              onClick={() => onDiscover(company)}
+            >
+              {discovering ? "Starting..." : "Show More Facilities"}
+            </button>
+          ) : null}
+          {companyId ? (
+            <Link className="site-bar-link site-bar-link-primary" to={buildCompanyFacilitiesPath(companyId)}>
+              View Facilities
+            </Link>
+          ) : null}
+          {companyId ? (
+            <Link className="site-bar-link site-bar-link-secondary" to={buildCompanyNotesPath(companyId)}>
+              Notes
+            </Link>
+          ) : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function CompanyDiscoveryPanel({
+  company,
+  wishlist,
+  discovering,
+  onDiscover,
+  addingWishlistSiteId,
+  onAddToWishlist,
+}) {
+  const discovery = normalizeCompanyDiscovery(company?.discovery || {});
+  const status = discovery.status || "idle";
+  const ready = status === "ready";
+  const companySites = discovery.company_sites;
+  const hasReadyResults = companySites.length > 0;
+  const wishlistedSiteIds = new Set((wishlist || []).map((item) => item.site_id).filter(Boolean));
+
+  if (status === "idle") {
+    return (
+      <div className="report-running-panel">
+        <p className="workspace-eyebrow">Companies</p>
+        <h2 className="workspace-page-title">Discovery has not started</h2>
+        <p className="workspace-page-copy">
+          Go back to the companies list and click Show More Facilities to start discovering sites for this company.
+        </p>
+        <button type="button" className="btn-primary" disabled={discovering} onClick={onDiscover}>
+          {discovering ? "Starting..." : "Show More Facilities"}
+        </button>
+      </div>
+    );
+  }
+
+  if (status === "failed") {
+    return (
+      <div className="report-running-panel">
+        <p className="workspace-eyebrow">Discovery failed</p>
+        <h2 className="workspace-page-title">We couldn&apos;t finish discovering facilities</h2>
+        <p className="workspace-page-copy">{discovery.error || "Try running discovery again."}</p>
+        <button type="button" className="btn-primary" disabled={discovering} onClick={onDiscover}>
+          {discovering ? "Starting..." : "Show More Facilities"}
+        </button>
+      </div>
+    );
+  }
+
+  if (!ready) {
+    return (
+      <div className="report-running-panel">
+        <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
+          ...
+        </div>
+        <p className="workspace-eyebrow">Job running</p>
+        <h2 className="workspace-page-title">Facilities are still being discovered</h2>
+        <p className="workspace-page-copy">
+          We&apos;re finding facilities for this company. We&apos;ll email you when they&apos;re ready.
+        </p>
+        <div className="pre-assessment-summary-grid">
+          <div className="workspace-summary-chip">
+            <span className="workspace-summary-label">Company</span>
+            <span className="workspace-summary-value">{company?.company_name || "-"}</span>
+          </div>
+          <div className="workspace-summary-chip">
+            <span className="workspace-summary-label">Domain</span>
+            <span className="workspace-summary-value">{company?.company_domain || "-"}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasReadyResults) {
+    return (
+      <div className="report-running-panel">
+        <p className="workspace-eyebrow">Facilities</p>
+        <h2 className="workspace-page-title">No facilities available yet</h2>
+        <p className="workspace-page-copy">There are no discovered facilities for this company yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="recommendations-panel">
+      <RecommendationSection
+        title="Discovered facilities"
+        recommendations={companySites}
+        fallbackCompanyName={company?.company_name || ""}
+        wishlistedSiteIds={wishlistedSiteIds}
+        addingWishlistSiteId={addingWishlistSiteId}
+        onAddToWishlist={onAddToWishlist}
+        maxVisible={0}
+      />
+    </div>
   );
 }
 
@@ -2961,6 +3224,14 @@ function findWorkspaceSite(sites, { siteId = "", customerSiteId = "" } = {}) {
 
 function buildWorkspaceReportPath(siteOrPayload) {
   return "/workspace/report";
+}
+
+function buildCompanyFacilitiesPath(customerContextId) {
+  return `/workspace/companies/${customerContextId}/facilities`;
+}
+
+function buildCompanyNotesPath(customerContextId) {
+  return `/workspace/companies/${customerContextId}/notes`;
 }
 
 function buildPendingSiteFromInput(form, sitePayload) {
@@ -4032,11 +4303,11 @@ function WorkspaceLayout() {
     <>
       <div className="workspace-sticky-bar">
         <div className="workspace-sticky-bar-inner">
-          <Link to="/workspace/sites/new" className="btn-primary workspace-sticky-link workspace-sticky-link-add">
-            Add new facility
-          </Link>
           <Link to="/workspace" className="btn-secondary workspace-sticky-link workspace-sticky-link-workspace">
             Facilities
+          </Link>
+          <Link to="/workspace/companies" className="btn-secondary workspace-sticky-link workspace-sticky-link-companies">
+            Companies
           </Link>
           <Link to="/workspace/wishlist" className="btn-secondary workspace-sticky-link workspace-sticky-link-wishlist">
             Wishlist
@@ -4092,7 +4363,18 @@ function WorkspacePage() {
   const sharedFacilities = allSites.filter((site) => site.assigned_via === "shared_site");
   return (
     <main className="workspace-page-shell signup-body workspace-body">
-      <section className="workspace-page">
+      <section className="workspace-page workspace-form-page facilities-page">
+        <header className="workspace-subpage-head">
+          <div className="workspace-subpage-bar">
+            <div>
+              <p className="workspace-eyebrow">Facilities</p>
+              <h1 className="workspace-page-title">Saved facilities</h1>
+            </div>
+            <Link to="/workspace/sites/new" className="btn-primary">
+              Add new facility
+            </Link>
+          </div>
+        </header>
         <WorkspaceMobileActions
           creditsUsed={workspace?.creditsUsedTotal || 0}
           onLogout={onLogout}
@@ -4170,12 +4452,647 @@ function WorkspacePage() {
   );
 }
 
+function createCompanyEntry(org_name = "", org_domain = "") {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    org_name,
+    org_domain,
+  };
+}
+
+function NewCompanyPage() {
+  const navigate = useNavigate();
+  const [session] = useRequireSession();
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [entries, setEntries] = useState(() => [createCompanyEntry()]);
+
+  function addEntry() {
+    setEntries((current) => [...current, createCompanyEntry()]);
+  }
+
+  function removeEntry(entryId) {
+    setEntries((current) => (current.length <= 1 ? current : current.filter((entry) => entry.id !== entryId)));
+  }
+
+  function updateEntry(entryId, field, value) {
+    setEntries((current) =>
+      current.map((entry) => (entry.id === entryId ? { ...entry, [field]: value } : entry)),
+    );
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    if (!session?.email) return;
+    const items = entries
+      .map((entry) => ({
+        org_name: entry.org_name.trim(),
+        org_domain: entry.org_domain.trim(),
+      }))
+      .filter((entry) => entry.org_name || entry.org_domain);
+    if (!items.length) {
+      setError("Add at least one company with a name and domain.");
+      return;
+    }
+    const incomplete = items.find((entry) => !entry.org_name || !entry.org_domain);
+    if (incomplete) {
+      setError("Each company needs both a name and a domain.");
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      const payload = await fetchJson("/api/companies/bulk", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          items,
+        }),
+      });
+      const failed = (payload.results || []).filter((result) => result.status === "failed");
+      if (failed.length) {
+        setError(`${failed.length} company/companies could not be saved. Check the details and try again.`);
+        return;
+      }
+      navigate("/workspace/companies");
+    } catch (nextError) {
+      setError(nextError.message || "Could not save the companies.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!session?.email) return null;
+
+  return (
+    <main className="workspace-page-shell signup-body workspace-body">
+      <section className="workspace-page workspace-form-page companies-page new-company-page">
+        <header className="workspace-subpage-head">
+          <div className="workspace-subpage-bar">
+            <div>
+              <p className="workspace-eyebrow">Companies</p>
+              <h1 className="workspace-page-title">Add companies</h1>
+              <p className="workspace-page-copy">
+                Save companies by name and domain so you can discover additional facilities later.
+              </p>
+            </div>
+          </div>
+        </header>
+
+        <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
+
+        <section className="workspace-card workspace-card-modern workspace-card-form workspace-card-wide">
+          <form className="workspace-form-grid new-company-form" onSubmit={handleSubmit}>
+            <div className="company-entry-list">
+              {entries.map((entry, index) => (
+                <div className="company-entry-row" key={entry.id}>
+                  <label className="workspace-field">
+                    <span>Company name</span>
+                    <input
+                      value={entry.org_name}
+                      onChange={(event) => updateEntry(entry.id, "org_name", event.target.value)}
+                      placeholder="Company name"
+                      required={entries.length === 1}
+                    />
+                  </label>
+                  <label className="workspace-field">
+                    <span>Company domain</span>
+                    <input
+                      value={entry.org_domain}
+                      onChange={(event) => updateEntry(entry.id, "org_domain", event.target.value)}
+                      placeholder="company.com or https://company.com"
+                      required={entries.length === 1}
+                    />
+                  </label>
+                  <div className="company-entry-actions">
+                    {index === entries.length - 1 ? (
+                      <button
+                        type="button"
+                        className="company-entry-icon-btn"
+                        onClick={addEntry}
+                        aria-label="Add another company"
+                        title="Add another company"
+                      >
+                        +
+                      </button>
+                    ) : null}
+                    {entries.length > 1 ? (
+                      <button
+                        type="button"
+                        className="company-entry-icon-btn company-entry-icon-btn-remove"
+                        onClick={() => removeEntry(entry.id)}
+                        aria-label="Remove company"
+                        title="Remove company"
+                      >
+                        −
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="workspace-form-actions">
+              <button type="submit" className="btn-primary" disabled={loading}>
+                {loading ? "Saving..." : entries.length > 1 ? "Save companies" : "Save"}
+              </button>
+            </div>
+          </form>
+        </section>
+      </section>
+    </main>
+  );
+}
+
+function CompaniesPage() {
+  const [session] = useRequireSession();
+  const { onLogout = () => {} } = useOutletContext() || {};
+  const [error, setError] = useState("");
+  const [companies, setCompanies] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [discoveringIds, setDiscoveringIds] = useState(() => new Set());
+  const [rowMessages, setRowMessages] = useState({});
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  async function loadCompanies() {
+    if (!session?.email) return;
+    setLoading(true);
+    try {
+      const payload = await fetchJson("/api/companies/list", {
+        method: "POST",
+        body: JSON.stringify({ email: session.email }),
+      });
+      setCompanies(Array.isArray(payload.companies) ? payload.companies : []);
+    } catch (nextError) {
+      setError(nextError.message || "Could not load companies.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadCompanies();
+  }, [session?.email]);
+
+  function updateCompanyInList(nextCompany) {
+    if (!nextCompany?.customer_context_id) return;
+    setCompanies((current) =>
+      current.map((company) =>
+        company.customer_context_id === nextCompany.customer_context_id ? { ...company, ...nextCompany } : company,
+      ),
+    );
+  }
+
+  async function discoverCompany(company) {
+    const companyId = company.customer_context_id;
+    if (!session?.email || !companyId) return;
+    setError("");
+    setDiscoveringIds((current) => new Set(current).add(companyId));
+    try {
+      const payload = await fetchJson("/api/companies/discover", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          customer_context_id: companyId,
+        }),
+      });
+      updateCompanyInList(payload.company);
+      setRowMessages((current) => ({
+        ...current,
+        [companyId]: payload.message || "Job is running — we'll email you when facilities are ready.",
+      }));
+    } catch (nextError) {
+      setError(nextError.message || "Could not start facility discovery.");
+    } finally {
+      setDiscoveringIds((current) => {
+        const next = new Set(current);
+        next.delete(companyId);
+        return next;
+      });
+    }
+  }
+
+  function toggleCompany(company) {
+    const companyId = company.customer_context_id;
+    if (!companyId || !canDiscoverCompany(company)) return;
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(companyId)) next.delete(companyId);
+      else next.add(companyId);
+      return next;
+    });
+  }
+
+  async function bulkDiscover() {
+    if (!session?.email || !selectedIds.size) return;
+    setBulkLoading(true);
+    setError("");
+    try {
+      const payload = await fetchJson("/api/companies/discover/bulk", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          customer_context_ids: Array.from(selectedIds),
+        }),
+      });
+      const results = Array.isArray(payload.results) ? payload.results : [];
+      const nextMessages = { ...rowMessages };
+      setCompanies((current) => {
+        const byId = new Map(current.map((company) => [company.customer_context_id, company]));
+        results.forEach((result) => {
+          if (result.status === "running" && result.company) {
+            byId.set(result.customer_context_id, { ...byId.get(result.customer_context_id), ...result.company });
+            nextMessages[result.customer_context_id] =
+              "Job is running — we'll email you when facilities are ready.";
+          }
+        });
+        return Array.from(byId.values());
+      });
+      setRowMessages(nextMessages);
+      setSelectedIds(new Set());
+    } catch (nextError) {
+      setError(nextError.message || "Could not start bulk facility discovery.");
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  if (!session?.email) return null;
+
+  return (
+    <main className="workspace-page-shell signup-body workspace-body">
+      <section className="workspace-page workspace-form-page companies-page">
+        <header className="workspace-subpage-head">
+          <div className="workspace-subpage-bar">
+            <div>
+              <p className="workspace-eyebrow">Companies</p>
+              <h1 className="workspace-page-title">Saved companies</h1>
+            </div>
+            <Link to="/workspace/companies/new" className="btn-primary">
+              Add company
+            </Link>
+          </div>
+        </header>
+        <WorkspaceMobileActions creditsUsed={session?.creditsUsedTotal || 0} onLogout={onLogout} />
+
+        <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
+
+        <section className="workspace-sites-panel">
+          {loading && !companies.length ? (
+            <div className="workspace-loading-state">
+              <p>Loading companies...</p>
+            </div>
+          ) : companies.length ? (
+            <>
+              <div className="companies-bulk-toolbar">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={!selectedIds.size || bulkLoading}
+                  onClick={bulkDiscover}
+                >
+                  {bulkLoading ? "Starting..." : "Bulk Show More Facilities"}
+                </button>
+              </div>
+              <div className="site-bar-list">
+                {companies.map((company) => (
+                  <CompanyRow
+                    key={company.customer_context_id}
+                    company={company}
+                    selected={selectedIds.has(company.customer_context_id)}
+                    onToggle={toggleCompany}
+                    discovering={discoveringIds.has(company.customer_context_id)}
+                    onDiscover={discoverCompany}
+                    message={rowMessages[company.customer_context_id] || ""}
+                  />
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="workspace-empty-state">
+              <h3>No companies saved yet</h3>
+              <p>Add a company to discover additional facilities operated by that organization.</p>
+              <Link to="/workspace/companies/new" className="btn-primary">
+                Add first company
+              </Link>
+            </div>
+          )}
+        </section>
+      </section>
+    </main>
+  );
+}
+
+function CompanyFacilitiesPage() {
+  const { customerContextId = "" } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeTab = location.pathname.endsWith("/notes") ? "notes" : "facilities";
+  const [session, setSession] = useRequireSession();
+  const [error, setError] = useState("");
+  const [company, setCompany] = useState(null);
+  const [wishlist, setWishlist] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [addingWishlistSiteId, setAddingWishlistSiteId] = useState("");
+  const [notesDraft, setNotesDraft] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesMessage, setNotesMessage] = useState("");
+  const [notesIsError, setNotesIsError] = useState(false);
+
+  function openCompanyTab(tab) {
+    if (tab === "notes") {
+      navigate(buildCompanyNotesPath(customerContextId));
+      return;
+    }
+    navigate(buildCompanyFacilitiesPath(customerContextId));
+  }
+
+  useEffect(() => {
+    if (!session?.email) return;
+    setLoading(true);
+    Promise.all([
+      fetchJson("/api/companies/list", {
+        method: "POST",
+        body: JSON.stringify({ email: session.email }),
+      }),
+      fetchJson("/api/workspace/state", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          active_account_id: session.activeAccountId || session.accountId || "",
+        }),
+      }),
+    ])
+      .then(([companiesPayload, workspacePayload]) => {
+        const companies = Array.isArray(companiesPayload.companies) ? companiesPayload.companies : [];
+        const match = companies.find((row) => row.customer_context_id === customerContextId) || null;
+        setCompany(match);
+        const nextState = buildSessionFromPayload(session, workspacePayload);
+        saveSession(nextState);
+        setSession(nextState);
+        setWishlist(nextState.wishlist || []);
+      })
+      .catch((nextError) => setError(nextError.message || "Could not load company facilities."))
+      .finally(() => setLoading(false));
+  }, [session?.email, customerContextId]);
+
+  useEffect(() => {
+    setNotesDraft(company?.notes || "");
+    setNotesMessage("");
+    setNotesIsError(false);
+  }, [company?.customer_context_id, company?.notes]);
+
+  function updateCompanyInState(nextCompany) {
+    setCompany((current) => (current ? { ...current, ...nextCompany } : nextCompany));
+  }
+
+  function updateWishlistInState(nextItem) {
+    setWishlist((current) => {
+      const exists = current.some((item) => item.site_id === nextItem.site_id);
+      if (exists) {
+        return current.map((item) => (item.site_id === nextItem.site_id ? { ...item, ...nextItem } : item));
+      }
+      return [nextItem, ...current];
+    });
+  }
+
+  async function discoverCompany() {
+    if (!session?.email || !customerContextId) return;
+    setDiscovering(true);
+    setError("");
+    try {
+      const payload = await fetchJson("/api/companies/discover", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          customer_context_id: customerContextId,
+        }),
+      });
+      setCompany(payload.company);
+    } catch (nextError) {
+      setError(nextError.message || "Could not start facility discovery.");
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
+  async function addRecommendationToWishlist(recommendation) {
+    if (!session?.email) return;
+    const recommendationSiteId = recommendationText(recommendation.site_id);
+    const recommendationAccountId = recommendationText(recommendation.account_id);
+    if (!recommendationSiteId || !recommendationAccountId) {
+      setError("This facility is missing site details and cannot be added to wishlist.");
+      return;
+    }
+    setError("");
+    setAddingWishlistSiteId(recommendationSiteId);
+    try {
+      const payload = await fetchJson("/api/customer-context/wishlist", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          account_id: recommendationAccountId,
+          site_id: recommendationSiteId,
+          metadata: {
+            source: "company_discovery",
+            source_company_context_id: customerContextId,
+            title: recommendationTitle(recommendation),
+            address: recommendationAddress(recommendation),
+            google_maps_uri: recommendationText(recommendation.google_maps_uri),
+            source_url: recommendationText(recommendation.source_url),
+          },
+        }),
+      });
+      updateWishlistInState(payload.wishlist_item);
+    } catch (nextError) {
+      setError(nextError.message || "Could not add this site to wishlist.");
+    } finally {
+      setAddingWishlistSiteId("");
+    }
+  }
+
+  async function saveCompanyNotes(event) {
+    event.preventDefault();
+    if (!session?.email || !customerContextId) return;
+    setSavingNotes(true);
+    setNotesMessage("");
+    setNotesIsError(false);
+    try {
+      const payload = await fetchJson("/api/companies/notes", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          customer_context_id: customerContextId,
+          notes: notesDraft,
+        }),
+      });
+      const savedNotes = payload.notes || "";
+      setNotesDraft(savedNotes);
+      if (payload.company) {
+        updateCompanyInState(payload.company);
+      } else {
+        updateCompanyInState({ notes: savedNotes });
+      }
+      setNotesMessage("Notes saved.");
+    } catch (nextError) {
+      setNotesIsError(true);
+      setNotesMessage(nextError.message || "Could not save notes.");
+    } finally {
+      setSavingNotes(false);
+    }
+  }
+
+  if (!session?.email) return null;
+
+  return (
+    <main className="workspace-page-shell signup-body workspace-body">
+      <section className="workspace-page workspace-form-page report-page">
+        <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
+
+        {loading && !company ? (
+          <section className="workspace-card workspace-card-modern workspace-card-wide thank-you-state">
+            <div className="workspace-loading-state">
+              <p>Loading company...</p>
+            </div>
+          </section>
+        ) : null}
+
+        {!loading && !company ? (
+          <section className="workspace-card workspace-card-modern workspace-card-wide thank-you-state">
+            <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
+              !
+            </div>
+            <h1 className="workspace-page-title">Company not found</h1>
+            <p className="workspace-page-copy">
+              Open this screen from a saved company in the companies list.
+            </p>
+            <div className="auth-primary-action">
+              <Link to="/workspace/companies" className="btn-primary">
+                Back to companies
+              </Link>
+            </div>
+          </section>
+        ) : null}
+
+        {company ? (
+          <>
+            <section className="workspace-card workspace-card-modern workspace-card-wide report-view-card">
+              <div className="tab-row report-tab-row" role="tablist" aria-label="Company sections">
+                <div className="report-tab-group">
+                  <button
+                    type="button"
+                    className={`tab-btn ${activeTab === "facilities" ? "tab-btn-active" : ""}`}
+                    onClick={() => openCompanyTab("facilities")}
+                    role="tab"
+                    aria-selected={activeTab === "facilities"}
+                  >
+                    Facilities
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-btn ${activeTab === "notes" ? "tab-btn-active" : ""}`}
+                    onClick={() => openCompanyTab("notes")}
+                    role="tab"
+                    aria-selected={activeTab === "notes"}
+                  >
+                    Notes
+                  </button>
+                </div>
+              </div>
+
+              {activeTab === "facilities" ? (
+                <div className="tab-panel report-tab-panel" role="tabpanel">
+                  <CompanyDiscoveryPanel
+                    company={company}
+                    wishlist={wishlist}
+                    discovering={discovering}
+                    onDiscover={discoverCompany}
+                    addingWishlistSiteId={addingWishlistSiteId}
+                    onAddToWishlist={addRecommendationToWishlist}
+                  />
+                </div>
+              ) : null}
+
+              {activeTab === "notes" ? (
+                <form className="tab-panel report-tab-panel report-notes-form" onSubmit={saveCompanyNotes} role="tabpanel">
+                  <label className="workspace-field report-notes-field">
+                    <span>Notes</span>
+                    <textarea
+                      value={notesDraft}
+                      onChange={(event) => {
+                        setNotesDraft(event.target.value);
+                        setNotesMessage("");
+                        setNotesIsError(false);
+                      }}
+                      rows={10}
+                    />
+                  </label>
+                  <div className="report-notes-actions">
+                    <button type="submit" className="btn-primary" disabled={savingNotes}>
+                      {savingNotes ? "Saving..." : "Save notes"}
+                    </button>
+                    <p className={`workspace-feedback ${notesMessage ? "" : "hidden"} ${notesIsError ? "workspace-feedback-error" : ""}`}>
+                      {notesMessage}
+                    </p>
+                  </div>
+                </form>
+              ) : null}
+            </section>
+            <nav className="report-mobile-actions report-mobile-actions-compact" aria-label="Company actions">
+              <button
+                type="button"
+                className={`report-mobile-action ${activeTab === "facilities" ? "active" : ""}`}
+                onClick={() => openCompanyTab("facilities")}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                  <path d="M4.5 6.5h15" />
+                  <path d="M4.5 12h15" />
+                  <path d="M4.5 17.5h15" />
+                  <path d="M8 4v15" />
+                  <path d="M16 4v15" />
+                </svg>
+                <span>Facilities</span>
+              </button>
+              <button
+                type="button"
+                className={`report-mobile-action ${activeTab === "notes" ? "active" : ""}`}
+                onClick={() => openCompanyTab("notes")}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                  <path d="M6.5 4.5h11v15h-11z" />
+                  <path d="M9 8h6" />
+                  <path d="M9 11.5h6" />
+                  <path d="M9 15h3.5" />
+                </svg>
+                <span>Notes</span>
+              </button>
+            </nav>
+          </>
+        ) : null}
+      </section>
+    </main>
+  );
+}
+
 function WishlistPage() {
   const [session, setSession] = useRequireSession();
   const { onLogout = () => {} } = useOutletContext() || {};
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [workspace, setWorkspace] = useState(() => session || loadSession());
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+  const [selectedSiteIds, setSelectedSiteIds] = useState(() => new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkReviewOpen, setBulkReviewOpen] = useState(false);
+  const [bulkReviewError, setBulkReviewError] = useState("");
+
+  const preAssessmentPriceCredits =
+    workspace?.preAssessmentPriceCredits ?? session?.preAssessmentPriceCredits ?? 2;
+
+  const selectedWishlistItems = (workspace?.wishlist || []).filter((item) =>
+    selectedSiteIds.has(item.site_id),
+  );
 
   useEffect(() => {
     if (!session?.email) return;
@@ -4197,6 +5114,97 @@ function WishlistPage() {
       .finally(() => setLoadingWorkspace(false));
   }, [session?.email]);
 
+  function toggleWishlistItem(item) {
+    if (!item?.site_id) return;
+    setSelectedSiteIds((current) => {
+      const next = new Set(current);
+      if (next.has(item.site_id)) next.delete(item.site_id);
+      else next.add(item.site_id);
+      return next;
+    });
+  }
+
+  function toggleAllWishlistItems() {
+    const wishlist = workspace?.wishlist || [];
+    setSelectedSiteIds((current) => {
+      if (wishlist.length && wishlist.every((item) => current.has(item.site_id))) {
+        return new Set();
+      }
+      return new Set(wishlist.map((item) => item.site_id).filter(Boolean));
+    });
+  }
+
+  function openBulkPreAssessmentReview() {
+    if (!selectedSiteIds.size) return;
+    setBulkReviewError("");
+    setError("");
+    setMessage("");
+    setBulkReviewOpen(true);
+  }
+
+  function closeBulkPreAssessmentReview() {
+    if (bulkLoading) return;
+    setBulkReviewOpen(false);
+    setBulkReviewError("");
+  }
+
+  async function confirmBulkPreAssessment() {
+    if (!session?.email || !selectedSiteIds.size || bulkLoading) return;
+    setBulkLoading(true);
+    setBulkReviewError("");
+    setError("");
+    setMessage("");
+    const items = selectedWishlistItems.map((item) => ({
+      account_id: item.account_id,
+      site_id: item.site_id,
+      customer_site_id: item.customer_site_id || "",
+    }));
+    try {
+      const payload = await fetchJson("/api/pre-assessment/request/bulk", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          confirmed: true,
+          items,
+        }),
+      });
+      const failed = (payload.results || []).filter((result) => result.status === "failed");
+      if (failed.length) {
+        setBulkReviewError(
+          `${failed.length} request(s) could not be submitted. Check billing or try again.`,
+        );
+        return;
+      }
+      setBulkReviewOpen(false);
+      setMessage("Pre-assessment requests submitted.");
+      setSelectedSiteIds(new Set());
+      if (payload.credits_used_total !== undefined) {
+        const nextState = buildSessionFromPayload(session, {
+          ...workspace,
+          credits_used_total: payload.credits_used_total,
+          credits_used_this_month: payload.credits_used_this_month,
+        });
+        saveSession(nextState);
+        setSession(nextState);
+        setWorkspace(nextState);
+      }
+    } catch (nextError) {
+      const detail = nextError.payload?.detail;
+      const message =
+        (typeof detail === "object" ? detail?.message : null) ||
+        (typeof detail === "string" ? detail : null) ||
+        nextError.message ||
+        "Could not submit bulk pre-assessment requests.";
+      setBulkReviewError(message);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function bulkRequestPreAssessment() {
+    openBulkPreAssessmentReview();
+  }
+
   if (!session?.email) return null;
 
   const wishlist = workspace?.wishlist || [];
@@ -4211,6 +5219,7 @@ function WishlistPage() {
         <WorkspaceMobileActions creditsUsed={workspace?.creditsUsedTotal || 0} onLogout={onLogout} />
 
         <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
+        <p className={`form-success ${message ? "" : "hidden"}`}>{message}</p>
 
         <section className="workspace-sites-panel">
           {loadingWorkspace && !wishlist.length ? (
@@ -4218,9 +5227,27 @@ function WishlistPage() {
               <p>Loading wishlist...</p>
             </div>
           ) : (
-            <WorkspaceWishlistPanel wishlist={wishlist} />
+            <WorkspaceWishlistPanel
+              wishlist={wishlist}
+              selectedSiteIds={selectedSiteIds}
+              onToggleItem={toggleWishlistItem}
+              onToggleAll={toggleAllWishlistItems}
+              bulkLoading={bulkLoading}
+              onBulkRequest={bulkRequestPreAssessment}
+            />
           )}
         </section>
+
+        {bulkReviewOpen ? (
+          <BulkPreAssessmentReviewModal
+            items={selectedWishlistItems}
+            preAssessmentPriceCredits={preAssessmentPriceCredits}
+            loading={bulkLoading}
+            reviewError={bulkReviewError}
+            onCancel={closeBulkPreAssessmentReview}
+            onConfirm={confirmBulkPreAssessment}
+          />
+        ) : null}
       </section>
     </main>
   );
@@ -4856,13 +5883,11 @@ function PreAssessmentPage() {
                     </h2>
                   </div>
                   <div className="pre-assessment-summary-grid review-summary-grid">
-                    <div className="workspace-summary-chip">
-                      <span className="workspace-summary-label">Company Name</span>
-                      <span className="workspace-summary-value">{selectedSite?.company_name || "-"}</span>
-                    </div>
-                    <div className="workspace-summary-chip">
-                      <span className="workspace-summary-label">Site Address</span>
-                      <span className="workspace-summary-value">{selectedSite?.full_address || "-"}</span>
+                    <div className="review-site-summary">
+                      <p className="bulk-pre-assessment-review-title">{selectedSite?.company_name || "-"}</p>
+                      {selectedSite?.full_address ? (
+                        <p className="bulk-pre-assessment-review-address">{selectedSite.full_address}</p>
+                      ) : null}
                     </div>
                     <div className="workspace-summary-chip">
                       <span className="workspace-summary-label">Cost of pre-assessment</span>
@@ -4909,13 +5934,11 @@ function PreAssessmentPage() {
               we’ll email you as soon as the report is ready.
             </p>
             <div className="pre-assessment-summary-grid">
-              <div className="workspace-summary-chip">
-                <span className="workspace-summary-label">Company</span>
-                <span className="workspace-summary-value">{selectedSite?.company_name || "-"}</span>
-              </div>
-              <div className="workspace-summary-chip">
-                <span className="workspace-summary-label">Site address</span>
-                <span className="workspace-summary-value">{selectedSite?.full_address || "-"}</span>
+              <div className="review-site-summary">
+                <p className="bulk-pre-assessment-review-title">{selectedSite?.company_name || "-"}</p>
+                {selectedSite?.full_address ? (
+                  <p className="bulk-pre-assessment-review-address">{selectedSite.full_address}</p>
+                ) : null}
               </div>
             </div>
             <div className="auth-primary-action">
@@ -5068,10 +6091,17 @@ function RecommendationCard({ recommendation, fallbackCompanyName, wishlistedSit
   );
 }
 
-function RecommendationSection({ title, recommendations, fallbackCompanyName, wishlistedSiteIds, addingWishlistSiteId, onAddToWishlist }) {
-  const visibleRecommendations = recommendations
-    .filter(hasHydratedRecommendationDetails)
-    .slice(0, 3);
+function RecommendationSection({
+  title,
+  recommendations,
+  fallbackCompanyName,
+  wishlistedSiteIds,
+  addingWishlistSiteId,
+  onAddToWishlist,
+  maxVisible = 3,
+}) {
+  const filtered = recommendations.filter(hasHydratedRecommendationDetails);
+  const visibleRecommendations = maxVisible ? filtered.slice(0, maxVisible) : filtered;
   if (!visibleRecommendations.length) return null;
   const layoutClass =
     visibleRecommendations.length === 1 ? "recommendation-list-single" : "recommendation-list-grid";
@@ -5237,6 +6267,7 @@ function ReportPage() {
 
   const selectedSite =
     findWorkspaceSite(workspace?.sites, { siteId, customerSiteId }) || null;
+  const recommendationStatus = normalizeRecommendations(selectedSite?.recommendations).status;
   const reportMetadata = selectedSite?.report_metadata || {};
   const reportMarkedReady = Boolean(selectedSite?.is_report_ready);
   const reportHasMetadata = hasReportMetadata(reportMetadata);
@@ -5254,6 +6285,37 @@ function ReportPage() {
     setRatingMessage("");
     setRatingIsError(false);
   }, [selectedSite?.customer_site_id, selectedSite?.site_id]);
+
+  useEffect(() => {
+    if (!session?.email || recommendationStatus !== "running") return undefined;
+
+    let cancelled = false;
+    async function refreshWorkspace() {
+      try {
+        const payload = await fetchJson("/api/workspace/state", {
+          method: "POST",
+          body: JSON.stringify({
+            email: session.email,
+            active_account_id: accountId,
+          }),
+        });
+        if (cancelled) return;
+        const nextState = buildSessionFromPayload(session, payload);
+        saveSession(nextState);
+        setSession(nextState);
+        setWorkspace(nextState);
+      } catch {
+        // Ignore polling errors; the user can refresh manually.
+      }
+    }
+
+    refreshWorkspace();
+    const timer = window.setInterval(refreshWorkspace, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [session?.email, accountId, recommendationStatus]);
 
   function updateSiteInState(updates) {
     const updateSites = (state) => {
@@ -5661,6 +6723,10 @@ function App() {
       <Route element={<WorkspaceLayout />}>
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/workspace/wishlist" element={<WishlistPage />} />
+        <Route path="/workspace/companies" element={<CompaniesPage />} />
+        <Route path="/workspace/companies/new" element={<NewCompanyPage />} />
+        <Route path="/workspace/companies/:customerContextId/facilities" element={<CompanyFacilitiesPage />} />
+        <Route path="/workspace/companies/:customerContextId/notes" element={<CompanyFacilitiesPage />} />
         <Route path="/workspace/sites/new" element={<NewSitePage />} />
         <Route path="/workspace/pre-assessment" element={<PreAssessmentPage />} />
         <Route path="/workspace/report" element={<ReportPage />} />
