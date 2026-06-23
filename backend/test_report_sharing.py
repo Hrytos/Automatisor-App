@@ -95,6 +95,7 @@ def test_validate_share_recipients_reports_all_errors():
 async def test_share_report_resends_email_without_creating_duplicate_row(monkeypatch):
     """Re-sharing to an existing recipient still sends email; DB row is not duplicated."""
     monkeypatch.setattr(main, "APP_BASE_URL", "https://example.com")
+    monkeypatch.setattr(main, "SHARE_TOKEN_SECRET", "test-secret")
 
     sender = {"customer_id": "sender-1", "email": "sender@company.com"}
     assignment = {

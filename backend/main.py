@@ -13,7 +13,6 @@ from datetime import datetime, timedelta, timezone
 
 import stripe
 import httpx
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,9 +23,11 @@ from supabase import Client, create_client
 try:
     from .address_normalization import canonical_zip, normalize_full_address, normalize_state, normalize_street_line
     from .address_validator import validate_company_site
+    from .chat import router as chat_router
 except ImportError:
     from address_normalization import canonical_zip, normalize_full_address, normalize_state, normalize_street_line
     from address_validator import validate_company_site
+    from chat import router as chat_router
 
 BACKEND_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BACKEND_DIR.parent
@@ -48,7 +49,9 @@ RECOMMENDATION_WORKER_SECRET = (
     os.getenv("RECOMMENDATION_WORKER_SECRET", "").strip()
     or os.getenv("INTERNAL_API_KEY", "").strip()
 )
-COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true") != "false"
+VERCEL_ENV = os.getenv("VERCEL_ENV", "")
+IS_PRODUCTION = VERCEL_ENV == "production" or os.getenv("ENV", "") == "production"
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true" if IS_PRODUCTION else "false") != "false"
 SERVER_DRY_RUN = "--dry" in os.sys.argv or os.getenv("AUTOMATISOR_DRY") == "1"
 
 def _parse_cors_origins(raw: str | None) -> list[str]:
@@ -121,12 +124,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(chat_router)
 
 SERVICE_API_PREFIXES = (
     "/account-sites",
     "/accounts",
     "/address-validation",
     "/billing",
+    "/chat",
     "/companies",
     "/credits",
     "/customer-context",
@@ -235,6 +240,19 @@ def _extract_supabase_error(response: httpx.Response) -> str:
 
 def normalize_email(raw: Any) -> str:
     return str(raw or "").strip().lower()
+
+
+def _parse_trusted_bypass_emails(raw: str | None) -> set[str]:
+    if not raw:
+        return set()
+    return {normalize_email(part) for part in raw.split(",") if part.strip()}
+
+
+TRUSTED_AUTH_BYPASS_EMAILS = _parse_trusted_bypass_emails(os.getenv("TRUSTED_AUTH_BYPASS_EMAILS"))
+
+
+def is_trusted_bypass_email(email: str) -> bool:
+    return normalize_email(email) in TRUSTED_AUTH_BYPASS_EMAILS
 
 
 def normalize_domain(raw: Any) -> str:
@@ -2512,6 +2530,20 @@ async def send_supabase_otp(email: str) -> None:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _supabase_auth_response(session: Any, user: Any) -> dict[str, Any]:
+    return {
+        "session": {
+            "access_token": getattr(session, "access_token", None),
+            "refresh_token": getattr(session, "refresh_token", None),
+            "expires_in": getattr(session, "expires_in", None),
+            "token_type": getattr(session, "token_type", None),
+        }
+        if session
+        else None,
+        "user": {"id": getattr(user, "id", None)} if user else None,
+    }
+
+
 async def verify_supabase_otp(email: str, otp: str) -> dict[str, Any]:
     try:
         auth = get_auth_client()
@@ -2522,21 +2554,36 @@ async def verify_supabase_otp(email: str, otp: str) -> dict[str, Any]:
                 "type": "email",
             }
         )
-        session = response.session
-        user = response.user
-        return {
-            "session": {
-                "access_token": getattr(session, "access_token", None),
-                "refresh_token": getattr(session, "refresh_token", None),
-                "expires_in": getattr(session, "expires_in", None),
-                "token_type": getattr(session, "token_type", None),
-            }
-            if session
-            else None,
-            "user": {"id": getattr(user, "id", None)} if user else None,
-        }
+        return _supabase_auth_response(response.session, response.user)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc) or "Invalid or expired OTP") from exc
+
+
+async def mint_supabase_session_for_email(email: str) -> dict[str, Any]:
+    """Issue a Supabase session without sending email (trusted allowlist only)."""
+    db = get_admin_db()
+    link_payload = await db.request(
+        "POST",
+        "/auth/v1/admin/generate_link",
+        json_body={"type": "magiclink", "email": email},
+    )
+    payload = link_payload or {}
+    nested = payload.get("properties") or {}
+    email_otp = payload.get("email_otp") or nested.get("email_otp")
+    if not email_otp:
+        raise HTTPException(status_code=500, detail="Could not create trusted login session")
+    try:
+        auth = get_auth_client()
+        response = auth.auth.verify_otp(
+            {
+                "email": email,
+                "token": str(email_otp),
+                "type": "email",
+            }
+        )
+        return _supabase_auth_response(response.session, response.user)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc) or "Could not create trusted login session") from exc
 
 
 @app.get("/api/frontend-config")
@@ -2565,7 +2612,12 @@ async def handle_check_email(body: dict[str, Any] = Body(default={})) -> dict[st
         email = assert_work_email(body.get("email") or body.get("work_email"))
         db = get_admin_db()
         customer = await find_customer_by_email(db, email)
-        return {"email": email, "user_mode": "existing_user" if customer else "new_user", "company_email": True}
+        return {
+            "email": email,
+            "user_mode": "existing_user" if customer else "new_user",
+            "company_email": True,
+            "trusted_bypass": is_trusted_bypass_email(email),
+        }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -2576,6 +2628,14 @@ async def handle_request_otp(request: Request, body: dict[str, Any] = Body(defau
         email = assert_work_email(body.get("email") or body.get("work_email"))
         db = get_admin_db()
         customer = await find_customer_by_email(db, email)
+        if is_trusted_bypass_email(email):
+            return {
+                "status": "trusted_bypass",
+                "email": email,
+                "user_mode": "existing_user" if customer else "new_user",
+                "trusted_bypass": True,
+                "dry_run": is_dry_run_request(request, body),
+            }
         await send_supabase_otp(email)
         return {
             "status": "otp_sent",
@@ -2587,6 +2647,78 @@ async def handle_request_otp(request: Request, body: dict[str, Any] = Body(defau
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+async def complete_auth_for_verified_email(
+    response: Response,
+    request: Request,
+    email: str,
+    auth_data: dict[str, Any],
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    session = auth_data.get("session") or {}
+    if not session.get("access_token"):
+        raise HTTPException(status_code=422, detail="Invalid or expired OTP")
+    response.set_cookie(
+        "access_token",
+        session["access_token"],
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+        path="/",
+        max_age=60 * 60,
+    )
+    db = get_admin_db()
+    customer = await find_customer_by_email(db, email)
+    share_payload = decode_share_token(body.get("share_token"))
+    matching_share = share_payload if share_payload and share_payload["recipient_email"] == email else None
+
+    if matching_share and not is_dry_run_request(request, body):
+        if not customer:
+            return {
+                "status": "verified",
+                "email": email,
+                "user_mode": "new_user",
+                "next_step": "onboarding_step1",
+                "share_token": body.get("share_token"),
+                "customer_id": None,
+                "account_id": None,
+                "credits_used_total": 0,
+                "credits_used_this_month": 0,
+            }
+        await mark_customer_verified(db, email)
+        await touch_customer_login(db, customer["customer_id"])
+        shared_assignment = await ensure_shared_site_assignment(
+            db, customer["customer_id"], matching_share["site_id"], matching_share.get("shared_by")
+        )
+        workspace = await build_workspace_payload(db, email)
+        return {
+            "status": "verified",
+            "user_id": (auth_data.get("user") or {}).get("id"),
+            **workspace,
+            "share_destination": {
+                "customer_site_id": shared_assignment["customer_site_id"],
+                "site_id": shared_assignment["site_id"],
+                "account_id": shared_assignment["account_id"],
+            },
+        }
+
+    if not customer:
+        return {
+            "status": "verified",
+            "email": email,
+            "user_mode": "new_user",
+            "next_step": "onboarding_step1",
+            "customer_id": None,
+            "account_id": None,
+            "credits_used_total": 0,
+            "credits_used_this_month": 0,
+        }
+    if not is_dry_run_request(request, body):
+        await mark_customer_verified(db, email)
+        await touch_customer_login(db, customer["customer_id"])
+    workspace = await build_workspace_state(db, email)
+    return {"status": "verified", "user_id": (auth_data.get("user") or {}).get("id"), **workspace}
+
+
 @app.post("/api/auth/verify-otp")
 async def handle_verify_otp(response: Response, request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     try:
@@ -2595,73 +2727,19 @@ async def handle_verify_otp(response: Response, request: Request, body: dict[str
         if not re.fullmatch(r"\d{6}", otp):
             raise ValueError("Enter a valid 6-digit OTP")
         auth_data = await verify_supabase_otp(email, otp)
-        session = auth_data.get("session") or {}
-        if not session.get("access_token"):
-            raise HTTPException(status_code=422, detail="Invalid or expired OTP")
-        response.set_cookie(
-            "access_token",
-            session["access_token"],
-            httponly=True,
-            secure=COOKIE_SECURE,
-            samesite="lax",
-            path="/",
-            max_age=60 * 60,
-        )
-        db = get_admin_db()
-        customer = await find_customer_by_email(db, email)
-        share_payload = decode_share_token(body.get("share_token"))
-        matching_share = share_payload if share_payload and share_payload["recipient_email"] == email else None
-        
-        if matching_share and not is_dry_run_request(request, body):
-            # Handle share link onboarding
-            if not customer:
-                # NEW: Don't create customer yet, let Step 1 handle it
-                return {
-                    "status": "verified",
-                    "email": email,
-                    "user_mode": "new_user",
-                    "next_step": "onboarding_step1",
-                    "share_token": body.get("share_token"),  # Pass token forward
-                    "customer_id": None,
-                    "account_id": None,
-                    "credits_used_total": 0,
-                    "credits_used_this_month": 0,
-                }
-            else:
-                # Existing customer, proceed as before
-                await mark_customer_verified(db, email)
-                await touch_customer_login(db, customer["customer_id"])
-                shared_assignment = await ensure_shared_site_assignment(
-                    db, customer["customer_id"], matching_share["site_id"], matching_share.get("shared_by")
-                )
-                workspace = await build_workspace_payload(db, email)
-                return {
-                    "status": "verified",
-                    "user_id": (auth_data.get("user") or {}).get("id"),
-                    **workspace,
-                    "share_destination": {
-                        "customer_site_id": shared_assignment["customer_site_id"],
-                        "site_id": shared_assignment["site_id"],
-                        "account_id": shared_assignment["account_id"],
-                    },
-                }
-        
-        if not customer:
-            return {
-                "status": "verified",
-                "email": email,
-                "user_mode": "new_user",
-                "next_step": "onboarding_step1",
-                "customer_id": None,
-                "account_id": None,
-                "credits_used_total": 0,
-                "credits_used_this_month": 0,
-            }
-        if not is_dry_run_request(request, body):
-            await mark_customer_verified(db, email)
-            await touch_customer_login(db, customer["customer_id"])
-        workspace = await build_workspace_state(db, email)
-        return {"status": "verified", "user_id": (auth_data.get("user") or {}).get("id"), **workspace}
+        return await complete_auth_for_verified_email(response, request, email, auth_data, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/auth/trusted-login")
+async def handle_trusted_login(response: Response, request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        if not is_trusted_bypass_email(email):
+            raise HTTPException(status_code=403, detail="Trusted login is not enabled for this email")
+        auth_data = await mint_supabase_session_for_email(email)
+        return await complete_auth_for_verified_email(response, request, email, auth_data, body)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -2929,12 +3007,15 @@ async def handle_add_account_site(request: Request, body: dict[str, Any] = Body(
 
 
 @app.post("/api/workspace/state")
-async def workspace_state(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+async def workspace_state(request: Request, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     try:
-        email = assert_work_email(body.get("email") or body.get("work_email"))
         db = get_admin_db()
+        expected_email = clean_optional(body.get("email") or body.get("work_email")) or None
+        customer = await get_authenticated_customer(db, request, expected_email=expected_email)
         requested_account_id = clean_optional(body.get("active_account_id"))
-        return await build_workspace_payload(db, email, requested_account_id)
+        return await build_workspace_payload(db, customer["email"], requested_account_id)
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -4200,7 +4281,7 @@ async def accounts_new_user_alias(request: Request, body: dict[str, Any] = Body(
 # ── Billing cron ──────────────────────────────────────────────────────────────
 
 async def run_billing_cron() -> None:
-    """Runs daily at 01:00 UTC. Bills all customers whose billing period has ended."""
+    """Triggered by the platform cron. Bills all customers whose billing period has ended."""
     db = get_admin_db()
     now = datetime.now(timezone.utc)
 
@@ -4266,6 +4347,17 @@ async def _process_billing_period(db: SupabaseAdmin, customer: dict[str, Any], n
         return
 
     amount_cents = total_credits * PRICE_PER_CREDIT_USD_CENTS
+    cycle_identity = hashlib.sha256(
+        "|".join(
+            [
+                str(customer_id),
+                str(period_start or ""),
+                str(customer.get("billing_period_end") or ""),
+                str(total_credits),
+                str(amount_cents),
+            ]
+        ).encode("utf-8")
+    ).hexdigest()
     period_label = ""
     if period_start and customer.get("billing_period_end"):
         try:
@@ -4280,31 +4372,17 @@ async def _process_billing_period(db: SupabaseAdmin, customer: dict[str, Any], n
         amount=amount_cents,
         currency="usd",
         description=f"Automatisor — {total_credits} credit{'s' if total_credits != 1 else ''} ({period_label})",
+        idempotency_key=f"billing-item-{cycle_identity}",
     )
     invoice = stripe.Invoice.create(
         customer=stripe_customer_id,
         auto_advance=True,
         collection_method="charge_automatically",
         default_payment_method=customer["payment_method_id"],
+        idempotency_key=f"billing-invoice-{cycle_identity}",
     )
-    stripe.Invoice.pay(invoice.id)
+    stripe.Invoice.pay(invoice.id, idempotency_key=f"billing-pay-{cycle_identity}")
     print(f"[billing-cron] Charged {customer.get('email')}: ${amount_cents / 100:.2f} ({total_credits} credits)")
-
-
-# ── APScheduler lifecycle ─────────────────────────────────────────────────────
-
-_scheduler = AsyncIOScheduler(timezone="UTC")
-
-
-@app.on_event("startup")
-async def start_scheduler() -> None:
-    _scheduler.add_job(run_billing_cron, "cron", hour=1, minute=0)
-    _scheduler.start()
-
-
-@app.on_event("shutdown")
-async def stop_scheduler() -> None:
-    _scheduler.shutdown(wait=False)
 
 
 def register_vercel_service_api_aliases() -> None:

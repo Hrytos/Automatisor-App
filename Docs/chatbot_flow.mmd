@@ -1,0 +1,46 @@
+flowchart TD
+    A([User opens Report page]) --> B[ChatWidget mounts]
+    B --> C[GET /api/chat/sessions\nsite_id=xxx]
+    C --> D{Authenticated?}
+    D -- No --> E([401 - Redirect/Login])
+    D -- Yes --> F{Owns this site?}
+    F -- No --> G([403 - Access denied])
+    F -- Yes --> H[(Query automatisor_chatbot\nby customer_id + site_id\norder by updated_at desc)]
+    H --> I[Return sessions list]
+    I --> J{User action}
+    J -- Continue previous --> K[Select existing session_id]
+    J -- Start new chat --> L[POST /api/chat/session\nsite_id + optional title]
+    L --> M[(Insert new session row\nmessages empty)]
+    M --> K
+    K --> N[GET /api/chat/history\nsite_id + session_id]
+    N --> O[(Fetch messages for session)]
+    O --> P[Render chat history]
+
+    P --> Q([User sends message])
+    Q --> R[Optimistic UI append]
+    R --> S[POST /api/chat/message\nsite_id + session_id + message]
+    S --> T{Validate input\nnon-empty, <=2000 chars}
+    T -- Invalid --> U([422 - Show error])
+    T -- Valid --> V{Authenticated + owns site?}
+    V -- No --> W([401/403 - Show error])
+    V -- Yes --> X[(Fetch report_metadata\nfrom automatisor_customer_sites)]
+    X --> Y[(Fetch session messages\nby session_id + customer_id + site_id)]
+    Y --> Z[Append user message]
+    Z --> AA[Build system prompt\n+ last 20 messages]
+    AA --> AB[OpenAI gpt-4o-mini\nchat.completions.create]
+    AB --> AC{OpenAI success?}
+    AC -- No --> AD([500 - Show error])
+    AC -- Yes --> AE[Append assistant reply]
+    AE --> AF[(PATCH session row\nmessages + updated_at)]
+    AF --> AG([Return reply to UI])
+    AG --> AH([Render assistant reply])
+
+    style A fill:#4A90D9,color:#fff
+    style E fill:#E74C3C,color:#fff
+    style G fill:#E74C3C,color:#fff
+    style U fill:#E74C3C,color:#fff
+    style W fill:#E74C3C,color:#fff
+    style AD fill:#E74C3C,color:#fff
+    style AH fill:#27AE60,color:#fff
+    style Q fill:#4A90D9,color:#fff
+    style AB fill:#8E44AD,color:#fff

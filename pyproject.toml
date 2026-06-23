@@ -14,7 +14,8 @@ dependencies = [
     "python-dotenv (==1.0.1)",
     "supabase (==2.15.3)",
     "stripe (>=15.2.0,<16.0.0)",
-    "apscheduler (>=3.11.2,<4.0.0)"
+    "apscheduler (>=3.11.2,<4.0.0)",
+    "openai (>=1.0.0)"
 ]
 
 
@@ -22,6 +23,10 @@ dependencies = [
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+[tool.poetry]
+package-mode = false
+
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.3"
+pytest-asyncio = "^1.4.0"
 
