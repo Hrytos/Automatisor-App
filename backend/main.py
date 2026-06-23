@@ -1548,7 +1548,7 @@ def schedule_company_discovery_on_worker(
     )
 
 
-SITE_RECOMMENDATION_DEFAULT_LIMIT = 20
+SITE_RECOMMENDATION_DEFAULT_LIMIT = 5
 _site_recommendation_background_tasks: set[asyncio.Task[Any]] = set()
 
 

@@ -285,10 +285,6 @@ function normalizeCompanyDiscovery(raw) {
   };
 }
 
-function canViewCompanyFacilities(company) {
-  const status = companyDiscoveryStatus(company);
-  return status === "ready";
-}
 
 function recommendationText(value) {
   return String(value || "").trim();
@@ -2951,7 +2947,6 @@ function CompanyRow({
 }) {
   const companyId = company.customer_context_id || "";
   const showDiscover = canDiscoverCompany(company);
-  const showView = canViewCompanyFacilities(company);
 
   return (
     <article className="site-bar-item company-bar-item">
@@ -2980,7 +2975,7 @@ function CompanyRow({
               {discovering ? "Starting..." : "Show More Facilities"}
             </button>
           ) : null}
-          {showView && companyId ? (
+          {companyId ? (
             <Link className="site-bar-link site-bar-link-primary" to={buildCompanyFacilitiesPath(companyId)}>
               View Facilities
             </Link>
@@ -4984,24 +4979,26 @@ function CompanyFacilitiesPage() {
           <>
             <section className="workspace-card workspace-card-modern workspace-card-wide report-view-card">
               <div className="tab-row report-tab-row" role="tablist" aria-label="Company sections">
-                <button
-                  type="button"
-                  className={`tab-btn ${activeTab === "facilities" ? "tab-btn-active" : ""}`}
-                  onClick={() => openCompanyTab("facilities")}
-                  role="tab"
-                  aria-selected={activeTab === "facilities"}
-                >
-                  Facilities
-                </button>
-                <button
-                  type="button"
-                  className={`tab-btn ${activeTab === "notes" ? "tab-btn-active" : ""}`}
-                  onClick={() => openCompanyTab("notes")}
-                  role="tab"
-                  aria-selected={activeTab === "notes"}
-                >
-                  Notes
-                </button>
+                <div className="report-tab-group">
+                  <button
+                    type="button"
+                    className={`tab-btn ${activeTab === "facilities" ? "tab-btn-active" : ""}`}
+                    onClick={() => openCompanyTab("facilities")}
+                    role="tab"
+                    aria-selected={activeTab === "facilities"}
+                  >
+                    Facilities
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-btn ${activeTab === "notes" ? "tab-btn-active" : ""}`}
+                    onClick={() => openCompanyTab("notes")}
+                    role="tab"
+                    aria-selected={activeTab === "notes"}
+                  >
+                    Notes
+                  </button>
+                </div>
               </div>
 
               {activeTab === "facilities" ? (
