@@ -2980,7 +2980,29 @@ footer {
 }
 
 .facilities-page {
-  margin-top: 24px;
+  margin-top: 0;
+}
+
+.facilities-page .workspace-subpage-head {
+  margin-bottom: 4px;
+  padding-top: 12px;
+}
+
+.facilities-page .workspace-page-title {
+  margin-bottom: 0;
+}
+
+.facilities-page .workspace-facilities-tabs {
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.facilities-page .workspace-sites-panel {
+  padding: 16px 20px;
+}
+
+.companies-page .workspace-subpage-head {
+  margin-bottom: 14px;
 }
 
 .new-site-page .workspace-card-form {
@@ -3596,6 +3618,7 @@ footer {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-family: var(--sans);
   font-size: 13px;
   font-weight: 600;
   color: #334155;
@@ -3606,6 +3629,13 @@ footer {
     border-color 0.16s ease,
     box-shadow 0.16s ease,
     color 0.16s ease;
+}
+
+button.site-bar-link {
+  font-family: var(--sans);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .site-bar-link:hover {
@@ -3687,10 +3717,9 @@ footer {
 .workspace-facilities-tabs {
   width: 100%;
   max-width: 1360px;
-  margin-left: auto;
-  margin-right: auto;
+  margin: 0 auto 8px;
   justify-content: center;
-  padding: 0 32px;
+  padding: 0;
   box-sizing: border-box;
 }
 
@@ -3997,7 +4026,7 @@ footer {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 12px;
   width: 100%;
   max-width: 1360px;
   margin-left: auto;
@@ -4090,6 +4119,18 @@ footer {
 }
 
 .recommendation-list-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.recommendation-list-grid.recommendation-list-count-1 {
+  grid-template-columns: minmax(280px, 400px);
+}
+
+.recommendation-list-grid.recommendation-list-count-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.recommendation-list-grid.recommendation-list-count-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -7830,6 +7871,24 @@ footer {
   margin: 6px 0 0;
   font-size: 13px;
   color: #6b6b63;
+}
+
+.company-bar-actions {
+  min-width: 0;
+}
+
+.company-bar-action-row {
+  flex-wrap: wrap;
+}
+
+.company-bar-action-row .site-bar-link {
+  width: auto;
+  min-width: 0;
+  min-height: 48px;
+  padding-inline: 14px;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .form-success {

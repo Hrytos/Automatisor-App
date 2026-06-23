@@ -1501,18 +1501,22 @@ async def _enqueue_company_discovery_on_worker(
     customer_context_ids: list[str],
     *,
     send_email: bool = True,
-) -> None:
+) -> bool:
     if not RECOMMENDATION_SYSTEM_URL:
         print("RECOMMENDATION_SYSTEM_URL not set; skipping company discovery enqueue")
-        return
+        return False
+    if not RECOMMENDATION_WORKER_SECRET:
+        print("RECOMMENDATION_WORKER_SECRET not set; skipping company discovery enqueue")
+        return False
     ids = [clean_optional(item) for item in customer_context_ids]
     ids = [item for item in ids if item]
     if not ids:
-        return
+        return False
 
-    headers: dict[str, str] = {"Content-Type": "application/json"}
-    if RECOMMENDATION_WORKER_SECRET:
-        headers["Authorization"] = f"Bearer {RECOMMENDATION_WORKER_SECRET}"
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {RECOMMENDATION_WORKER_SECRET}",
+    }
 
     if len(ids) == 1:
         url = f"{RECOMMENDATION_SYSTEM_URL}/recommendations/company-discovery"
@@ -1534,22 +1538,98 @@ async def _enqueue_company_discovery_on_worker(
             print(
                 f"Company discovery enqueue failed ({response.status_code}): {response.text}"
             )
+            return False
+        print(
+            f"Company discovery enqueued for {len(ids)} company context(s): "
+            f"{response.status_code} {response.text[:200]}",
+            flush=True,
+        )
+        return True
     except Exception as exc:
         print(f"Company discovery enqueue failed: {exc}")
-
-
-def schedule_company_discovery_on_worker(
-    customer_context_ids: list[str],
-    *,
-    send_email: bool = True,
-) -> None:
-    asyncio.create_task(
-        _enqueue_company_discovery_on_worker(customer_context_ids, send_email=send_email)
-    )
+        return False
 
 
 SITE_RECOMMENDATION_DEFAULT_LIMIT = 5
-_site_recommendation_background_tasks: set[asyncio.Task[Any]] = set()
+
+
+async def _enqueue_site_recommendations_on_worker(
+    customer_site_id: str,
+    *,
+    limit: int = SITE_RECOMMENDATION_DEFAULT_LIMIT,
+) -> bool:
+    if not RECOMMENDATION_SYSTEM_URL:
+        print("RECOMMENDATION_SYSTEM_URL not set; skipping site recommendations enqueue")
+        return False
+    if not RECOMMENDATION_WORKER_SECRET:
+        print("RECOMMENDATION_WORKER_SECRET not set; skipping site recommendations enqueue")
+        return False
+    customer_site_id = clean_optional(customer_site_id)
+    if not customer_site_id:
+        return False
+
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {RECOMMENDATION_WORKER_SECRET}",
+    }
+
+    url = f"{RECOMMENDATION_SYSTEM_URL}/recommendations/site-recommendations"
+    payload = {
+        "customer_site_id": customer_site_id,
+        "limit": limit,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+        if response.is_error:
+            print(
+                f"Site recommendations enqueue failed ({response.status_code}): {response.text}"
+            )
+            return False
+        print(
+            f"Site recommendations worker accepted enqueue for customer_site_id={customer_site_id}: "
+            f"{response.status_code} {response.text[:200]}",
+            flush=True,
+        )
+        return True
+    except Exception as exc:
+        print(f"Site recommendations enqueue failed: {exc}")
+        return False
+
+
+async def maybe_start_site_recommendations(
+    db: SupabaseAdmin,
+    site: dict[str, Any],
+    *,
+    assignment_customer_site_id: str | None = None,
+) -> None:
+    customer_site_id = clean_optional(assignment_customer_site_id) or clean_optional(
+        site.get("customer_site_id")
+    )
+    if not customer_site_id:
+        print("Site recommendations skip: missing customer_site_id")
+        return
+
+    fresh_recommendations = await fetch_assignment_recommendations(db, customer_site_id)
+    current_status = site_recommendations_status({"recommendations": fresh_recommendations})
+    if current_status in ("running", "review", "ready"):
+        print(
+            f"Site recommendations skip: customer_site_id={customer_site_id} "
+            f"status={current_status or 'idle'}"
+        )
+        return
+
+    enqueued = await _enqueue_site_recommendations_on_worker(customer_site_id)
+    if not enqueued:
+        print(
+            f"Site recommendations enqueue failed for customer_site_id={customer_site_id}",
+            flush=True,
+        )
+        return
+
+    await mark_site_recommendations_running(db, customer_site_id)
+    print(f"Site recommendations started: customer_site_id={customer_site_id}")
 
 
 def site_recommendations_status(site: dict[str, Any]) -> str:
@@ -1596,83 +1676,6 @@ async def mark_site_recommendations_running(db: SupabaseAdmin, customer_site_id:
         },
         headers={"Prefer": "return=minimal"},
     )
-
-
-async def _enqueue_site_recommendations_on_worker(
-    customer_site_id: str,
-    *,
-    limit: int = SITE_RECOMMENDATION_DEFAULT_LIMIT,
-) -> None:
-    if not RECOMMENDATION_SYSTEM_URL:
-        print("RECOMMENDATION_SYSTEM_URL not set; skipping site recommendations enqueue")
-        return
-    customer_site_id = clean_optional(customer_site_id)
-    if not customer_site_id:
-        return
-
-    headers: dict[str, str] = {"Content-Type": "application/json"}
-    if RECOMMENDATION_WORKER_SECRET:
-        headers["Authorization"] = f"Bearer {RECOMMENDATION_WORKER_SECRET}"
-
-    url = f"{RECOMMENDATION_SYSTEM_URL}/recommendations/site-recommendations"
-    payload = {
-        "customer_site_id": customer_site_id,
-        "limit": limit,
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(url, json=payload, headers=headers)
-        if response.is_error:
-            print(
-                f"Site recommendations enqueue failed ({response.status_code}): {response.text}"
-            )
-        else:
-            print(
-                f"Site recommendations worker accepted enqueue for customer_site_id={customer_site_id}: "
-                f"{response.status_code} {response.text[:200]}"
-            )
-    except Exception as exc:
-        print(f"Site recommendations enqueue failed: {exc}")
-
-
-def schedule_site_recommendations_on_worker(
-    customer_site_id: str,
-    *,
-    limit: int = SITE_RECOMMENDATION_DEFAULT_LIMIT,
-) -> None:
-    task = asyncio.create_task(
-        _enqueue_site_recommendations_on_worker(customer_site_id, limit=limit)
-    )
-    _site_recommendation_background_tasks.add(task)
-    task.add_done_callback(_site_recommendation_background_tasks.discard)
-
-
-async def maybe_start_site_recommendations(
-    db: SupabaseAdmin,
-    site: dict[str, Any],
-    *,
-    assignment_customer_site_id: str | None = None,
-) -> None:
-    customer_site_id = clean_optional(assignment_customer_site_id) or clean_optional(
-        site.get("customer_site_id")
-    )
-    if not customer_site_id:
-        print("Site recommendations skip: missing customer_site_id")
-        return
-
-    fresh_recommendations = await fetch_assignment_recommendations(db, customer_site_id)
-    current_status = site_recommendations_status({"recommendations": fresh_recommendations})
-    if current_status in ("running", "review", "ready"):
-        print(
-            f"Site recommendations skip: customer_site_id={customer_site_id} "
-            f"status={current_status or 'idle'}"
-        )
-        return
-
-    await mark_site_recommendations_running(db, customer_site_id)
-    print(f"Site recommendations enqueued: customer_site_id={customer_site_id}")
-    schedule_site_recommendations_on_worker(customer_site_id)
 
 
 async def upsert_account(db: SupabaseAdmin, org_name: str, domain: str) -> dict[str, str]:
@@ -3273,8 +3276,16 @@ async def discover_company_facilities(request: Request, body: dict[str, Any] = B
                 "company": company,
                 "message": "Dry run: facility discovery would start.",
             }
+        enqueued = await _enqueue_company_discovery_on_worker(
+            [customer_context_id],
+            send_email=False,
+        )
+        if not enqueued:
+            raise HTTPException(
+                status_code=503,
+                detail="Facility discovery service is unavailable. Please try again shortly.",
+            )
         company = await trigger_company_discovery(db, customer["customer_id"], customer_context_id)
-        schedule_company_discovery_on_worker([customer_context_id], send_email=False)
         return {
             "status": "running",
             "company": company,
@@ -3296,12 +3307,31 @@ async def discover_company_facilities_bulk(body: dict[str, Any] = Body(default={
         customer = await find_customer_by_email(db, email)
         if not customer:
             raise HTTPException(status_code=422, detail="Customer not found")
+        eligible_ids: list[str] = []
+        for customer_context_id in customer_context_ids:
+            company = await find_customer_company_by_id(db, customer["customer_id"], customer_context_id)
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found.")
+            status = clean_optional((company.get("discovery") or {}).get("status")) or "idle"
+            if status in {"running", "review", "ready"}:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Facility discovery cannot start for {customer_context_id} with status {status}.",
+                )
+            eligible_ids.append(customer_context_id)
+
+        if eligible_ids:
+            enqueued = await _enqueue_company_discovery_on_worker(eligible_ids, send_email=False)
+            if not enqueued:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Facility discovery service is unavailable. Please try again shortly.",
+                )
+
         results: list[dict[str, Any]] = []
-        enqueued_ids: list[str] = []
         for customer_context_id in customer_context_ids:
             try:
                 company = await trigger_company_discovery(db, customer["customer_id"], customer_context_id)
-                enqueued_ids.append(customer_context_id)
                 results.append(
                     {
                         "customer_context_id": customer_context_id,
@@ -3317,8 +3347,6 @@ async def discover_company_facilities_bulk(body: dict[str, Any] = Body(default={
                         "error": exc.detail if isinstance(exc.detail, str) else str(exc.detail),
                     }
                 )
-        if enqueued_ids:
-            schedule_company_discovery_on_worker(enqueued_ids, send_email=False)
         return {"status": "ok", "results": results}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
