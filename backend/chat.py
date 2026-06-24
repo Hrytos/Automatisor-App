@@ -675,15 +675,18 @@ async def share_chat(request: Request):
                     shared_by_customer_id=sender_id,
                     pending_recipient_email=recipient,
                 )
+        except Exception as exc:
+            return {"email": recipient, "status": "failed", "message": f"Could not prepare share: {exc}"}
 
-            token = encode_share_token(
-                recipient,
-                site_id,
-                sender_id,
-                session_id=session_id,
-                share_type="chat",
-            )
-            share_url = f"{app_base_url}/auth?share={token}"
+        token = encode_share_token(
+            recipient,
+            site_id,
+            sender_id,
+            session_id=session_id,
+            share_type="chat",
+        )
+        share_url = f"{app_base_url}/auth?share={token}"
+        try:
             async with semaphore:
                 await send_chat_share_email(
                     recipient,
@@ -698,6 +701,12 @@ async def share_chat(request: Request):
             error_msg = str(exc)
             if "rate limit" in error_msg.lower() or "429" in error_msg:
                 return {"email": recipient, "status": "failed", "message": "Rate limit reached, try again later"}
+            if "getaddrinfo" in error_msg.lower() or "could not reach email service" in error_msg.lower():
+                return {
+                    "email": recipient,
+                    "status": "failed",
+                    "message": "Could not reach email service. Check your internet connection and try again.",
+                }
             return {"email": recipient, "status": "failed", "message": error_msg}
 
     results = await asyncio.gather(*(share_with_recipient(recipient) for recipient in recipients))

@@ -7,6 +7,7 @@ import hmac
 import hashlib
 import asyncio
 import html
+import time
 from pathlib import Path
 from typing import Any
 from datetime import datetime, timedelta, timezone
@@ -234,21 +235,59 @@ def get_auth_headers() -> dict[str, str]:
     }
 
 
-def _post_resend_email_sync(payload: dict[str, Any]) -> httpx.Response:
-    """Send email via Resend using sync HTTP (reliable on Windows)."""
+RESEND_API_URL = "https://api.resend.com/emails"
+_resend_sync_client: httpx.Client | None = None
+
+
+def _get_resend_sync_client() -> httpx.Client:
+    """Sync Resend client bound to IPv4 (avoids Windows async/IPv6 DNS failures)."""
+    global _resend_sync_client
+    if _resend_sync_client is None:
+        transport = httpx.HTTPTransport(local_address="0.0.0.0")
+        _resend_sync_client = httpx.Client(transport=transport, timeout=30.0)
+    return _resend_sync_client
+
+
+def _require_resend_config() -> str:
+    from_email = str(os.getenv("RESEND_FROM_EMAIL") or RESEND_FROM_EMAIL or "").strip()
     api_key = str(os.getenv("RESEND_API_KEY") or RESEND_API_KEY or "").strip()
     if not api_key:
         raise RuntimeError("Missing RESEND_API_KEY")
-    with httpx.Client(timeout=30.0) as client:
-        return client.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload,
-        )
+    if not from_email:
+        raise RuntimeError("Missing RESEND_FROM_EMAIL")
+    return from_email
+
+
+def _post_resend_email_sync(payload: dict[str, Any]) -> httpx.Response:
+    """Send email via Resend using sync HTTP (same path for all transactional emails)."""
+    api_key = str(os.getenv("RESEND_API_KEY") or RESEND_API_KEY or "").strip()
+    if not api_key:
+        raise RuntimeError("Missing RESEND_API_KEY")
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return _get_resend_sync_client().post(RESEND_API_URL, headers=headers, json=payload)
+        except (httpx.ConnectError, httpx.NetworkError) as exc:
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(0.25 * (attempt + 1))
+                continue
+            raise RuntimeError(
+                "Could not reach email service (api.resend.com). Check your internet connection and try again."
+            ) from exc
+    raise RuntimeError("Failed to send email") from last_exc
 
 
 async def post_resend_email(payload: dict[str, Any]) -> httpx.Response:
     return await asyncio.to_thread(_post_resend_email_sync, payload)
+
+
+async def _deliver_resend_email(payload: dict[str, Any], *, failure_label: str) -> None:
+    """Shared delivery helper used by pre-assessment, report-share, and chat-share emails."""
+    response = await post_resend_email(payload)
+    if response.is_error:
+        raise RuntimeError(f"{failure_label}: {response.text}")
 
 
 def get_auth_client() -> Client:
@@ -1390,7 +1429,6 @@ async def add_customer_wishlist_item(
     }
 
 
-<<<<<<< HEAD
 async def remove_customer_wishlist_item(
     db: SupabaseAdmin,
     customer_id: str,
@@ -1530,17 +1568,11 @@ async def find_customer_company_by_id(
     db: SupabaseAdmin,
     customer_id: str,
     customer_context_id: str,
-=======
-async def get_customer_user_context(
-    db: SupabaseAdmin,
-    customer_id: str,
->>>>>>> facility-dev
 ) -> dict[str, Any] | None:
     rows = await db.request(
         "GET",
         "/rest/v1/automatisor_customer_context",
         params={
-<<<<<<< HEAD
             "select": CUSTOMER_CONTEXT_SELECT,
             "customer_context_id": f"eq.{customer_context_id}",
             "customer_id": f"eq.{customer_id}",
@@ -1606,59 +1638,11 @@ async def save_customer_company(
             "site_id": None,
             "event_type": EVENT_TYPE_USER_ADDED_COMPANY,
             "metadata": default_company_discovery_metadata(),
-=======
-            "select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at",
-            "customer_id": f"eq.{customer_id}",
-            "event_type": "eq.user_context",
-            "order": "updated_at.desc",
-            "limit": 1,
-        },
-    )
-    return rows[0] if rows else None
-
-
-async def upsert_customer_user_context(
-    db: SupabaseAdmin,
-    customer_id: str,
-    account_id: str,
-    context_text: str,
-) -> dict[str, Any]:
-    now = datetime.now(timezone.utc).isoformat()
-    existing = await get_customer_user_context(db, customer_id)
-    metadata = {"context": context_text}
-    if existing:
-        updated_rows = await db.request(
-            "PATCH",
-            "/rest/v1/automatisor_customer_context",
-            params={
-                "customer_context_id": f"eq.{existing['customer_context_id']}",
-                "select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at",
-            },
-            json_body={
-                "account_id": account_id,
-                "metadata": metadata,
-                "updated_at": now,
-            },
-            headers={"Prefer": "return=representation"},
-        )
-        return updated_rows[0]
-    created_rows = await db.request(
-        "POST",
-        "/rest/v1/automatisor_customer_context",
-        params={"select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at"},
-        json_body={
-            "customer_id": customer_id,
-            "site_id": None,
-            "account_id": account_id,
-            "event_type": "user_context",
-            "metadata": metadata,
->>>>>>> facility-dev
             "created_at": now,
             "updated_at": now,
         },
         headers={"Prefer": "return=representation"},
     )
-<<<<<<< HEAD
     account_rows = await db.request(
         "GET",
         "/rest/v1/accounts",
@@ -1892,9 +1876,67 @@ async def mark_site_recommendations_running(db: SupabaseAdmin, customer_site_id:
         },
         headers={"Prefer": "return=minimal"},
     )
-=======
+
+
+async def get_customer_user_context(
+    db: SupabaseAdmin,
+    customer_id: str,
+) -> dict[str, Any] | None:
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_context",
+        params={
+            "select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at",
+            "customer_id": f"eq.{customer_id}",
+            "event_type": "eq.user_context",
+            "order": "updated_at.desc",
+            "limit": 1,
+        },
+    )
+    return rows[0] if rows else None
+
+
+async def upsert_customer_user_context(
+    db: SupabaseAdmin,
+    customer_id: str,
+    account_id: str,
+    context_text: str,
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    existing = await get_customer_user_context(db, customer_id)
+    metadata = {"context": context_text}
+    if existing:
+        updated_rows = await db.request(
+            "PATCH",
+            "/rest/v1/automatisor_customer_context",
+            params={
+                "customer_context_id": f"eq.{existing['customer_context_id']}",
+                "select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at",
+            },
+            json_body={
+                "account_id": account_id,
+                "metadata": metadata,
+                "updated_at": now,
+            },
+            headers={"Prefer": "return=representation"},
+        )
+        return updated_rows[0]
+    created_rows = await db.request(
+        "POST",
+        "/rest/v1/automatisor_customer_context",
+        params={"select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at"},
+        json_body={
+            "customer_id": customer_id,
+            "site_id": None,
+            "account_id": account_id,
+            "event_type": "user_context",
+            "metadata": metadata,
+            "created_at": now,
+            "updated_at": now,
+        },
+        headers={"Prefer": "return=representation"},
+    )
     return created_rows[0]
->>>>>>> facility-dev
 
 
 async def upsert_account(db: SupabaseAdmin, org_name: str, domain: str) -> dict[str, str]:
@@ -2485,20 +2527,19 @@ def build_pre_assessment_approval_email(email: str, company_name: str, site_addr
 
 
 async def send_pre_assessment_approval_email(email: str, company_name: str, site_address: str) -> None:
-    if not RESEND_API_KEY:
-        raise HTTPException(status_code=500, detail="Missing RESEND_API_KEY")
-    if not RESEND_FROM_EMAIL:
-        raise HTTPException(status_code=500, detail="Missing RESEND_FROM_EMAIL")
-    response = await post_resend_email(
-        {
-            "from": RESEND_FROM_EMAIL,
-            "to": [email],
-            "subject": "Your AutomatiSOR site pre-assessment report request is confirmed!",
-            "html": build_pre_assessment_approval_email(email, company_name, site_address),
-        }
-    )
-    if response.is_error:
-        raise HTTPException(status_code=500, detail=f"Failed to send approval email: {response.text}")
+    from_email = _require_resend_config()
+    try:
+        await _deliver_resend_email(
+            {
+                "from": from_email,
+                "to": [email],
+                "subject": "Your AutomatiSOR site pre-assessment report request is confirmed!",
+                "html": build_pre_assessment_approval_email(email, company_name, site_address),
+            },
+            failure_label="Failed to send approval email",
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 def build_report_share_email(sharer_email: str, company_name: str, site_address: str, share_url: str) -> str:
@@ -2574,20 +2615,16 @@ async def send_report_share_email(
     share_url: str,
 ) -> None:
     """Send share report email via Resend."""
-    if not RESEND_API_KEY:
-        raise RuntimeError("Missing RESEND_API_KEY")
-    if not RESEND_FROM_EMAIL:
-        raise RuntimeError("Missing RESEND_FROM_EMAIL")
-    response = await post_resend_email(
+    from_email = _require_resend_config()
+    await _deliver_resend_email(
         {
-            "from": RESEND_FROM_EMAIL,
+            "from": from_email,
             "to": [recipient_email],
             "subject": f"{sharer_email} shared an AutomatiSOR report with you",
             "html": build_report_share_email(sharer_email, company_name, site_address, share_url),
-        }
+        },
+        failure_label="Failed to send share email",
     )
-    if response.is_error:
-        raise RuntimeError(f"Failed to send share email: {response.text}")
 
 
 async def find_chat_share_source_assignment(
@@ -2840,14 +2877,11 @@ async def send_chat_share_email(
     chat_title: str,
     share_url: str,
 ) -> None:
-    """Send shared chat email via Resend."""
-    if not RESEND_API_KEY:
-        raise RuntimeError("Missing RESEND_API_KEY")
-    if not RESEND_FROM_EMAIL:
-        raise RuntimeError("Missing RESEND_FROM_EMAIL")
-    response = await post_resend_email(
+    """Send shared chat email via Resend (same delivery path as report share)."""
+    from_email = _require_resend_config()
+    await _deliver_resend_email(
         {
-            "from": RESEND_FROM_EMAIL,
+            "from": from_email,
             "to": [recipient_email],
             "subject": f"{sharer_email} shared an AutomatiSOR conversation with you",
             "html": build_chat_share_email(
@@ -2857,10 +2891,9 @@ async def send_chat_share_email(
                 chat_title,
                 share_url,
             ),
-        }
+        },
+        failure_label="Failed to send chat share email",
     )
-    if response.is_error:
-        raise RuntimeError(f"Failed to send chat share email: {response.text}")
 
 
 async def resolve_sender_report_assignment(
@@ -3640,7 +3673,6 @@ async def add_customer_context_wishlist(body: dict[str, Any] = Body(default={}))
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-<<<<<<< HEAD
 @app.post("/api/companies")
 async def save_company(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     try:
@@ -3852,7 +3884,8 @@ async def discover_company_facilities_bulk(body: dict[str, Any] = Body(default={
         return {"status": "ok", "results": results}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-=======
+
+
 @app.get("/api/customer-context/user")
 async def get_customer_context_user(request: Request) -> dict[str, Any]:
     db = get_admin_db()
@@ -3883,7 +3916,6 @@ async def save_customer_context_user(request: Request, body: dict[str, Any] = Bo
         "customer_context": row,
         "context": context_text,
     }
->>>>>>> facility-dev
 
 
 @app.post("/api/share/resolve")
