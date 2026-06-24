@@ -36,25 +36,6 @@ def _fake_deps():
     return FakeDb, fake_get_authenticated_customer, fake_infer_error_status
 
 
-def test_is_disallowed_request_matches_email_drafting():
-    assert chat._is_disallowed_request(
-        "Frame an email to the warehouse manager pitching a robotic picking system"
-    )
-    assert not chat._is_disallowed_request(
-        "Suggest top 3 automation solutions that make sense for this facility"
-    )
-
-
-def test_build_disallowed_request_response_is_intent_aware():
-    reply = chat._build_disallowed_request_response(
-        "Write an email pitching robotic picking for this site"
-    )
-    assert reply.startswith("I can only answer questions about this report.")
-    assert "Try asking:" in reply
-    assert "robotic picking" in reply.lower()
-    assert "[topic]" not in reply
-
-
 def test_ensure_message_schema_adds_id_and_metadata():
     normalized = chat._ensure_message_schema({"role": "assistant", "content": "ok"})
     assert normalized["role"] == "assistant"
@@ -75,15 +56,26 @@ def test_store_feedback_on_messages_attaches_metadata():
 
 
 @pytest.mark.asyncio
-async def test_send_message_short_circuits_disallowed_request(monkeypatch):
+async def test_send_message_uses_llm_for_disallowed_request(monkeypatch):
     monkeypatch.setattr(chat, "_resolve_main_deps", _fake_deps)
     monkeypatch.setattr(chat, "_get_openai_key", lambda: "test-key")
 
-    class ForbiddenOpenAI:
-        def __init__(self, *args, **kwargs):
-            raise AssertionError("OpenAI should not be called for disallowed requests")
+    calls = {}
 
-    monkeypatch.setattr(chat, "AsyncOpenAI", ForbiddenOpenAI)
+    class FakeCompletion:
+        def __init__(self):
+            self.choices = [type("Choice", (), {"message": type("Message", (), {"content": "Prompt-handled reply"})()})]
+
+    class FakeOpenAI:
+        def __init__(self, *args, **kwargs):
+            self.chat = type("ChatApi", (), {})()
+            self.chat.completions = type("Completions", (), {"create": self.create})()
+
+        async def create(self, *args, **kwargs):
+            calls["called"] = True
+            return FakeCompletion()
+
+    monkeypatch.setattr(chat, "AsyncOpenAI", FakeOpenAI)
 
     response = await chat.send_message(
         FakeRequest(
@@ -95,12 +87,48 @@ async def test_send_message_short_circuits_disallowed_request(monkeypatch):
         )
     )
 
-    assert response["reply"].startswith("I can only answer questions about this report.")
-    assert "Try asking:" in response["reply"]
+    assert calls["called"] is True
+    assert response["reply"] == "Prompt-handled reply"
 
 
 @pytest.mark.asyncio
-async def test_send_message_replaces_disallowed_model_output(monkeypatch):
+async def test_send_message_uses_llm_for_artifact_request(monkeypatch):
+    monkeypatch.setattr(chat, "_resolve_main_deps", _fake_deps)
+    monkeypatch.setattr(chat, "_get_openai_key", lambda: "test-key")
+
+    calls = {}
+
+    class FakeCompletion:
+        def __init__(self):
+            self.choices = [type("Choice", (), {"message": type("Message", (), {"content": "Prompt-handled reply"})()})]
+
+    class FakeOpenAI:
+        def __init__(self, *args, **kwargs):
+            self.chat = type("ChatApi", (), {})()
+            self.chat.completions = type("Completions", (), {"create": self.create})()
+
+        async def create(self, *args, **kwargs):
+            calls["called"] = True
+            return FakeCompletion()
+
+    monkeypatch.setattr(chat, "AsyncOpenAI", FakeOpenAI)
+
+    response = await chat.send_message(
+        FakeRequest(
+            {
+                "site_id": "site-1",
+                "session_id": "session-1",
+                "message": "Please export this report as CSV and give me a download link",
+            }
+        )
+    )
+
+    assert calls["called"] is True
+    assert response["reply"] == "Prompt-handled reply"
+
+
+@pytest.mark.asyncio
+async def test_send_message_returns_model_output_as_is(monkeypatch):
     monkeypatch.setattr(chat, "_resolve_main_deps", _fake_deps)
     monkeypatch.setattr(chat, "_get_openai_key", lambda: "test-key")
 
@@ -137,8 +165,105 @@ async def test_send_message_replaces_disallowed_model_output(monkeypatch):
         )
     )
 
-    assert response["reply"].startswith("I can only answer questions about this report.")
-    assert "Try asking:" in response["reply"]
+    assert response["reply"] == "Subject: Automation proposal\n\nHi there\n\n...\n\nBest regards,"
+
+
+@pytest.mark.asyncio
+async def test_send_message_returns_model_follow_up_as_is(monkeypatch):
+    monkeypatch.setattr(chat, "_resolve_main_deps", _fake_deps)
+    monkeypatch.setattr(chat, "_get_openai_key", lambda: "test-key")
+
+    class FakeCompletion:
+        def __init__(self):
+            self.choices = [
+                type(
+                    "Choice",
+                    (),
+                    {
+                        "message": type(
+                            "Message",
+                            (),
+                            {
+                                "content": (
+                                    "No, union status is not stated in this report.\n"
+                                    "- There are no direct references to union activity.\n"
+                                    "Would you like this as a downloadable CSV?"
+                                )
+                            },
+                        )()
+                    },
+                )
+            ]
+
+    class FakeOpenAI:
+        def __init__(self, *args, **kwargs):
+            self.chat = type("ChatApi", (), {})()
+            self.chat.completions = type("Completions", (), {"create": self.create})()
+
+        async def create(self, *args, **kwargs):
+            return FakeCompletion()
+
+    monkeypatch.setattr(chat, "AsyncOpenAI", FakeOpenAI)
+
+    response = await chat.send_message(
+        FakeRequest(
+            {
+                "site_id": "site-1",
+                "session_id": "session-1",
+                "message": "site in union state?",
+            }
+        )
+    )
+
+    assert response["reply"] == (
+        "No, union status is not stated in this report.\n"
+        "- There are no direct references to union activity.\n"
+        "Would you like this as a downloadable CSV?"
+    )
+
+
+@pytest.mark.asyncio
+async def test_send_message_appends_follow_up_for_missing_data(monkeypatch):
+    monkeypatch.setattr(chat, "_resolve_main_deps", _fake_deps)
+    monkeypatch.setattr(chat, "_get_openai_key", lambda: "test-key")
+
+    class FakeCompletion:
+        def __init__(self):
+            self.choices = [
+                type(
+                    "Choice",
+                    (),
+                    {
+                        "message": type(
+                            "Message",
+                            (),
+                            {"content": "Not stated in this report."},
+                        )()
+                    },
+                )
+            ]
+
+    class FakeOpenAI:
+        def __init__(self, *args, **kwargs):
+            self.chat = type("ChatApi", (), {})()
+            self.chat.completions = type("Completions", (), {"create": self.create})()
+
+        async def create(self, *args, **kwargs):
+            return FakeCompletion()
+
+    monkeypatch.setattr(chat, "AsyncOpenAI", FakeOpenAI)
+
+    response = await chat.send_message(
+        FakeRequest(
+            {
+                "site_id": "site-1",
+                "session_id": "session-1",
+                "message": "Does this site have a labor turnover problem?",
+            }
+        )
+    )
+
+    assert response["reply"] == "Not stated in this report."
 
 
 @pytest.mark.asyncio

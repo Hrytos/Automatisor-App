@@ -14,6 +14,7 @@ def test_share_token_round_trip(monkeypatch):
         "recipient_email": "recipient@company.com",
         "site_id": "site-123",
         "shared_by": "sharer-456",
+        "share_type": "report",
     }
 
 
@@ -31,6 +32,7 @@ def test_share_token_rejects_tampering(monkeypatch):
 def test_share_token_returns_none_without_secret(monkeypatch):
     """Test that tokens cannot be decoded without secret."""
     monkeypatch.setattr(main, "SHARE_TOKEN_SECRET", "")
+    monkeypatch.delenv("SHARE_TOKEN_SECRET", raising=False)
 
     assert main.decode_share_token("not-a-token") is None
 
@@ -50,8 +52,7 @@ def test_share_token_backward_compat_without_shared_by(monkeypatch):
     import hashlib
     
     monkeypatch.setattr(main, "SHARE_TOKEN_SECRET", "test-secret")
-    
-    # Create old-style token without shared_by
+    monkeypatch.setenv("SHARE_TOKEN_SECRET", "test-secret")
     payload = json.dumps(
         {"recipient_email": "recipient@company.com", "site_id": "site-123"},
         separators=(",", ":"),
@@ -66,6 +67,7 @@ def test_share_token_backward_compat_without_shared_by(monkeypatch):
         "recipient_email": "recipient@company.com",
         "site_id": "site-123",
         "shared_by": "",  # Empty string for old tokens
+        "share_type": "report",
     }
 
 

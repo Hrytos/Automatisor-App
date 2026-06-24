@@ -6,6 +6,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Link,
   Outlet,
@@ -2713,6 +2714,12 @@ const GoogleAddressPicker = forwardRef(function GoogleAddressPicker(
 // ── Profile menu (avatar circle + dropdown) ────────────────
 function ProfileMenu({ session, onLogout }) {
   const [open, setOpen] = useState(false);
+  const [showContextModal, setShowContextModal] = useState(false);
+  const [contextText, setContextText] = useState("");
+  const [contextInitialValue, setContextInitialValue] = useState("");
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextSaving, setContextSaving] = useState(false);
+  const [contextError, setContextError] = useState("");
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -2725,7 +2732,135 @@ function ProfileMenu({ session, onLogout }) {
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, [open]);
 
+  useEffect(() => {
+    if (!showContextModal) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showContextModal]);
+
   const initials = (session?.email || "?").charAt(0).toUpperCase();
+  const hasContextChanges = contextText.trim() !== contextInitialValue.trim();
+
+  async function openSolutionsContextModal() {
+    setOpen(false);
+    setShowContextModal(true);
+    setContextError("");
+    setContextLoading(true);
+    try {
+      const payload = await fetchJson("/api/customer-context/user", { method: "GET" });
+      const saved = String(payload?.context || "");
+      setContextText(saved);
+      setContextInitialValue(saved);
+    } catch (error) {
+      setContextText("");
+      setContextInitialValue("");
+      setContextError(error?.message || "Could not load your context.");
+    } finally {
+      setContextLoading(false);
+    }
+  }
+
+  async function saveSolutionsContext() {
+    const accountId = session?.activeAccountId || session?.accountId || "";
+    if (!accountId) {
+      setContextError("Account is required before saving context.");
+      return;
+    }
+    setContextSaving(true);
+    setContextError("");
+    try {
+      const payload = await fetchJson("/api/customer-context/user", {
+        method: "POST",
+        body: JSON.stringify({
+          account_id: accountId,
+          context: contextText,
+        }),
+      });
+      const saved = String(payload?.context || "");
+      setContextText(saved);
+      setContextInitialValue(saved);
+      setShowContextModal(false);
+    } catch (error) {
+      setContextError(error?.message || "Could not save your context.");
+    } finally {
+      setContextSaving(false);
+    }
+  }
+
+  function closeSolutionsContextModal() {
+    if (contextSaving) return;
+    setShowContextModal(false);
+    setContextError("");
+  }
+
+  const contextModal = showContextModal ? (
+    <div
+      className="profile-context-modal-backdrop"
+      role="presentation"
+      onMouseDown={closeSolutionsContextModal}
+    >
+      <div
+        className="profile-context-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="My solutions context"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="profile-context-modal-head">
+          <div>
+            <p className="profile-context-modal-eyebrow">Automatisor customer context</p>
+            <h3>My solutions</h3>
+          </div>
+          <button
+            type="button"
+            className="profile-context-modal-close"
+            onClick={closeSolutionsContextModal}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <p className="profile-context-modal-copy">
+        Describe your solution in detail. Automatisor uses this context to personalise its recommendations & conversations.
+        </p>
+        <textarea
+          id="profile-context-textarea"
+          className="profile-context-modal-textarea"
+          placeholder="Example: We specialize in warehouse automation, AMRs, WMS integrations, and brownfield retrofits for 3PL and retail distribution."
+          value={contextText}
+          onChange={(event) => setContextText(event.target.value)}
+          rows={8}
+          maxLength={8000}
+          disabled={contextLoading || contextSaving}
+        />
+        <div className="profile-context-modal-meta">
+          <span>{contextText.length}/8000</span>
+          {contextError ? <span className="profile-context-modal-error">{contextError}</span> : null}
+        </div>
+        <div className="profile-context-modal-actions">
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={closeSolutionsContextModal}
+            disabled={contextSaving}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={saveSolutionsContext}
+            disabled={contextLoading || contextSaving || !hasContextChanges}
+          >
+            {contextSaving ? "Saving..." : "Save context"}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className="profile-menu" ref={menuRef}>
@@ -2741,42 +2876,63 @@ function ProfileMenu({ session, onLogout }) {
 
       {open && (
         <div className="profile-dropdown" role="dialog" aria-label="Profile">
-          {/* User info */}
           <div className="profile-dropdown-header">
             <div className="profile-dropdown-avatar">{initials}</div>
             <div className="profile-dropdown-info">
+              <p className="profile-dropdown-eyebrow">Signed in as</p>
               <p className="profile-dropdown-email">{session?.email}</p>
             </div>
           </div>
 
-          <div className="profile-dropdown-divider" />
+          <nav className="profile-dropdown-nav" aria-label="Account actions">
+            <button
+              type="button"
+              className="profile-dropdown-item"
+              onClick={openSolutionsContextModal}
+            >
+              <span className="profile-dropdown-item-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 7h16M4 12h10M4 17h14" />
+                  <rect x="3" y="4" width="18" height="16" rx="2.5" />
+                </svg>
+              </span>
+              <span className="profile-dropdown-item-label">My solutions</span>
+            </button>
+            <Link
+              to="/workspace/billing"
+              className="profile-dropdown-item"
+              onClick={() => setOpen(false)}
+            >
+              <span className="profile-dropdown-item-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="5" width="20" height="14" rx="2.5" />
+                  <path d="M2 10h20" />
+                </svg>
+              </span>
+              <span className="profile-dropdown-item-label">Manage card</span>
+            </Link>
+          </nav>
 
-          {/* Payment method */}
-          <div className="profile-dropdown-section">
-            <div className="profile-payment-row">
-              <span className="profile-section-label">Payment method</span>
-              <Link
-                to="/workspace/billing"
-                className="btn-secondary btn-sm"
-                onClick={() => setOpen(false)}
-              >
-                Manage card
-              </Link>
-            </div>
+          <div className="profile-dropdown-footer">
+            <button
+              type="button"
+              className="profile-dropdown-item profile-dropdown-item-danger"
+              onClick={() => { setOpen(false); onLogout(); }}
+            >
+              <span className="profile-dropdown-item-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <path d="M16 17l5-5-5-5" />
+                  <path d="M21 12H9" />
+                </svg>
+              </span>
+              <span className="profile-dropdown-item-label">Log out</span>
+            </button>
           </div>
-
-          <div className="profile-dropdown-divider" />
-
-          {/* Logout */}
-          <button
-            type="button"
-            className="profile-logout-btn"
-            onClick={() => { setOpen(false); onLogout(); }}
-          >
-            Log out
-          </button>
         </div>
       )}
+
+      {contextModal ? createPortal(contextModal, document.body) : null}
     </div>
   );
 }
@@ -3950,8 +4106,18 @@ function NewUserPage() {
           <section className="workspace-page onboarding-workspace-page">
             <section className="auth-stage-card auth-stage-card-wide">
               <div className="auth-stage-header">
-                <h3>{shareDetails ? "Access shared report" : "Finish your onboarding"}</h3>
-                <p>{shareDetails ? "Add your details to access the report" : "Complete these steps to create your workspace and request your first pre-assessment."}</p>
+                  <h3>
+                    {shareDetails
+                      ? (shareDetails.share_type === "chat" ? "Access shared conversation" : "Access shared report")
+                      : "Finish your onboarding"}
+                  </h3>
+                  <p>
+                    {shareDetails
+                      ? (shareDetails.share_type === "chat"
+                        ? "Add your details to access the shared conversation and site report."
+                        : "Add your details to access the report")
+                      : "Complete these steps to create your workspace and request your first pre-assessment."}
+                  </p>
               </div>
 
               {/* Stepper - only show for normal users (not share recipients) */}
@@ -4172,7 +4338,9 @@ function NewUserPage() {
                   <h3>Enter your work email</h3>
                   <p>
                     {shareDetails
-                      ? "Sign in with the invited email to view the report."
+                      ? (shareDetails.share_type === "chat"
+                        ? "Sign in with the invited email to view the shared conversation and report."
+                        : "Sign in with the invited email to view the report.")
                       : "Use a company email address. Personal inboxes are blocked."}
                   </p>
                 </div>
@@ -6721,7 +6889,13 @@ function ReportPage() {
           />
         ) : null}
       </section>
-      {siteId ? <ChatWidget siteId={siteId} /> : null}
+      {siteId ? (
+        <ChatWidget
+          siteId={siteId}
+          senderEmail={session?.email || ""}
+          companyName={selectedSite?.company_name || ""}
+        />
+      ) : null}
     </main>
   );
 }

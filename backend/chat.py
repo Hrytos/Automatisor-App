@@ -1,9 +1,10 @@
 import json
 import os
-import re
+import asyncio
 from uuid import uuid4
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, Request
@@ -28,25 +29,48 @@ def _resolve_main_deps():
         from main import SupabaseAdmin, get_authenticated_customer, infer_error_status
     return SupabaseAdmin, get_authenticated_customer, infer_error_status
 
-router = APIRouter()
 
-_REFUSAL_LINE = (
-    "I can only answer questions about this report. "
-    "I cannot write emails, campaigns, scripts, or outreach content."
-)
-_DISALLOWED_ACTION_PATTERN = re.compile(
-    r"\b(write|draft|compose|frame|create|generate|prepare|craft|build|outline|make)\b",
-    re.IGNORECASE,
-)
-_DISALLOWED_ARTIFACT_PATTERN = re.compile(
-    r"\b(email|e-mail|message|campaign|sequence|follow-up|follow up|outreach|proposal|pitch deck|"
-    r"sales pitch|cold call|call script|script|talk track|talking points|meeting script|cover letter)\b",
-    re.IGNORECASE,
-)
-_DISALLOWED_OUTPUT_PATTERN = re.compile(
-    r"(^subject\s*:|^hi\s|^hello\s|^dear\s|best regards|kind regards|sincerely,|thanks,\s*$)",
-    re.IGNORECASE | re.MULTILINE,
-)
+def _resolve_share_deps():
+    try:
+        from .main import (
+            SupabaseAdmin,
+            create_chat_mirror_for_share,
+            encode_share_token,
+            ensure_chat_shared_site_assignment,
+            find_customer_by_email,
+            get_app_base_url,
+            get_authenticated_customer,
+            infer_error_status,
+            send_chat_share_email,
+            validate_share_recipients,
+        )
+    except ImportError:
+        from main import (
+            SupabaseAdmin,
+            create_chat_mirror_for_share,
+            encode_share_token,
+            ensure_chat_shared_site_assignment,
+            find_customer_by_email,
+            get_app_base_url,
+            get_authenticated_customer,
+            infer_error_status,
+            send_chat_share_email,
+            validate_share_recipients,
+        )
+    return (
+        SupabaseAdmin,
+        create_chat_mirror_for_share,
+        encode_share_token,
+        ensure_chat_shared_site_assignment,
+        find_customer_by_email,
+        get_app_base_url,
+        get_authenticated_customer,
+        infer_error_status,
+        send_chat_share_email,
+        validate_share_recipients,
+    )
+
+router = APIRouter()
 
 
 def _get_openai_key() -> str:
@@ -60,54 +84,26 @@ def _serialize_context_payload(value):
     return str(value or "")
 
 
-def _build_report_context_payload(site_row: dict) -> str:
+def _build_report_context_payload(site_row: dict) -> dict:
     high_context = site_row.get("report_context_high")
     all_context = site_row.get("report_context_all")
-    payload = {
-        "report_context_high": high_context if high_context is not None else {},
-        "report_context_all": all_context if all_context is not None else {},
+    high_context_str = _serialize_context_payload(high_context if high_context is not None else {})
+    all_context_str = _serialize_context_payload(all_context if all_context is not None else {})
+    return {
+        "report_context_high": high_context_str,
+        "report_context_all": all_context_str,
     }
-    return _serialize_context_payload(payload)
+
+
+def _build_user_context_payload(row: dict | None) -> str:
+    metadata = row.get("metadata") if isinstance(row, dict) else {}
+    if not isinstance(metadata, dict):
+        return ""
+    return str(metadata.get("context") or "").strip()
 
 
 def _normalize_reply_text(raw_reply: str) -> str:
-    reply = str(raw_reply or "").strip()
-    if reply in {"", ".", "..", "...", "…"}:
-        return "I can only answer questions about this report, and that information isn't available here."
-    return reply
-
-
-def _normalize_safety_text(text: str) -> str:
-    return re.sub(r"\s+", " ", str(text or "").strip().lower())
-
-
-def _is_disallowed_request(message: str) -> bool:
-    normalized = _normalize_safety_text(message)
-    has_action = bool(_DISALLOWED_ACTION_PATTERN.search(normalized))
-    has_artifact = bool(_DISALLOWED_ARTIFACT_PATTERN.search(normalized))
-    return has_action and has_artifact
-
-
-def _build_refusal_follow_up(message: str) -> str:
-    normalized = _normalize_safety_text(message)
-    if "robot" in normalized or "robotic" in normalized or "picking" in normalized:
-        return "Try asking: What does the report say about the fit, expected impact, and implementation considerations of robotic picking for this site?"
-    if "staff" in normalized or "labor" in normalized or "workforce" in normalized:
-        return "Try asking: What does the report say about staffing pressure, labor bottlenecks, and where automation could reduce manual workload at this site?"
-    if "cost" in normalized or "roi" in normalized or "save" in normalized:
-        return "Try asking: What does the report say about the likely operational benefits and cost-related drivers for automation at this site?"
-    if "safety" in normalized or "injur" in normalized or "strain" in normalized:
-        return "Try asking: What does the report say about safety risks, repetitive handling, and where automation could reduce physical strain at this site?"
-    return "Try asking: What does the report say about the most relevant operational bottlenecks, automation opportunities, and expected impact for this site?"
-
-
-def _build_disallowed_request_response(message: str) -> str:
-    return f"{_REFUSAL_LINE}\n{_build_refusal_follow_up(message)}"
-
-
-def _looks_like_disallowed_output(reply: str) -> bool:
-    normalized = _normalize_reply_text(reply)
-    return bool(_DISALLOWED_OUTPUT_PATTERN.search(normalized))
+    return str(raw_reply or "").strip()
 
 
 def _ensure_message_schema(message: dict[str, object]) -> dict[str, object]:
@@ -122,19 +118,6 @@ def _ensure_message_schema(message: dict[str, object]) -> dict[str, object]:
 
 def _ensure_message_list_schema(messages: list[dict[str, object]]) -> list[dict[str, object]]:
     return [_ensure_message_schema(message) for message in messages]
-
-
-def _build_feedback_follow_up(message: str) -> str:
-    normalized = _normalize_safety_text(message)
-    if any(term in normalized for term in ("robot", "robotic", "picking")):
-        return "What should Automatisor focus on next for this site: impact, fit, costs, or implementation risk?"
-    if any(term in normalized for term in ("staff", "labor", "workforce")):
-        return "What should Automatisor focus on next for this site: staffing pressure, manual workload, or automation opportunities?"
-    if any(term in normalized for term in ("cost", "roi", "save")):
-        return "What should Automatisor focus on next for this site: cost drivers, ROI, or operational savings?"
-    if any(term in normalized for term in ("safety", "injur", "strain")):
-        return "What should Automatisor focus on next for this site: safety risks, repetitive handling, or workload reduction?"
-    return "What should Automatisor focus on next for this site: bottlenecks, automation options, or expected impact?"
 
 
 def _store_feedback_on_messages(messages: list[dict[str, object]], message_id: str, feedback: str) -> list[dict[str, object]]:
@@ -393,6 +376,21 @@ async def send_message(request: Request):
         return JSONResponse(status_code=404, content={"detail": "Site not found"})
 
     report_context = _build_report_context_payload(site_rows[0])
+    try:
+        user_context_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_customer_context",
+            params={
+                "customer_id": f"eq.{customer_id}",
+                "event_type": "eq.user_context",
+                "select": "metadata,updated_at",
+                "order": "updated_at.desc",
+                "limit": "1",
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+    user_context = _build_user_context_payload(user_context_rows[0] if user_context_rows else None)
 
     # Verify session ownership and fetch messages
     try:
@@ -424,27 +422,27 @@ async def send_message(request: Request):
     # Build LLM window — last 20 messages
     llm_window = stored_messages[-20:]
     llm_messages = [
-        {"role": "system", "content": SYSTEM_PROMPT_TEMPLATE.format(
-            report_context=report_context
-        )},
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT_TEMPLATE.format(
+                report_context_high=report_context["report_context_high"],
+                report_context_all=report_context["report_context_all"],
+                user_context=user_context,
+            ),
+        },
         *[{"role": m["role"], "content": m["content"]} for m in llm_window],
     ]
 
-    if _is_disallowed_request(message):
-        reply_text = _build_disallowed_request_response(message)
-    else:
-        # Call OpenAI
-        try:
-            client = AsyncOpenAI(api_key=_get_openai_key())
-            completion = await client.chat.completions.create(
-                model="gpt-5-mini",
-                messages=llm_messages,
-            )
-            reply_text = _normalize_reply_text(completion.choices[0].message.content or "")
-            if _looks_like_disallowed_output(reply_text):
-                reply_text = _build_disallowed_request_response(message)
-        except Exception as exc:
-            return JSONResponse(status_code=502, content={"detail": f"LLM error: {exc}"})
+    # Call OpenAI
+    try:
+        client = AsyncOpenAI(api_key=_get_openai_key())
+        completion = await client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=llm_messages,
+        )
+        reply_text = _normalize_reply_text(completion.choices[0].message.content or "")
+    except Exception as exc:
+        return JSONResponse(status_code=502, content={"detail": f"LLM error: {exc}"})
 
     # Append assistant reply
     assistant_message_id = uuid4().hex
@@ -554,3 +552,158 @@ async def chat_feedback(request: Request):
         return JSONResponse(status_code=500, content={"detail": str(exc)})
 
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/chat/share — share a chat session snapshot with work-email recipients
+# ---------------------------------------------------------------------------
+@router.post("/api/chat/share")
+async def share_chat(request: Request):
+    (
+        SupabaseAdmin,
+        create_chat_mirror_for_share,
+        encode_share_token,
+        ensure_chat_shared_site_assignment,
+        find_customer_by_email,
+        get_app_base_url,
+        get_authenticated_customer,
+        infer_error_status,
+        send_chat_share_email,
+        validate_share_recipients,
+    ) = _resolve_share_deps()
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"detail": "Invalid JSON body"})
+
+    site_id = str(body.get("site_id") or "").strip()
+    session_id = str(body.get("session_id") or "").strip()
+    if not site_id or not session_id:
+        return JSONResponse(status_code=400, content={"detail": "site_id and session_id are required"})
+
+    db = SupabaseAdmin()
+
+    try:
+        sender = await get_authenticated_customer(db, request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        detail = str(exc)
+        return JSONResponse(status_code=infer_error_status(detail), content={"detail": detail})
+
+    sender_id = sender["customer_id"]
+    sender_email = sender.get("email") or ""
+
+    try:
+        session_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_chatbot",
+            params={
+                "session_id": f"eq.{session_id}",
+                "customer_id": f"eq.{sender_id}",
+                "site_id": f"eq.{site_id}",
+                "select": "session_id,title,messages",
+                "limit": "1",
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    if not session_rows:
+        return JSONResponse(status_code=404, content={"detail": "Chat session not found"})
+
+    source_session = session_rows[0]
+    messages = _ensure_message_list_schema(list(source_session.get("messages", []) or []))
+    if not messages:
+        return JSONResponse(status_code=422, content={"detail": "Cannot share an empty conversation"})
+
+    recipients, recipient_errors = validate_share_recipients(body.get("emails"), sender_email)
+    if recipient_errors:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": {
+                    "message": "Correct the rejected email addresses before sending.",
+                    "recipient_errors": recipient_errors,
+                }
+            },
+        )
+    app_base_url = get_app_base_url(request)
+    if not app_base_url:
+        return JSONResponse(status_code=500, content={"detail": "Missing APP_BASE_URL"})
+
+    site_rows = await db.request(
+        "GET",
+        "/rest/v1/account_sites",
+        params={
+            "select": "site_id,company_name,full_address",
+            "site_id": f"eq.{site_id}",
+            "limit": 1,
+        },
+    )
+    site = site_rows[0] if site_rows else {}
+    chat_title = str(source_session.get("title") or "Shared conversation")
+    semaphore = asyncio.Semaphore(3)
+
+    async def share_with_recipient(recipient: str) -> dict[str, str]:
+        try:
+            recipient_customer = await find_customer_by_email(db, recipient)
+            if recipient_customer:
+                await ensure_chat_shared_site_assignment(
+                    db,
+                    recipient_customer["customer_id"],
+                    site_id,
+                    sender_id,
+                )
+                await create_chat_mirror_for_share(
+                    db,
+                    site_id=site_id,
+                    title=chat_title,
+                    messages=messages,
+                    source_session_id=session_id,
+                    shared_by_customer_id=sender_id,
+                    customer_id=recipient_customer["customer_id"],
+                )
+            else:
+                await create_chat_mirror_for_share(
+                    db,
+                    site_id=site_id,
+                    title=chat_title,
+                    messages=messages,
+                    source_session_id=session_id,
+                    shared_by_customer_id=sender_id,
+                    pending_recipient_email=recipient,
+                )
+
+            token = encode_share_token(
+                recipient,
+                site_id,
+                sender_id,
+                session_id=session_id,
+                share_type="chat",
+            )
+            share_url = f"{app_base_url}/auth?share={token}"
+            async with semaphore:
+                await send_chat_share_email(
+                    recipient,
+                    sender_email,
+                    site.get("company_name") or "",
+                    site.get("full_address") or "",
+                    chat_title,
+                    share_url,
+                )
+            return {"email": recipient, "status": "sent"}
+        except Exception as exc:
+            error_msg = str(exc)
+            if "rate limit" in error_msg.lower() or "429" in error_msg:
+                return {"email": recipient, "status": "failed", "message": "Rate limit reached, try again later"}
+            return {"email": recipient, "status": "failed", "message": error_msg}
+
+    results = await asyncio.gather(*(share_with_recipient(recipient) for recipient in recipients))
+    return {
+        "status": "complete",
+        "sent": sum(result["status"] == "sent" for result in results),
+        "failed": sum(result["status"] == "failed" for result in results),
+        "results": results,
+    }

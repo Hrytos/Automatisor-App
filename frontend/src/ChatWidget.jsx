@@ -1,4 +1,6 @@
 ﻿import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import ShareChatDialog from "./ShareChatDialog.jsx";
 
 /**
  * Render a subset of markdown to React elements:
@@ -132,8 +134,12 @@ function inlineMarkdown(text) {
  * ChatWidget - per-report AI chatbot panel.
  * Props:
  *   siteId (string) - the site UUID for the active report view
+ *   senderEmail (string) - authenticated user email for sharing
+ *   companyName (string) - site company name for share emails
  */
-export default function ChatWidget({ siteId }) {
+const EXPLAIN_WITH_EVIDENCE_QUERY = "explain with evidence";
+
+export default function ChatWidget({ siteId, senderEmail = "", companyName = "" }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -146,6 +152,7 @@ export default function ChatWidget({ siteId }) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
   const [feedbackState, setFeedbackState] = useState({});
+  const [showShareDialog, setShowShareDialog] = useState(false);
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -273,13 +280,12 @@ export default function ChatWidget({ siteId }) {
     setHistoryOpen(false);
   }
 
-  async function handleSend(event) {
-    event.preventDefault();
-    const text = input.trim();
-    if (!text || !activeSessionId || loading) return;
+  async function sendMessage(text) {
+    const trimmed = String(text || "").trim();
+    if (!trimmed || !activeSessionId || loading) return;
 
     const isFirst = messages.length === 0;
-    const optimisticUser = { role: "user", content: text, ts: new Date().toISOString() };
+    const optimisticUser = { role: "user", content: trimmed, ts: new Date().toISOString() };
     setMessages((prev) => [...prev, optimisticUser]);
     setInput("");
     setLoading(true);
@@ -290,13 +296,13 @@ export default function ChatWidget({ siteId }) {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site_id: siteId, session_id: activeSessionId, message: text }),
+        body: JSON.stringify({ site_id: siteId, session_id: activeSessionId, message: trimmed }),
       });
       const data = await res.json();
       if (data.detail) {
         setError(data.detail);
         setMessages((prev) => prev.filter((m) => m !== optimisticUser));
-        setInput(text);
+        setInput(trimmed);
         return;
       }
       const assistantMessageId = data.assistant_message_id || `assistant-${Date.now()}`;
@@ -304,7 +310,6 @@ export default function ChatWidget({ siteId }) {
         ...prev,
         { id: assistantMessageId, role: "assistant", content: data.reply, ts: new Date().toISOString(), metadata: {} },
       ]);
-      // Update session in list: set title on first message, bump updated_at always
       setSessions((prev) =>
         prev.map((s) =>
           s.session_id === activeSessionId
@@ -319,10 +324,19 @@ export default function ChatWidget({ siteId }) {
     } catch {
       setError("Failed to send message.");
       setMessages((prev) => prev.filter((m) => m !== optimisticUser));
-      setInput(text);
+      setInput(trimmed);
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleSend(event) {
+    event.preventDefault();
+    sendMessage(input);
+  }
+
+  function handleExplainWithEvidence() {
+    sendMessage(EXPLAIN_WITH_EVIDENCE_QUERY);
   }
 
   async function handleFeedback(messageId, feedback) {
@@ -374,6 +388,7 @@ export default function ChatWidget({ siteId }) {
   // Title shown in the header for the active session
   const activeSession = sessions.find((s) => s.session_id === activeSessionId);
   const headerTitle = activeSession ? formatSessionTitle(activeSession) : "Report Assistant";
+  const canShareConversation = Boolean(activeSessionId && messages.length > 0);
 
   if (!siteId) return null;
 
@@ -479,6 +494,20 @@ export default function ChatWidget({ siteId }) {
               <button
                 className="chat-widget-icon-btn"
                 type="button"
+                aria-label="Share conversation"
+                title={canShareConversation ? "Share conversation" : "Start a conversation to share"}
+                onClick={() => setShowShareDialog(true)}
+                disabled={!canShareConversation || loading}
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" strokeWidth="2" strokeLinecap="round" />
+                  <path d="M16 6l-4-4-4 4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M12 2v14" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+              <button
+                className="chat-widget-icon-btn"
+                type="button"
                 aria-label={isMaximized ? "Restore chat size" : "Maximize chat"}
                 title={isMaximized ? "Restore" : "Maximize"}
                 onClick={() => setIsMaximized((v) => !v)}
@@ -552,6 +581,20 @@ export default function ChatWidget({ siteId }) {
                               <path d="M7 13V4H4v9h3zm4-9h6.6a2 2 0 0 1 2 1.6l1.2 7a2 2 0 0 1-2 2.4H13l1 4.8a2 2 0 0 1-2 2.4L7 13V4h4z" strokeWidth="2" strokeLinejoin="round" />
                             </svg>
                           </button>
+                          <button
+                            type="button"
+                            className="chat-widget-feedback-btn chat-widget-evidence-btn"
+                            aria-label="Explain with evidence"
+                            data-tooltip={EXPLAIN_WITH_EVIDENCE_QUERY}
+                            onClick={handleExplainWithEvidence}
+                            disabled={loading || !activeSessionId}
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <circle cx="12" cy="12" r="9" strokeWidth="2" />
+                              <path d="M12 10v6" strokeWidth="2" strokeLinecap="round" />
+                              <circle cx="12" cy="7.25" r="1.1" fill="currentColor" stroke="none" />
+                            </svg>
+                          </button>
                         </div>
                       </>
                     )
@@ -597,6 +640,20 @@ export default function ChatWidget({ siteId }) {
           </form>
         </div>
       )}
+
+      {showShareDialog && canShareConversation
+        ? createPortal(
+            <ShareChatDialog
+              siteId={siteId}
+              sessionId={activeSessionId}
+              chatTitle={headerTitle}
+              companyName={companyName}
+              senderEmail={senderEmail}
+              onClose={() => setShowShareDialog(false)}
+            />,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
