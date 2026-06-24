@@ -7358,6 +7358,48 @@ footer {
   stroke: currentColor;
 }
 
+.chat-widget-evidence-btn {
+  position: relative;
+}
+
+.chat-widget-evidence-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+  z-index: 3;
+}
+
+.chat-widget-evidence-btn:hover:not(:disabled),
+.chat-widget-evidence-btn:focus-visible:not(:disabled) {
+  border-color: rgba(242, 92, 25, 0.34);
+  color: #cf4d14;
+  background: #fff8f2;
+}
+
+.chat-widget-evidence-btn:hover:not(:disabled)::after,
+.chat-widget-evidence-btn:focus-visible:not(:disabled)::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-2px);
+}
+
+.chat-widget-evidence-btn:disabled::after {
+  display: none;
+}
+
 .chat-widget-typing {
   color: #94a3b8;
   animation: chat-blink 1s step-start infinite;

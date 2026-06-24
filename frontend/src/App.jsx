@@ -3879,8 +3879,18 @@ function NewUserPage() {
           <section className="workspace-page onboarding-workspace-page">
             <section className="auth-stage-card auth-stage-card-wide">
               <div className="auth-stage-header">
-                <h3>{shareDetails ? "Access shared report" : "Finish your onboarding"}</h3>
-                <p>{shareDetails ? "Add your details to access the report" : "Complete these steps to create your workspace and request your first pre-assessment."}</p>
+                  <h3>
+                    {shareDetails
+                      ? (shareDetails.share_type === "chat" ? "Access shared conversation" : "Access shared report")
+                      : "Finish your onboarding"}
+                  </h3>
+                  <p>
+                    {shareDetails
+                      ? (shareDetails.share_type === "chat"
+                        ? "Add your details to access the shared conversation and site report."
+                        : "Add your details to access the report")
+                      : "Complete these steps to create your workspace and request your first pre-assessment."}
+                  </p>
               </div>
 
               {/* Stepper - only show for normal users (not share recipients) */}
@@ -4101,7 +4111,9 @@ function NewUserPage() {
                   <h3>Enter your work email</h3>
                   <p>
                     {shareDetails
-                      ? "Sign in with the invited email to view the report."
+                      ? (shareDetails.share_type === "chat"
+                        ? "Sign in with the invited email to view the shared conversation and report."
+                        : "Sign in with the invited email to view the report.")
                       : "Use a company email address. Personal inboxes are blocked."}
                   </p>
                 </div>
@@ -5835,7 +5847,13 @@ function ReportPage() {
           />
         ) : null}
       </section>
-      {siteId ? <ChatWidget siteId={siteId} /> : null}
+      {siteId ? (
+        <ChatWidget
+          siteId={siteId}
+          senderEmail={session?.email || ""}
+          companyName={selectedSite?.company_name || ""}
+        />
+      ) : null}
     </main>
   );
 }

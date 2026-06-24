@@ -1,8 +1,10 @@
 import json
 import os
+import asyncio
 from uuid import uuid4
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, Request
@@ -26,6 +28,47 @@ def _resolve_main_deps():
     except ImportError:
         from main import SupabaseAdmin, get_authenticated_customer, infer_error_status
     return SupabaseAdmin, get_authenticated_customer, infer_error_status
+
+
+def _resolve_share_deps():
+    try:
+        from .main import (
+            SupabaseAdmin,
+            create_chat_mirror_for_share,
+            encode_share_token,
+            ensure_chat_shared_site_assignment,
+            find_customer_by_email,
+            get_app_base_url,
+            get_authenticated_customer,
+            infer_error_status,
+            send_chat_share_email,
+            validate_share_recipients,
+        )
+    except ImportError:
+        from main import (
+            SupabaseAdmin,
+            create_chat_mirror_for_share,
+            encode_share_token,
+            ensure_chat_shared_site_assignment,
+            find_customer_by_email,
+            get_app_base_url,
+            get_authenticated_customer,
+            infer_error_status,
+            send_chat_share_email,
+            validate_share_recipients,
+        )
+    return (
+        SupabaseAdmin,
+        create_chat_mirror_for_share,
+        encode_share_token,
+        ensure_chat_shared_site_assignment,
+        find_customer_by_email,
+        get_app_base_url,
+        get_authenticated_customer,
+        infer_error_status,
+        send_chat_share_email,
+        validate_share_recipients,
+    )
 
 router = APIRouter()
 
@@ -509,3 +552,158 @@ async def chat_feedback(request: Request):
         return JSONResponse(status_code=500, content={"detail": str(exc)})
 
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/chat/share — share a chat session snapshot with work-email recipients
+# ---------------------------------------------------------------------------
+@router.post("/api/chat/share")
+async def share_chat(request: Request):
+    (
+        SupabaseAdmin,
+        create_chat_mirror_for_share,
+        encode_share_token,
+        ensure_chat_shared_site_assignment,
+        find_customer_by_email,
+        get_app_base_url,
+        get_authenticated_customer,
+        infer_error_status,
+        send_chat_share_email,
+        validate_share_recipients,
+    ) = _resolve_share_deps()
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"detail": "Invalid JSON body"})
+
+    site_id = str(body.get("site_id") or "").strip()
+    session_id = str(body.get("session_id") or "").strip()
+    if not site_id or not session_id:
+        return JSONResponse(status_code=400, content={"detail": "site_id and session_id are required"})
+
+    db = SupabaseAdmin()
+
+    try:
+        sender = await get_authenticated_customer(db, request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        detail = str(exc)
+        return JSONResponse(status_code=infer_error_status(detail), content={"detail": detail})
+
+    sender_id = sender["customer_id"]
+    sender_email = sender.get("email") or ""
+
+    try:
+        session_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_chatbot",
+            params={
+                "session_id": f"eq.{session_id}",
+                "customer_id": f"eq.{sender_id}",
+                "site_id": f"eq.{site_id}",
+                "select": "session_id,title,messages",
+                "limit": "1",
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    if not session_rows:
+        return JSONResponse(status_code=404, content={"detail": "Chat session not found"})
+
+    source_session = session_rows[0]
+    messages = _ensure_message_list_schema(list(source_session.get("messages", []) or []))
+    if not messages:
+        return JSONResponse(status_code=422, content={"detail": "Cannot share an empty conversation"})
+
+    recipients, recipient_errors = validate_share_recipients(body.get("emails"), sender_email)
+    if recipient_errors:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": {
+                    "message": "Correct the rejected email addresses before sending.",
+                    "recipient_errors": recipient_errors,
+                }
+            },
+        )
+    app_base_url = get_app_base_url(request)
+    if not app_base_url:
+        return JSONResponse(status_code=500, content={"detail": "Missing APP_BASE_URL"})
+
+    site_rows = await db.request(
+        "GET",
+        "/rest/v1/account_sites",
+        params={
+            "select": "site_id,company_name,full_address",
+            "site_id": f"eq.{site_id}",
+            "limit": 1,
+        },
+    )
+    site = site_rows[0] if site_rows else {}
+    chat_title = str(source_session.get("title") or "Shared conversation")
+    semaphore = asyncio.Semaphore(3)
+
+    async def share_with_recipient(recipient: str) -> dict[str, str]:
+        try:
+            recipient_customer = await find_customer_by_email(db, recipient)
+            if recipient_customer:
+                await ensure_chat_shared_site_assignment(
+                    db,
+                    recipient_customer["customer_id"],
+                    site_id,
+                    sender_id,
+                )
+                await create_chat_mirror_for_share(
+                    db,
+                    site_id=site_id,
+                    title=chat_title,
+                    messages=messages,
+                    source_session_id=session_id,
+                    shared_by_customer_id=sender_id,
+                    customer_id=recipient_customer["customer_id"],
+                )
+            else:
+                await create_chat_mirror_for_share(
+                    db,
+                    site_id=site_id,
+                    title=chat_title,
+                    messages=messages,
+                    source_session_id=session_id,
+                    shared_by_customer_id=sender_id,
+                    pending_recipient_email=recipient,
+                )
+
+            token = encode_share_token(
+                recipient,
+                site_id,
+                sender_id,
+                session_id=session_id,
+                share_type="chat",
+            )
+            share_url = f"{app_base_url}/auth?share={token}"
+            async with semaphore:
+                await send_chat_share_email(
+                    recipient,
+                    sender_email,
+                    site.get("company_name") or "",
+                    site.get("full_address") or "",
+                    chat_title,
+                    share_url,
+                )
+            return {"email": recipient, "status": "sent"}
+        except Exception as exc:
+            error_msg = str(exc)
+            if "rate limit" in error_msg.lower() or "429" in error_msg:
+                return {"email": recipient, "status": "failed", "message": "Rate limit reached, try again later"}
+            return {"email": recipient, "status": "failed", "message": error_msg}
+
+    results = await asyncio.gather(*(share_with_recipient(recipient) for recipient in recipients))
+    return {
+        "status": "complete",
+        "sent": sum(result["status"] == "sent" for result in results),
+        "failed": sum(result["status"] == "failed" for result in results),
+        "results": results,
+    }

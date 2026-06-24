@@ -10,6 +10,7 @@ import html
 from pathlib import Path
 from typing import Any
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 import stripe
 import httpx
@@ -79,6 +80,25 @@ stripe.api_key = STRIPE_SECRET_KEY
 # Share feature
 APP_BASE_URL = os.getenv("APP_BASE_URL", "")
 SHARE_TOKEN_SECRET = os.getenv("SHARE_TOKEN_SECRET", "")
+
+
+def get_app_base_url(request: Request | None = None) -> str:
+    """Resolve the public app URL used in share links and emails."""
+    configured = str(os.getenv("APP_BASE_URL") or APP_BASE_URL or "").strip().rstrip("/")
+    if configured:
+        return configured
+    if request is not None:
+        origin = clean_optional(request.headers.get("origin"))
+        if origin.startswith(("http://", "https://")):
+            return origin.rstrip("/")
+        referer = clean_optional(request.headers.get("referer"))
+        if referer:
+            parsed = urlparse(referer)
+            if parsed.scheme and parsed.netloc:
+                return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    if not IS_PRODUCTION:
+        return "http://localhost:5173"
+    return ""
 
 SIGNUP_CREDITS = 2
 PRE_ASSESSMENT_PRICE = 2
@@ -201,6 +221,23 @@ def get_auth_headers() -> dict[str, str]:
     }
 
 
+def _post_resend_email_sync(payload: dict[str, Any]) -> httpx.Response:
+    """Send email via Resend using sync HTTP (reliable on Windows)."""
+    api_key = str(os.getenv("RESEND_API_KEY") or RESEND_API_KEY or "").strip()
+    if not api_key:
+        raise RuntimeError("Missing RESEND_API_KEY")
+    with httpx.Client(timeout=30.0) as client:
+        return client.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload,
+        )
+
+
+async def post_resend_email(payload: dict[str, Any]) -> httpx.Response:
+    return await asyncio.to_thread(_post_resend_email_sync, payload)
+
+
 def get_auth_client() -> Client:
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         raise RuntimeError("Missing SUPABASE_URL or SUPABASE_ANON_KEY")
@@ -290,28 +327,55 @@ def assert_work_email(email: Any) -> str:
     return normalized
 
 
-def encode_share_token(recipient_email: str, site_id: str, shared_by_customer_id: str) -> str:
+def get_share_token_secret() -> str:
+    """Read share signing secret at call time (picks up .env changes in local dev)."""
+    secret = str(os.getenv("SHARE_TOKEN_SECRET") or SHARE_TOKEN_SECRET or "").strip()
+    if secret:
+        return secret
+    load_dotenv(ROOT_DIR / ".env", override=False)
+    load_dotenv(BACKEND_DIR / ".env", override=False)
+    return str(os.getenv("SHARE_TOKEN_SECRET") or "").strip()
+
+
+def encode_share_token(
+    recipient_email: str,
+    site_id: str,
+    shared_by_customer_id: str,
+    *,
+    session_id: str | None = None,
+    share_type: str = "report",
+) -> str:
     """Create HMAC-signed token for share links."""
-    if not SHARE_TOKEN_SECRET:
+    share_token_secret = get_share_token_secret()
+    if not share_token_secret:
         raise HTTPException(status_code=500, detail="Missing SHARE_TOKEN_SECRET")
+    payload_data: dict[str, str] = {
+        "recipient_email": recipient_email,
+        "site_id": site_id,
+        "shared_by": shared_by_customer_id,
+    }
+    if share_type == "chat" and session_id:
+        payload_data["share_type"] = "chat"
+        payload_data["session_id"] = session_id
     payload = json.dumps(
-        {"recipient_email": recipient_email, "site_id": site_id, "shared_by": shared_by_customer_id},
+        payload_data,
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
     encoded = base64.urlsafe_b64encode(payload).rstrip(b"=")
-    signature = hmac.new(SHARE_TOKEN_SECRET.encode("utf-8"), encoded, hashlib.sha256).digest()
+    signature = hmac.new(share_token_secret.encode("utf-8"), encoded, hashlib.sha256).digest()
     return f"{encoded.decode('ascii')}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode('ascii')}"
 
 
 def decode_share_token(raw_token: Any) -> dict[str, str] | None:
     """Decode and verify HMAC-signed share token."""
     token = str(raw_token or "").strip()
-    if not token or not SHARE_TOKEN_SECRET:
+    share_token_secret = get_share_token_secret()
+    if not token or not share_token_secret:
         return None
     try:
         encoded, raw_signature = token.split(".", 1)
-        expected = hmac.new(SHARE_TOKEN_SECRET.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+        expected = hmac.new(share_token_secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
         signature = base64.urlsafe_b64decode(raw_signature + "=" * (-len(raw_signature) % 4))
         if not hmac.compare_digest(expected, signature):
             return None
@@ -319,7 +383,17 @@ def decode_share_token(raw_token: Any) -> dict[str, str] | None:
         recipient_email = assert_work_email(payload.get("recipient_email"))
         site_id = clean_required(payload.get("site_id"), "Site")
         shared_by = clean_optional(payload.get("shared_by"))  # Optional for backward compat
-        return {"recipient_email": recipient_email, "site_id": site_id, "shared_by": shared_by}
+        share_type = clean_optional(payload.get("share_type")) or "report"
+        session_id = clean_optional(payload.get("session_id"))
+        result = {
+            "recipient_email": recipient_email,
+            "site_id": site_id,
+            "shared_by": shared_by,
+            "share_type": share_type,
+        }
+        if session_id:
+            result["session_id"] = session_id
+        return result
     except (binascii.Error, ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
         return None
 
@@ -1907,20 +1981,14 @@ async def send_pre_assessment_approval_email(email: str, company_name: str, site
         raise HTTPException(status_code=500, detail="Missing RESEND_API_KEY")
     if not RESEND_FROM_EMAIL:
         raise HTTPException(status_code=500, detail="Missing RESEND_FROM_EMAIL")
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "from": RESEND_FROM_EMAIL,
-                "to": [email],
-                "subject": "Your AutomatiSOR site pre-assessment report request is confirmed!",
-                "html": build_pre_assessment_approval_email(email, company_name, site_address),
-            },
-        )
+    response = await post_resend_email(
+        {
+            "from": RESEND_FROM_EMAIL,
+            "to": [email],
+            "subject": "Your AutomatiSOR site pre-assessment report request is confirmed!",
+            "html": build_pre_assessment_approval_email(email, company_name, site_address),
+        }
+    )
     if response.is_error:
         raise HTTPException(status_code=500, detail=f"Failed to send approval email: {response.text}")
 
@@ -2002,19 +2070,289 @@ async def send_report_share_email(
         raise RuntimeError("Missing RESEND_API_KEY")
     if not RESEND_FROM_EMAIL:
         raise RuntimeError("Missing RESEND_FROM_EMAIL")
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
-            json={
-                "from": RESEND_FROM_EMAIL,
-                "to": [recipient_email],
-                "subject": f"{sharer_email} shared an AutomatiSOR report with you",
-                "html": build_report_share_email(sharer_email, company_name, site_address, share_url),
-            },
-        )
+    response = await post_resend_email(
+        {
+            "from": RESEND_FROM_EMAIL,
+            "to": [recipient_email],
+            "subject": f"{sharer_email} shared an AutomatiSOR report with you",
+            "html": build_report_share_email(sharer_email, company_name, site_address, share_url),
+        }
+    )
     if response.is_error:
         raise RuntimeError(f"Failed to send share email: {response.text}")
+
+
+async def find_chat_share_source_assignment(
+    db: SupabaseAdmin,
+    site_id: str,
+    shared_by_customer_id: str,
+) -> dict[str, Any] | None:
+    """Return the sharer's site assignment for chat sharing (report need not be ready)."""
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_sites",
+        params={
+            "select": _SHARE_SOURCE_SELECT,
+            "customer_id": f"eq.{shared_by_customer_id}",
+            "site_id": f"eq.{site_id}",
+            "order": "created_at.desc",
+            "limit": 1,
+        },
+    )
+    return rows[0] if rows else None
+
+
+async def ensure_chat_shared_site_assignment(
+    db: SupabaseAdmin,
+    customer_id: str,
+    site_id: str,
+    shared_by_customer_id: str,
+) -> dict[str, Any]:
+    """Ensure recipient has site access when a chat conversation is shared."""
+
+    async def load_share_source() -> dict[str, Any] | None:
+        return await find_chat_share_source_assignment(db, site_id, shared_by_customer_id)
+
+    def shared_payload_from_source(source: dict[str, Any]) -> dict[str, Any]:
+        shared_metadata = dict(source.get("metadata") or {})
+        shared_metadata.pop("last_pre_assessment_requested_at", None)
+        return {
+            "metadata": shared_metadata,
+            "recommendations": source.get("recommendations") or {},
+            "report_metadata": source.get("report_metadata") or {},
+            "is_report_ready": bool(source.get("is_report_ready")),
+        }
+
+    existing = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_sites",
+        params={
+            "select": "customer_site_id,site_id,account_id,assigned_via,shared_by,is_report_ready,report_metadata",
+            "customer_id": f"eq.{customer_id}",
+            "site_id": f"eq.{site_id}",
+            "assigned_via": "eq.shared_site",
+            "shared_by": f"eq.{shared_by_customer_id}",
+            "limit": 1,
+        },
+    )
+    if existing:
+        existing_row = existing[0]
+        source = await load_share_source()
+        if source and (
+            not existing_row.get("is_report_ready")
+            or not (existing_row.get("report_metadata") or {})
+        ):
+            await db.request(
+                "PATCH",
+                "/rest/v1/automatisor_customer_sites",
+                params={"customer_site_id": f"eq.{existing_row['customer_site_id']}"},
+                json_body=shared_payload_from_source(source),
+                headers={"Prefer": "return=minimal"},
+            )
+        return existing_row
+
+    source = await load_share_source()
+    if not source:
+        raise HTTPException(status_code=404, detail="The shared site is no longer available.")
+
+    json_body = {
+        "customer_id": customer_id,
+        "site_id": source["site_id"],
+        "account_id": source["account_id"],
+        "assigned_via": "shared_site",
+        "shared_by": shared_by_customer_id,
+        **shared_payload_from_source(source),
+    }
+    created = await db.request(
+        "POST",
+        "/rest/v1/automatisor_customer_sites",
+        params={"select": "customer_site_id,site_id,account_id,assigned_via,shared_by"},
+        json_body=json_body,
+        headers={"Prefer": "return=representation"},
+    )
+    return created[0]
+
+
+def snapshot_chat_messages(messages: Any) -> list[dict[str, Any]]:
+    if not isinstance(messages, list):
+        return []
+    return json.loads(json.dumps(messages))
+
+
+async def create_chat_mirror_for_share(
+    db: SupabaseAdmin,
+    *,
+    site_id: str,
+    title: str | None,
+    messages: list[dict[str, Any]],
+    source_session_id: str,
+    shared_by_customer_id: str,
+    customer_id: str | None = None,
+    pending_recipient_email: str | None = None,
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    json_body: dict[str, Any] = {
+        "site_id": site_id,
+        "title": title,
+        "messages": snapshot_chat_messages(messages),
+        "source_session_id": source_session_id,
+        "shared_by_customer_id": shared_by_customer_id,
+        "shared_at": now,
+        "created_at": now,
+        "updated_at": now,
+        "is_archived": False,
+    }
+    if customer_id:
+        json_body["customer_id"] = customer_id
+    if pending_recipient_email:
+        json_body["pending_recipient_email"] = pending_recipient_email
+    created = await db.request(
+        "POST",
+        "/rest/v1/automatisor_chatbot",
+        params={
+            "select": "session_id,customer_id,site_id,title,pending_recipient_email,source_session_id,shared_by_customer_id,shared_at,created_at,updated_at",
+        },
+        json_body=json_body,
+        headers={"Prefer": "return=representation"},
+    )
+    return created[0]
+
+
+async def fulfill_pending_chat_shares(db: SupabaseAdmin, email: str, customer_id: str) -> None:
+    normalized = normalize_email(email)
+    if not normalized or not customer_id:
+        return
+    pending_rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_chatbot",
+        params={
+            "select": "session_id",
+            "pending_recipient_email": f"eq.{normalized}",
+            "customer_id": "is.null",
+        },
+    )
+    if not pending_rows:
+        return
+    await db.request(
+        "PATCH",
+        "/rest/v1/automatisor_chatbot",
+        params={
+            "pending_recipient_email": f"eq.{normalized}",
+            "customer_id": "is.null",
+        },
+        json_body={
+            "customer_id": customer_id,
+            "pending_recipient_email": None,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+        headers={"Prefer": "return=minimal"},
+    )
+
+
+def build_chat_share_email(
+    sharer_email: str,
+    company_name: str,
+    site_address: str,
+    chat_title: str,
+    share_url: str,
+) -> str:
+    """Build HTML email for chat conversation sharing."""
+    safe_sharer = html.escape(sharer_email)
+    safe_company = html.escape(company_name or "Site")
+    safe_address = html.escape(site_address or "")
+    safe_title = html.escape(chat_title or "Shared conversation")
+    safe_url = html.escape(share_url, quote=True)
+    return f"""<!doctype html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f6f7fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;background:#f6f7fb">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:560px;width:100%">
+        <tr>
+          <td style="background:#030149;padding:24px 32px">
+            <span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:-0.3px">AutomatiSOR</span>
+            <span style="color:#f25c19;font-size:18px;font-weight:700"> ·</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:36px 32px 28px">
+            <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#030149;letter-spacing:-0.4px">
+              Conversation shared with you
+            </h1>
+            <p style="margin:0 0 14px;font-size:15px;color:#4a4a44;line-height:1.65">
+              {safe_sharer} shared an AutomatiSOR report conversation with you.
+              Sign in to view the site report and the shared chat history.
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">
+              <tr>
+                <td style="padding:12px 14px;border:1px solid #ebebea;border-radius:10px;background:#fbfbfa">
+                  <div style="font-size:12px;color:#7a7a72;margin-bottom:6px">Conversation</div>
+                  <div style="font-size:15px;color:#030149;font-weight:700;letter-spacing:-0.2px">{safe_title}</div>
+                  <div style="height:10px"></div>
+                  <div style="font-size:12px;color:#7a7a72;margin-bottom:6px">Company</div>
+                  <div style="font-size:15px;color:#030149;font-weight:700;letter-spacing:-0.2px">{safe_company}</div>
+                  <div style="height:10px"></div>
+                  <div style="font-size:12px;color:#7a7a72;margin-bottom:6px">Site address</div>
+                  <div style="font-size:14px;color:#030149;font-weight:600">{safe_address}</div>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0 0">
+              <tr>
+                <td align="center">
+                  <a href="{safe_url}" style="display:inline-block;padding:14px 28px;border-radius:10px;background:#f25c19;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:-0.2px">View conversation</a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr><td style="padding:0 32px"><hr style="border:none;border-top:1px solid #ebebea;margin:0"></td></tr>
+        <tr>
+          <td style="padding:20px 32px;text-align:center">
+            <p style="margin:0;font-size:12px;color:#a0a09a;line-height:1.6">
+              AutomatiSOR<br>
+              Questions? Reply to this email or contact
+              <a href="mailto:notifications@automatisor.com" style="color:#7a7a72">notifications@automatisor.com</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+
+async def send_chat_share_email(
+    recipient_email: str,
+    sharer_email: str,
+    company_name: str,
+    site_address: str,
+    chat_title: str,
+    share_url: str,
+) -> None:
+    """Send shared chat email via Resend."""
+    if not RESEND_API_KEY:
+        raise RuntimeError("Missing RESEND_API_KEY")
+    if not RESEND_FROM_EMAIL:
+        raise RuntimeError("Missing RESEND_FROM_EMAIL")
+    response = await post_resend_email(
+        {
+            "from": RESEND_FROM_EMAIL,
+            "to": [recipient_email],
+            "subject": f"{sharer_email} shared an AutomatiSOR conversation with you",
+            "html": build_chat_share_email(
+                sharer_email,
+                company_name,
+                site_address,
+                chat_title,
+                share_url,
+            ),
+        }
+    )
+    if response.is_error:
+        raise RuntimeError(f"Failed to send chat share email: {response.text}")
 
 
 async def resolve_sender_report_assignment(
@@ -2326,9 +2664,18 @@ async def complete_auth_for_verified_email(
             }
         await mark_customer_verified(db, email)
         await touch_customer_login(db, customer["customer_id"])
-        shared_assignment = await ensure_shared_site_assignment(
-            db, customer["customer_id"], matching_share["site_id"], matching_share.get("shared_by")
-        )
+        if matching_share.get("share_type") == "chat":
+            shared_assignment = await ensure_chat_shared_site_assignment(
+                db,
+                customer["customer_id"],
+                matching_share["site_id"],
+                matching_share.get("shared_by") or "",
+            )
+        else:
+            shared_assignment = await ensure_shared_site_assignment(
+                db, customer["customer_id"], matching_share["site_id"], matching_share.get("shared_by")
+            )
+        await fulfill_pending_chat_shares(db, email, customer["customer_id"])
         workspace = await build_workspace_payload(db, email)
         return {
             "status": "verified",
@@ -2442,11 +2789,20 @@ async def handle_onboarding_step1(request: Request, body: dict[str, Any] = Body(
                     if existing_assignment:
                         # Already synced - use existing assignment
                         shared_assignment = existing_assignment[0]
+                    elif share_payload.get("share_type") == "chat":
+                        shared_assignment = await ensure_chat_shared_site_assignment(
+                            db,
+                            customer["customerId"],
+                            share_payload["site_id"],
+                            share_payload.get("shared_by") or "",
+                        )
                     else:
                         # New user - create assignment now
                         shared_assignment = await ensure_shared_site_assignment(
                             db, customer["customerId"], share_payload["site_id"], share_payload.get("shared_by")
                         )
+
+                    await fulfill_pending_chat_shares(db, email, customer["customerId"])
                     
                     workspace = await build_workspace_payload(db, email)
                     return {
@@ -2834,6 +3190,8 @@ async def resolve_share_token(body: dict[str, Any] = Body(default={})) -> dict[s
         "site_id": payload["site_id"],
         "company_name": site.get("company_name") or "",
         "full_address": site.get("full_address") or "",
+        "share_type": payload.get("share_type") or "report",
+        "session_id": payload.get("session_id") or "",
     }
 
 
@@ -2866,7 +3224,8 @@ async def share_report(request: Request, body: dict[str, Any] = Body(default={})
             status_code=422,
             detail={"message": "Correct the rejected email addresses before sending.", "recipient_errors": recipient_errors},
         )
-    if not APP_BASE_URL:
+    app_base_url = get_app_base_url(request)
+    if not app_base_url:
         raise HTTPException(status_code=500, detail="Missing APP_BASE_URL")
 
     # AUTO-SYNC: Create shared assignments immediately for existing users
@@ -2904,7 +3263,7 @@ async def share_report(request: Request, body: dict[str, Any] = Body(default={})
 
     async def send_one(recipient: str) -> dict[str, str]:
         token = encode_share_token(recipient, assignment["site_id"], sender["customer_id"])
-        share_url = f"{APP_BASE_URL}/auth?share={token}"
+        share_url = f"{app_base_url}/auth?share={token}"
         try:
             async with semaphore:
                 await send_report_share_email(
