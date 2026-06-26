@@ -1416,6 +1416,7 @@ function SampleReportPage() {
           )}
         </section>
       </section>
+      <ChatWidget sample />
     </main>
   );
 }

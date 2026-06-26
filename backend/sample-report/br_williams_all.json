@@ -1,0 +1,321 @@
+{
+  "filter": "All",
+  "report_ui": {
+    "report_title": "Site Pre-Assessment",
+    "report_subtitle": "Operational Intelligence & Automation Fit Analysis"
+  },
+  "sections": [
+    {
+      "section_id": "part_1_account_identification",
+      "section_title": "Account Identification",
+      "section_description": "Company structure, operation type, and facility profile.",
+      "items": [
+        {
+          "id": "account_identity",
+          "title": "Account Identity",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "trading_names",
+              "label": "Trading name(s) / brand name(s)",
+              "value": "BRW",
+              "description": "The entity conducts its business under the operational name associated with a strong reputation for quality service in logistics and warehousing, primarily operating under the brand name BRW."
+            },
+            {
+              "field": "target_facility_addresses",
+              "label": "Target facility address",
+              "value": "1535 Hillyer Robinson Parkway, Anniston, AL, 36207, USA",
+              "description": ""
+            },
+            {
+              "field": "ownership_structure",
+              "label": "Ownership structure",
+              "value": "B.R. Williams is a privately held subsidiary of Haney and White Enterprise.",
+              "description": "B.R. Williams is a privately held subsidiary of Haney and White Enterprise following its acquisition in 2024, which included B.R. Williams Trucking and B.R. Williams LTL Logistics. Additionally, B.R. Williams has partnered with the non-profit organization Women in Trucking to promote gender diversity in the transportation industry."
+            },
+            {
+              "field": "industry_naics_code",
+              "label": "Industry / NAICS code",
+              "value": "Warehousing and transportation industry, focusing on logistics and distribution activities.",
+              "description": "The job listings indicate a strong involvement in the warehousing and transportation industry, highlighted by positions such as 'Warehouse Position' and various driver roles, which reflect a focus on logistics and distribution activities. Additionally, the facility is likely classified within the warehousing and logistics sector, as evidenced by the presence of trucks, forklifts, and an emphasis on shipping and receiving operations."
+            }
+          ]
+        },
+        {
+          "id": "operation_type",
+          "title": "Operation Type",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "primary_warehouse_product_categories",
+              "label": "Primary product categories handled",
+              "value": "The facility manages a diverse range of inventory categories, including consumer products, industrial items, food-grade goods, automotive parts, and defense equipment.",
+              "description": "The facility manages a diverse range of inventory categories, including consumer products, industrial items, food-grade goods, automotive parts, and defense equipment. The operational setup, characterized by the storage of boxed goods on pallets, indicates a focus on effective inventory management and the handling of various goods across commercial, industrial, and government sectors."
+            },
+            {
+              "field": "customer_base",
+              "label": "Key Customers",
+              "value": "Key customers include Honda Manufacturing of Alabama and the U.S. Department of Defense, with services in storage, delivery, and logistics support.",
+              "description": "BR Williams has established strong relationships with key customers, including Honda Manufacturing of Alabama and the U.S. Department of Defense, by providing essential services such as storage, delivery, and logistics support. The mention of staff names in reviews highlights their commitment to operational efficiency as a logistics provider."
+            }
+          ]
+        },
+        {
+          "id": "facility_profile",
+          "title": "Facility Profile",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "full_address",
+              "label": "Full address",
+              "value": "1535 Hillyer Robinson Parkway, Anniston, AL, 36207, USA",
+              "description": ""
+            },
+            {
+              "field": "yard_configuration",
+              "label": "Yard configuration",
+              "value": "The facility yard features a well-organized layout with 35 trailer docks and 2 drive-in bays for efficient shipping and receiving activities.",
+              "description": "The facility yard is designed for efficient operations, featuring a well-organized layout that allows for quick entrance and unloading processes. It includes multiple dock doors and a loading dock area with trucks parked nearby, supporting effective shipping and receiving activities. The Anniston West site spans 341,250 sq. ft. and is equipped with 35 trailer docks and 2 drive-in bays, making it suitable for large-scale industrial operations."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section_id": "part_2_operational_intelligence",
+      "section_title": "Operational Intelligence",
+      "section_description": "Workforce, labour market, wages, attrition, systems, performance, OSHA, and financial capacity.",
+      "items": [
+        {
+          "id": "operational_snapshot",
+          "title": "Operational Snapshot",
+          "table_type": "operational_snapshot",
+          "operations": [
+            {
+              "operation": "Trailer Loading/ Unloading",
+              "fields": [
+                {
+                  "field": "nature",
+                  "label": "Nature Of Operation",
+                  "value": "The facility operates efficient trailer loading and unloading processes with quick turnaround times of around 15 to 30 minutes.",
+                  "description": "The trailer loading and unloading processes at the facility are notably efficient, with many reviews highlighting quick turnaround times of around 15 to 30 minutes. This efficiency, supported by the presence of trucks at loading areas and the necessary equipment, contributes to improved operational flow and driver satisfaction."
+                },
+                {
+                  "field": "automation",
+                  "label": "Automation",
+                  "value": "Automation is present in the loading and unloading process with specialized equipment.",
+                  "description": "There is evidence of automation in the loading and unloading process, indicating an organized approach to managing incoming and outgoing shipments with the use of specialized equipment."
+                }
+              ]
+            },
+            {
+              "operation": "Storage",
+              "fields": [
+                {
+                  "field": "nature",
+                  "label": "Nature Of Operation",
+                  "value": "Efficient storage capabilities with strong inventory management, including receiving, stocking, and picking activities.",
+                  "description": "The operation demonstrates efficient storage capabilities, supported by good staff assistance in receiving, stocking, and picking, which indicates strong inventory management. The warehouse features a structured layout with palletized storage and tall racks, effectively utilizing space for efficient management. Additionally, the facility offers 341,250 square feet of heated storage under one roof."
+                }
+              ]
+            },
+            {
+              "operation": "Picking",
+              "fields": [
+                {
+                  "field": "nature",
+                  "label": "Nature Of Operation",
+                  "value": "The facility is engaged in picking operations for order fulfillment, including automotive, food, and industrial packaging.",
+                  "description": "The facility at 1535 Hillyer Robinson Parkway in Anniston, AL, is actively engaged in picking operations, which have transitioned to Metro Supply Chain. This involves WMS-driven, high-capacity workflows for order fulfillment, including automotive, food, and industrial packaging, as evidenced by workers engaged in packing activities."
+                },
+                {
+                  "field": "automation",
+                  "label": "Automation",
+                  "value": "Automation is present due to the implementation of an automated picking system for inventory management.",
+                  "description": "An automated picking system is in place, as workers are engaged in scanning processes related to inventory management, indicating a systematic approach to efficiently manage order fulfillment."
+                }
+              ]
+            },
+            {
+              "operation": "Packing",
+              "fields": [
+                {
+                  "field": "nature",
+                  "label": "Nature Of Operation",
+                  "value": "The operation involves systematically packing boxes to prepare items for shipment.",
+                  "description": "The operation involves packing, with workers systematically handling boxes to prepare items for shipment, indicating a structured approach to packaging goods for distribution."
+                }
+              ]
+            },
+            {
+              "operation": "Palletization",
+              "fields": [
+                {
+                  "field": "automation",
+                  "label": "Automation",
+                  "value": "Automation is absent as there is no mention of automated systems.",
+                  "description": "Observations suggest the presence of palletized storage and material handling operations, indicating a focus on organized logistics that may improve efficiency in inventory management."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "wage_and_labour_cost_intelligence",
+          "title": "Wage & Labour Cost Intelligence",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "signing_or_retention_bonuses",
+              "label": "Signing bonuses or retention bonuses",
+              "value": "$5,000 sign-on bonus is offered for transportation roles.",
+              "description": "A $5,000 sign-on bonus is offered in job listings for transportation roles, indicating a competitive hiring strategy likely aimed at addressing labor shortages in the warehousing sector."
+            },
+            {
+              "field": "recent_wage_increases",
+              "label": "Recent wage increases (stated or implied)",
+              "value": "Employees have reported no recent wage increases.",
+              "description": "Employees have reported no raises over an extended period, indicating stagnation in pay despite their tenure, which reflects poorly on the company's compensation strategy and may lead to higher turnover rates."
+            }
+          ]
+        },
+        {
+          "id": "attrition_and_hiring_difficulty_signals",
+          "title": "Attrition & Hiring Difficulty",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "job_posting_frequency.forklift_operator",
+              "label": "Forklift operator",
+              "value": "BR Williams offers a Driver Finishing Program to equip new drivers with essential skills for safe driving, addressing the hiring needs for warehouse pickers and skilled forklift drivers.",
+              "description": "BR Williams offers a Driver Finishing Program aimed at equipping new drivers with the essential skills needed for safe driving, addressing the hiring needs for warehouse pickers and the scarcity of skilled forklift drivers."
+            },
+            {
+              "field": "employee_reviews_summary.negative_themes",
+              "label": "Negative themes",
+              "value": "Employee reviews reflect a mixed environment with both positive aspects, like a supportive culture, and significant concerns about management and compensation.",
+              "description": "Employee reviews indicate a complex workplace dynamic, with some warehouse workers and pickers expressing dissatisfaction with management and compensation, particularly regarding raises and attitudes of supervisors. While some feedback highlights a supportive, family-oriented culture and efficient service, there are significant concerns about management's lack of support and appreciation, suggesting a negative impact on employee morale. Overall, the environment appears to be mixed, with both positive and negative experiences reported."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section_id": "part_3_pain_and_urgency_signals",
+      "section_title": "Pain & Urgency Signals",
+      "section_description": "What is driving potential automation interest now: labour, competition, growth, financial events, and compliance.",
+      "items": [
+        {
+          "id": "labour_urgency_signals",
+          "title": "Labour Urgency",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "labour_market_trend",
+              "label": "Local labour market deterioration",
+              "value": "The labor market trend indicates challenges in finding skilled drivers, addressed by BR Williams' Driver Finishing Program.",
+              "description": "BR Williams offers a Driver Finishing Program aimed at equipping new drivers with the essential skills needed for safe driving, highlighting the challenges in the labor market related to skilled drivers."
+            },
+            {
+              "field": "attrition_signals_summary",
+              "label": "Attrition signals summary",
+              "value": "Employee reviews reflect a supportive environment among some staff, but significant concerns exist regarding management dissatisfaction and inadequate compensation.",
+              "description": "Employee reviews indicate a complex workplace dynamic, with some warehouse workers and truck drivers reporting a supportive environment characterized by friendly staff and efficient service. However, there are significant concerns regarding management, with multiple sources highlighting dissatisfaction over attitudes, lack of support, and inadequate compensation. While some employees appreciate the family-oriented culture and work-life balance, others express frustration over unclear targets and poor management practices, suggesting a need for improvement in leadership and employee relations."
+            }
+          ]
+        },
+        {
+          "id": "growth_and_network_change_signals",
+          "title": "Growth and Network Change Signals",
+          "tables": [
+            {
+              "id": "volume_growth_trajectory",
+              "title": "Volume Growth Trajectory",
+              "table_type": "key_value",
+              "rows": [
+                {
+                  "field": "volume_growth_signal",
+                  "label": "Volume growth signal",
+                  "value": "The presence of multiple job listings and the opening of a new logistics branch in Atlanta, Georgia, indicate potential growth in operational capacity.",
+                  "description": "The presence of multiple job listings, including roles like 'Warehouse Position' and 'Driver Success Manager', along with the opening of a new logistics branch in Atlanta, Georgia, indicates a potential growth in operational capacity and suggests an increase in demand for logistics services."
+                }
+              ]
+            },
+            {
+              "id": "new_facility_openings_or_network_expansion",
+              "title": "New Facility Openings or Network Expansion",
+              "table_type": "key_value",
+              "rows": [
+                {
+                  "field": "new_facility_opening",
+                  "label": "New facility opening",
+                  "value": "The new logistics branch in Atlanta, Georgia, is set to open in 2024.",
+                  "description": "BR Williams has recently expanded its operations by opening a new logistics branch in Atlanta, Georgia, with a grand opening and ribbon-cutting ceremony held in 2024."
+                },
+                {
+                  "field": "network_expansion_signal_business",
+                  "label": "Network expansion signal",
+                  "value": "B.R. Williams Trucking and B.R. Williams LTL Logistics were acquired by Haney and White Enterprise on August 14, 2024.",
+                  "description": "B.R. Williams Trucking and B.R. Williams LTL Logistics were acquired by Haney and White Enterprise on August 14, 2024. Additionally, B.R. Williams has partnered with the non-profit organization Women in Trucking to promote gender diversity in the transportation industry."
+                }
+              ]
+            },
+            {
+              "id": "new_customer_wins_or_contract_announcements",
+              "title": "Customer Wins or Contract Announcements",
+              "table_type": "key_value",
+              "rows": [
+                {
+                  "field": "new_customer_win",
+                  "label": "Customer win",
+                  "value": "2016, new customer relationship established with a Tier 1 automotive supplier.",
+                  "description": "In 2016, BR Williams collaborated with a Tier 1 automotive supplier to address logistics challenges, resulting in a new customer relationship."
+                }
+              ]
+            },
+            {
+              "id": "growth_and_network_change_signals_supplemental",
+              "title": "Additional signals",
+              "table_type": "key_value",
+              "rows": [
+                {
+                  "field": "hiring_for_new_city_or_new_site",
+                  "label": "Hiring for new city or new site",
+                  "value": "Hiring is actively taking place for roles in a warehouse and logistics environment.",
+                  "description": "Hiring is actively taking place for roles in a warehouse and logistics environment, indicating that the company may be expanding its workforce to meet growing operational needs."
+                }
+              ]
+            }
+          ],
+          "table_type": "group"
+        }
+      ]
+    },
+    {
+      "section_id": "account_snapshot",
+      "section_title": "Account Snapshot",
+      "section_description": "",
+      "items": [
+        {
+          "id": "account_snapshot",
+          "title": "Account snapshot",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "company",
+              "label": "Company",
+              "value": "BR Williams",
+              "description": ""
+            },
+            {
+              "field": "facility",
+              "label": "Facility",
+              "value": "1535 Hillyer Robinson Parkway, Anniston, AL, 36207, USA",
+              "description": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

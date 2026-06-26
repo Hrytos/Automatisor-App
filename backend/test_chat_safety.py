@@ -334,3 +334,45 @@ async def test_chat_feedback_stores_value_in_metadata(monkeypatch):
 
     assert response == {"ok": True}
     assert captured["json_body"]["messages"][0]["metadata"]["feedback"]["value"] == "up"
+
+
+def test_load_sample_report_context_includes_br_williams_files():
+    chat._sample_report_context_cache = None
+    context = chat._load_sample_report_context()
+    assert "report_context_high" in context
+    assert "report_context_all" in context
+    assert "BR Williams" in context["report_context_high"]
+    assert context["report_context_high"]
+    assert context["report_context_all"]
+
+
+@pytest.mark.asyncio
+async def test_send_sample_message_returns_reply_without_db(monkeypatch):
+    monkeypatch.setattr(chat, "_resolve_main_deps", _fake_deps)
+    monkeypatch.setattr(chat, "_get_openai_key", lambda: "test-key")
+    chat._sample_report_context_cache = {
+        "report_context_high": '{"filter":"High"}',
+        "report_context_all": '{"filter":"All"}',
+    }
+
+    class FakeCompletion:
+        def __init__(self):
+            self.choices = [
+                type("Choice", (), {"message": type("Message", (), {"content": "Sample report answer"})()})
+            ]
+
+    class FakeOpenAI:
+        def __init__(self, *args, **kwargs):
+            self.chat = type("ChatApi", (), {})()
+            self.chat.completions = type("Completions", (), {"create": self.create})()
+
+        async def create(self, *args, **kwargs):
+            return FakeCompletion()
+
+    monkeypatch.setattr(chat, "AsyncOpenAI", FakeOpenAI)
+
+    response = await chat.send_sample_message(
+        FakeRequest({"message": "What automation opportunities exist?", "messages": []})
+    )
+
+    assert response == {"reply": "Sample report answer"}

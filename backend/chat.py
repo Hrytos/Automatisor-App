@@ -483,6 +483,104 @@ async def send_message(request: Request):
     return {"reply": reply_text, "title": auto_title, "assistant_message_id": assistant_message_id}
 
 
+_SAMPLE_REPORT_DIR = _BACKEND_DIR / "sample-report"
+_sample_report_context_cache: dict[str, str] | None = None
+
+
+def _load_sample_report_context() -> dict[str, str]:
+    """Load BR Williams sample report context (cached after first read)."""
+    global _sample_report_context_cache
+    if _sample_report_context_cache is not None:
+        return _sample_report_context_cache
+
+    high_path = _SAMPLE_REPORT_DIR / "br_williams_high.json"
+    all_path = _SAMPLE_REPORT_DIR / "br_williams_all.json"
+    with open(high_path, encoding="utf-8") as high_file:
+        high_context = json.load(high_file)
+    with open(all_path, encoding="utf-8") as all_file:
+        all_context = json.load(all_file)
+
+    _sample_report_context_cache = {
+        "report_context_high": _serialize_context_payload(high_context),
+        "report_context_all": _serialize_context_payload(all_context),
+    }
+    return _sample_report_context_cache
+
+
+@router.post("/api/chat/sample/message")
+async def send_sample_message(request: Request):
+    """Stateless chat for the BR Williams sample report — no DB, ephemeral per page visit."""
+    SupabaseAdmin, get_authenticated_customer, infer_error_status = _resolve_main_deps()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"detail": "Invalid JSON body"})
+
+    message = str(body.get("message") or "").strip()
+    prior_messages = body.get("messages") or []
+
+    if not message:
+        return JSONResponse(status_code=400, content={"detail": "message cannot be empty"})
+    if len(message) > 2000:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "message must be 2000 characters or fewer"},
+        )
+    if not isinstance(prior_messages, list):
+        return JSONResponse(status_code=400, content={"detail": "messages must be a list"})
+
+    OPENAI_API_KEY = _get_openai_key()
+    if not OPENAI_API_KEY:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "OpenAI API key is not configured"},
+        )
+
+    db = SupabaseAdmin()
+    try:
+        await get_authenticated_customer(db, request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        detail = str(exc)
+        return JSONResponse(status_code=infer_error_status(detail), content={"detail": detail})
+
+    report_context = _load_sample_report_context()
+    llm_window: list[dict[str, str]] = []
+    for entry in prior_messages[-19:]:
+        if not isinstance(entry, dict):
+            continue
+        role = str(entry.get("role") or "").strip()
+        content = str(entry.get("content") or "").strip()
+        if role in {"user", "assistant"} and content:
+            llm_window.append({"role": role, "content": content})
+    llm_window.append({"role": "user", "content": message})
+
+    llm_messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT_TEMPLATE.format(
+                report_context_high=report_context["report_context_high"],
+                report_context_all=report_context["report_context_all"],
+                user_context="",
+            ),
+        },
+        *llm_window,
+    ]
+
+    try:
+        client = AsyncOpenAI(api_key=_get_openai_key())
+        completion = await client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=llm_messages,
+        )
+        reply_text = _normalize_reply_text(completion.choices[0].message.content or "")
+    except Exception as exc:
+        return JSONResponse(status_code=502, content={"detail": f"LLM error: {exc}"})
+
+    return {"reply": reply_text}
+
+
 @router.post("/api/chat/feedback")
 async def chat_feedback(request: Request):
     SupabaseAdmin, get_authenticated_customer, infer_error_status = _resolve_main_deps()

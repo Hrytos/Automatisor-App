@@ -1,0 +1,445 @@
+{
+  "filter": "High",
+  "report_ui": {
+    "report_title": "Site Pre-Assessment",
+    "report_subtitle": "Operational Intelligence & Automation Fit Analysis"
+  },
+  "sections": [
+    {
+      "section_id": "part_1_account_identification",
+      "section_title": "Account Identification",
+      "section_description": "Company structure, operation type, and facility profile.",
+      "items": [
+        {
+          "id": "account_identity",
+          "title": "Account Identity",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "company_legal_name",
+              "label": "Company legal name",
+              "value": "BR Williams Trucking LLC",
+              "description": "The company has multiple legal names including BR Williams Trucking LLC, which is a registered asset carrier, and BR Williams Logistics LLC, a wholly owned subsidiary that operates as a registered freight broker. Additionally, B.R. Williams LTL Logistics, LLC is also listed as a limited liability company."
+            },
+            {
+              "field": "trading_names",
+              "label": "Trading name(s) / brand name(s)",
+              "value": "BR Williams operates primarily under the brand name BRW.",
+              "description": "BR Williams operates primarily under the brand name BRW."
+            },
+            {
+              "field": "headquarters_address",
+              "label": "Headquarters address",
+              "value": "190 Victory Lane, Eastaboga, AL 36260.",
+              "description": "The headquarters address is located at 190 Victory Lane, Eastaboga, AL 36260."
+            },
+            {
+              "field": "target_facility_addresses",
+              "label": "Target facility address",
+              "value": "1535 Hillyer Robinson Parkway, Anniston, AL, 36207, USA",
+              "description": ""
+            },
+            {
+              "field": "ownership_structure",
+              "label": "Ownership structure",
+              "value": "B.R. Williams is a privately held subsidiary of Haney and White Enterprise.",
+              "description": "B.R. Williams is a privately held subsidiary of Haney and White Enterprise following its acquisition, which was finalized in 2024."
+            },
+            {
+              "field": "year_founded",
+              "label": "Year founded / years in operation",
+              "value": "1958",
+              "description": "Founded in 1958 by Bill Williams in Oxford, Alabama, the operation started as a local business with just two trucks."
+            }
+          ]
+        },
+        {
+          "id": "operation_type",
+          "title": "Operation Type",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "primary_warehouse_operation_types",
+              "label": "Primary warehouse operation type(s)",
+              "value": "The facility primarily operates as a distribution center, also functioning as a fulfillment center and a 3PL service provider, focusing on efficient shipping, receiving, and material handling.",
+              "description": "The facility primarily operates as a distribution center, with indications of functioning as a fulfillment center and a 3PL (Third-Party Logistics) service provider. It is designed for efficient shipping, receiving, and material handling, facilitating quick turnaround times in the distribution and handling of goods."
+            },
+            {
+              "field": "primary_warehouse_product_categories",
+              "label": "Primary product categories handled",
+              "value": "The primary warehouse product categories include commercial, industrial, and government supplies such as food and beverage, automotive parts, defense products, and general merchandise.",
+              "description": "The flagship facility manages a diverse inventory, primarily focusing on commercial, industrial, and government supplies, including food and beverage, automotive parts, defense products, and general merchandise. It supports a regional network that encompasses automotive parts, home improvement goods, and industrial materials, while also providing third-party logistics warehousing for food-grade and defense industry inventory."
+            },
+            {
+              "field": "customer_base",
+              "label": "Key Customers",
+              "value": "Key customers include Honda Manufacturing of Alabama and the U.S. Department of Defense.",
+              "description": "Key customers of BR Williams include Honda Manufacturing of Alabama and the U.S. Department of Defense."
+            }
+          ]
+        },
+        {
+          "id": "facility_profile",
+          "title": "Facility Profile",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "full_address",
+              "label": "Full address",
+              "value": "1535 Hillyer Robinson Parkway, Anniston, AL, 36207, USA",
+              "description": ""
+            },
+            {
+              "field": "building_size_sqft",
+              "label": "Building size (square footage)",
+              "value": "341,250 square feet",
+              "description": "The warehouse has a size of 341,250 square feet, featuring a heated metal frame."
+            },
+            {
+              "field": "building_age_year",
+              "label": "Building Age",
+              "value": "1994",
+              "description": "BR Williams constructed this flagship warehouse from the ground up, beginning operations in 1994 with an initial footprint of 131,250 square feet. Due to high demand, the site was expanded within six months by adding an additional 210,000 square feet, resulting in a total size of 341,250 square feet."
+            },
+            {
+              "field": "dock_door_count",
+              "label": "Approximate dock door count",
+              "value": "35 dock doors.",
+              "description": "The facility is designed for high-volume operations, featuring 35 trailer docks, which indicates a significant shipping and receiving capacity."
+            },
+            {
+              "field": "yard_configuration",
+              "label": "Yard configuration",
+              "value": "The facility has a well-organized yard layout with 35 trailer docks and 2 drive-in bays.",
+              "description": "The facility features a well-organized yard layout that supports efficient operations, with quick entrance and unloading processes, as reported by drivers. The Anniston West site serves as a flagship warehouse for large-scale industrial operations, encompassing 341,250 sq. ft. and equipped with 35 trailer docks and 2 drive-in bays."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section_id": "part_2_operational_intelligence",
+      "section_title": "Operational Intelligence",
+      "section_description": "Workforce, labour market, wages, attrition, systems, performance, OSHA, and financial capacity.",
+      "items": [
+        {
+          "id": "operational_snapshot",
+          "title": "Operational Snapshot",
+          "table_type": "operational_snapshot",
+          "operations": [
+            {
+              "operation": "Trailer Loading/ Unloading",
+              "fields": [
+                {
+                  "field": "nature",
+                  "label": "Nature Of Operation",
+                  "value": "The nature of operation involves efficient trailer loading and unloading processes with quick turnaround times of 15 to 30 minutes.",
+                  "description": "The trailer loading and unloading processes at the facility are notably efficient, with reviews indicating quick turnaround times of around 15 to 30 minutes, contributing to improved operational flow and driver satisfaction."
+                }
+              ]
+            },
+            {
+              "operation": "Storage",
+              "fields": [
+                {
+                  "field": "nature",
+                  "label": "Nature Of Operation",
+                  "value": "The facility provides heated storage space for goods.",
+                  "description": "The facility offers 341,250 square feet of heated storage space under one roof."
+                }
+              ]
+            },
+            {
+              "operation": "Picking",
+              "fields": [
+                {
+                  "field": "nature",
+                  "label": "Nature Of Operation",
+                  "value": "Picking operations for automotive, food, and industrial packaging using WMS-driven, high-capacity workflows.",
+                  "description": "At the 1535 Hillyer Robinson Parkway facility in Anniston, AL, picking operations transitioned to Metro Supply Chain, utilizing WMS-driven, high-capacity industrial workflows for automotive, food, and industrial packaging."
+                }
+              ]
+            },
+            {
+              "operation": "Packing",
+              "fields": [
+                {
+                  "field": "automation",
+                  "label": "Automation",
+                  "value": "Automation is absent as there is no mention of automated systems in the packing operations.",
+                  "description": "Active packing operations are underway, with workers handling boxes as part of order fulfillment, indicating a well-established logistics process that may enhance efficiency in shipping."
+                }
+              ]
+            },
+            {
+              "operation": "Outbound Sortation",
+              "fields": [
+                {
+                  "field": "nature",
+                  "label": "Nature Of Operation",
+                  "value": "The operation involves outbound sortation processes with trucks loading and unloading at a warehouse, supported by loading docks and material handling activities for active shipping.",
+                  "description": "The operation focuses on outbound sortation processes, indicated by trucks loading and unloading at a warehouse, along with the presence of loading docks and material handling activities that support active shipping operations."
+                }
+              ]
+            },
+            {
+              "operation": "Palletization",
+              "fields": [
+                {
+                  "field": "nature",
+                  "label": "Nature Of Operation",
+                  "value": "The operation focuses on palletization, emphasizing efficient storage and handling practices with visible stacks of pallets and forklift operations.",
+                  "description": "The operation focuses on palletization, highlighting efficient storage and handling practices within the warehouse, as evidenced by visible stacks of pallets and forklift operations."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "wage_and_labour_cost_intelligence",
+          "title": "Wage & Labour Cost Intelligence",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "signing_or_retention_bonuses",
+              "label": "Signing bonuses or retention bonuses",
+              "value": "$5,000 sign-on bonus for regional and local Class-A CDL drivers.",
+              "description": "BRW actively recruits for transportation roles and offers a $5,000 sign-on bonus for regional and local Class-A CDL drivers."
+            }
+          ]
+        },
+        {
+          "id": "attrition_and_hiring_difficulty_signals",
+          "title": "Attrition & Hiring Difficulty",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "employee_reviews_summary.negative_themes",
+              "label": "Negative themes",
+              "value": "Largely positive employee reviews highlight efficient unloading, friendly staff, and fast service.",
+              "description": "Reviews indicate a largely positive experience for warehouse workers and truck drivers at the facility, emphasizing efficient unloading, friendly staff, and fast service, which contribute to a supportive work environment that is crucial for attracting and retaining talent."
+            }
+          ]
+        },
+        {
+          "id": "technology_systems",
+          "title": "Technology & Systems",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "wms.identified_system",
+              "label": "WMS identified",
+              "value": "The WMS in use is Synapse 3PL WMS.",
+              "description": "The WMS age/upgrade history indicates that the exact software in use is Synapse 3PL WMS, also known as the Synapse system."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "section_id": "part_3_pain_and_urgency_signals",
+      "section_title": "Pain & Urgency Signals",
+      "section_description": "What is driving potential automation interest now: labour, competition, growth, financial events, and compliance.",
+      "items": [
+        {
+          "id": "labour_urgency_signals",
+          "title": "Labour Urgency",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "attrition_signals_summary",
+              "label": "Attrition signals summary",
+              "value": "Positive reviews highlight a supportive work environment for warehouse workers and truck drivers, emphasizing efficient unloading and friendly staff.",
+              "description": "Reviews indicate a positive experience for warehouse workers and truck drivers, emphasizing efficient unloading, friendly staff, and fast service, which contribute to a supportive work environment that is crucial for attracting and retaining talent."
+            }
+          ]
+        },
+        {
+          "id": "growth_and_network_change_signals",
+          "title": "Growth and Network Change Signals",
+          "tables": [
+            {
+              "id": "volume_growth_trajectory",
+              "title": "Volume Growth Trajectory",
+              "table_type": "key_value",
+              "rows": [
+                {
+                  "field": "volume_growth_signal",
+                  "label": "Volume growth signal",
+                  "value": "BR Williams expanded its logistics branch in Atlanta, Georgia, to meet increasing regional demand.",
+                  "description": "BR Williams expanded its physical footprint by opening a new logistics branch in Atlanta, Georgia, to meet the increasing regional demand."
+                },
+                {
+                  "field": "public_growth_recognition",
+                  "label": "Public growth recognition",
+                  "value": "BR Williams has been recognized as a Top 100 Trucker for operational excellence.",
+                  "description": "BR Williams has been recognized as a Top 100 Trucker for its operational excellence, fleet optimization, and supply chain continuity."
+                },
+                {
+                  "field": "economic_development_job_creation_announcement",
+                  "label": "Economic development job creation growth",
+                  "value": "Active women in Trucking partnership supports workforce growth and leadership advancement in transportation.",
+                  "description": "An active partnership with the Women in Trucking Association is maintained to aggressively recruit, support, and advance women into driving and executive leadership roles within the transportation industry."
+                }
+              ]
+            },
+            {
+              "id": "new_facility_openings_or_network_expansion",
+              "title": "New Facility Openings or Network Expansion",
+              "table_type": "key_value",
+              "rows": [
+                {
+                  "field": "expanded_partnership_announcement",
+                  "label": "Expanded partnership announcement",
+                  "value": "BRW has expanded its freight, brokerage, and advanced LTL services to support volume growth for partners in automotive, e-commerce, and government defense sectors.",
+                  "description": "BRW has expanded its end-to-end freight, brokerage, and advanced Less-than-Truckload (LTL) services to support rapid volume growth for key partners in the automotive, e-commerce, and government defense sectors."
+                },
+                {
+                  "field": "network_expansion_signal_business",
+                  "label": "Network expansion signal",
+                  "value": "Haney and White Enterprise acquired B.R. Williams Trucking and B.R. Williams LTL Logistics in 2024 to enhance network expansion.",
+                  "description": "In 2024, Haney and White Enterprise completed the acquisition of B.R. Williams Trucking and B.R. Williams LTL Logistics, enhancing their network expansion efforts."
+                }
+              ]
+            },
+            {
+              "id": "new_customer_wins_or_contract_announcements",
+              "title": "Customer Wins or Contract Announcements",
+              "table_type": "key_value",
+              "rows": [
+                {
+                  "field": "new_contract_announcement",
+                  "label": "Contract announcement",
+                  "value": "BRW is a fully approved Department of Defense Transportation Service Provider and freight carrier.",
+                  "description": "BRW has formally announced its status as a fully approved Department of Defense Transportation Service Provider and freight carrier."
+                }
+              ]
+            },
+            {
+              "id": "peak_volume_management_challenges",
+              "title": "Peak Volume Management Challenges",
+              "table_type": "key_value",
+              "rows": [
+                {
+                  "field": "peak_season_demand_spike",
+                  "label": "Peak season demand spike",
+                  "value": "The peak season demand spike is effectively managed through advanced warehouse technology and proactive supply chain planning.",
+                  "description": "BR Williams effectively manages peak season demand spikes through the integration of advanced warehouse technology, proactive supply chain planning, and scalable fulfillment operations."
+                },
+                {
+                  "field": "peak_volume_management_challenge",
+                  "label": "Peak volume management challenge",
+                  "value": "The peak volume management challenge is related to the strategic pivot to focus exclusively on trucking and logistics solutions.",
+                  "description": "In 2026, BR Williams completed a strategic pivot to focus exclusively on trucking and logistics solutions, selling its warehouse assets at this location to Metro Supply Chain."
+                }
+              ]
+            }
+          ],
+          "table_type": "group"
+        },
+        {
+          "id": "financial_event_triggers",
+          "title": "Financial Event Triggers",
+          "tables": [
+            {
+              "id": "private_equity_acquisition_or_new_investment_round",
+              "title": "Private Equity Acquisition or New Investment Round",
+              "table_type": "key_value",
+              "rows": [
+                {
+                  "field": "private_equity_acquisition",
+                  "label": "Private equity acquisition",
+                  "value": "B.R. Williams was acquired by Haney and White Enterprise in 2024.",
+                  "description": "B.R. Williams was acquired by Haney and White Enterprise in 2024."
+                }
+              ]
+            },
+            {
+              "id": "recent_ownership_or_investment_change",
+              "title": "Recent Ownership or Investment Change",
+              "table_type": "key_value",
+              "rows": [
+                {
+                  "field": "recent_investment_change",
+                  "label": "Recent investment change",
+                  "value": "No specific recent investment change details are provided.",
+                  "description": "Following the formation of BRW, the enterprise executed further strategic optimization."
+                },
+                {
+                  "field": "recent_ownership_change",
+                  "label": "Recent ownership change",
+                  "value": "B.R. Williams Trucking and B.R. Williams LTL Logistics were recently acquired by Haney and White Enterprise.",
+                  "description": "B.R. Williams Trucking and B.R. Williams LTL Logistics were acquired by Haney and White Enterprise."
+                }
+              ]
+            },
+            {
+              "id": "new_c_suite_or_operational_leadership",
+              "title": "New C-suite or Operational Leadership",
+              "table_type": "key_value",
+              "rows": [
+                {
+                  "field": "new_c_suite_leadership_appointment",
+                  "label": "New C-suite leadership appointment",
+                  "value": "Derek Walcott and Tim Comstock have been appointed as Executive Vice Presidents.",
+                  "description": "BRW has appointed Derek Walcott as Executive Vice President of Strategy & Administration and Tim Comstock as Executive Vice President of Operations."
+                },
+                {
+                  "field": "new_operations_leadership_appointment",
+                  "label": "New operations leadership appointment",
+                  "value": "Craig Burgess has been appointed as the Executive Vice President of Operations at BR Williams in 2025.",
+                  "description": "Craig Burgess has been appointed as the Executive Vice President (EVP) of Operations at BR Williams following his promotion in 2025."
+                },
+                {
+                  "field": "new_supply_chain_leadership_appointment",
+                  "label": "New supply chain leadership appointment",
+                  "value": "Tim Comstock has been appointed as the Executive Vice President of Operations.",
+                  "description": "Tim Comstock has been appointed as the Executive Vice President of Operations, overseeing corporate operations across the company's consolidated service footprint, while Derek Walcott serves as the Executive Vice President of Strategy and Administration, leading corporate administrative functions such as safety, marketing, finance, and human resources."
+                }
+              ]
+            }
+          ],
+          "table_type": "group"
+        }
+      ]
+    },
+    {
+      "section_id": "account_snapshot",
+      "section_title": "Account Snapshot",
+      "section_description": "",
+      "items": [
+        {
+          "id": "account_snapshot",
+          "title": "Account snapshot",
+          "table_type": "key_value",
+          "rows": [
+            {
+              "field": "company",
+              "label": "Company",
+              "value": "BR Williams",
+              "description": ""
+            },
+            {
+              "field": "facility",
+              "label": "Facility",
+              "value": "1535 Hillyer Robinson Parkway, Anniston, AL, 36207, USA",
+              "description": ""
+            },
+            {
+              "field": "operation_type",
+              "label": "Operation type",
+              "value": "The facility operates primarily as a distribution and fulfillment center, focusing on logistics operations such as shipping, receiving, and material handling.",
+              "description": "The facility operates primarily as a distribution center and fulfillment center, specializing in logistics operations with a focus on shipping, receiving, and material handling, which is essential for maintaining supply chain fluidity."
+            },
+            {
+              "field": "size.sqft",
+              "label": "Sqft",
+              "value": "341,250 square feet",
+              "description": "The site size is 341,250 square feet, featuring a heated metal frame warehouse."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
