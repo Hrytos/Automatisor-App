@@ -295,6 +295,12 @@ def get_auth_headers() -> dict[str, str]:
     }
 
 
+def get_supabase_auth_url() -> str:
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise RuntimeError("Missing SUPABASE_URL or SUPABASE_ANON_KEY")
+    return f"{SUPABASE_URL.rstrip('/')}/auth/v1"
+
+
 RESEND_API_URL = "https://api.resend.com/emails"
 _resend_sync_client: httpx.Client | None = None
 
@@ -1413,6 +1419,120 @@ async def site_ids_with_pre_assessment_requested(
     return requested
 
 
+def _hydrate_wishlist_item_row(
+    row: dict[str, Any],
+    site: dict[str, Any],
+    account: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        **row,
+        "notes": row.get("notes") or "",
+        "site_id": site.get("site_id"),
+        "account_id": site.get("account_id") or row.get("account_id"),
+        "company_name": site.get("company_name") or account.get("company_name") or "",
+        "company_domain": account.get("account_domain") or "",
+        "full_address": site.get("full_address") or "",
+        "site_metadata": site.get("metadata") or {},
+        "added_at": row.get("created_at"),
+    }
+
+
+async def get_wishlist_notes_for_site(db: SupabaseAdmin, customer_id: str, site_id: str) -> str:
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_context",
+        params={
+            "select": "notes",
+            "customer_id": f"eq.{customer_id}",
+            "site_id": f"eq.{site_id}",
+            "event_type": f"eq.{EVENT_TYPE_WISH_LIST}",
+            "limit": 1,
+        },
+    )
+    row = rows[0] if rows else None
+    return str(row.get("notes") or "") if row else ""
+
+
+async def apply_wishlist_notes_to_customer_site(
+    db: SupabaseAdmin,
+    customer_site_id: str | None,
+    wishlist_notes: str,
+) -> None:
+    notes = str(wishlist_notes or "").strip()
+    customer_site_id = clean_optional(customer_site_id)
+    if not notes or not customer_site_id:
+        return
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_sites",
+        params={
+            "select": "customer_site_id,notes",
+            "customer_site_id": f"eq.{customer_site_id}",
+            "limit": 1,
+        },
+    )
+    row = rows[0] if rows else None
+    if not row or str(row.get("notes") or "").strip():
+        return
+    await db.request(
+        "PATCH",
+        "/rest/v1/automatisor_customer_sites",
+        params={"customer_site_id": f"eq.{customer_site_id}"},
+        json_body={
+            "notes": notes,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+        headers={"Prefer": "return=minimal"},
+    )
+
+
+async def resolve_wishlist_notes_from_discovery(
+    db: SupabaseAdmin,
+    customer_id: str,
+    site_id: str,
+    metadata: dict[str, Any] | None,
+    explicit_notes: str | None = None,
+) -> str:
+    notes = str(explicit_notes or "").strip()
+    if notes:
+        return notes
+    if not isinstance(metadata, dict):
+        return ""
+    source_company_context_id = clean_optional(metadata.get("source_company_context_id"))
+    if not source_company_context_id:
+        return ""
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_context",
+        params={
+            "select": "metadata",
+            "customer_context_id": f"eq.{source_company_context_id}",
+            "customer_id": f"eq.{customer_id}",
+            "event_type": f"eq.{EVENT_TYPE_USER_ADDED_COMPANY}",
+            "limit": 1,
+        },
+    )
+    company_row = rows[0] if rows else None
+    if not company_row:
+        return ""
+    company_metadata = company_row.get("metadata") if isinstance(company_row.get("metadata"), dict) else {}
+    return discovery_site_note_from_company_metadata(company_metadata, site_id)
+
+
+def discovery_site_note_from_company_metadata(metadata: Any, site_id: str) -> str:
+    if not isinstance(metadata, dict):
+        return ""
+    discovery = metadata.get("discovery")
+    if not isinstance(discovery, dict):
+        return ""
+    for item in discovery.get("company_sites") or []:
+        if not isinstance(item, dict):
+            continue
+        if clean_optional(item.get("site_id")) == site_id:
+            return str(item.get("note") or "")
+    return ""
+
+
 async def add_customer_wishlist_item(
     db: SupabaseAdmin,
     customer_id: str,
@@ -2178,6 +2298,18 @@ def _is_share_source_row(row: dict[str, Any] | None, site_id: str) -> bool:
         and row.get("site_id") == site_id
         and row.get("is_report_ready")
     )
+
+
+def _shared_snapshot_needs_backfill(existing_row: dict[str, Any]) -> bool:
+    if not existing_row.get("is_report_ready"):
+        return True
+    if not (existing_row.get("report_metadata") or {}):
+        return True
+    if not (existing_row.get("report_context_high") or {}):
+        return True
+    if not (existing_row.get("report_context_all") or {}):
+        return True
+    return False
 
 
 async def find_share_source_assignment(
@@ -3227,6 +3359,109 @@ async def handle_request_otp(request: Request, body: dict[str, Any] = Body(defau
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _session_from_supabase_auth_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    session = payload.get("session")
+    if isinstance(session, dict):
+        return session
+    if payload.get("access_token"):
+        return {
+            "access_token": payload.get("access_token"),
+            "refresh_token": payload.get("refresh_token"),
+            "expires_in": payload.get("expires_in"),
+            "token_type": payload.get("token_type"),
+        }
+    return None
+
+
+def _user_from_supabase_auth_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    user = payload.get("user")
+    if isinstance(user, dict):
+        return {"id": user.get("id")}
+    return None
+
+
+def _supabase_auth_json_response(payload: dict[str, Any]) -> dict[str, Any]:
+    session = _session_from_supabase_auth_payload(payload)
+    return {
+        "session": {
+            "access_token": session.get("access_token"),
+            "refresh_token": session.get("refresh_token"),
+            "expires_in": session.get("expires_in"),
+            "token_type": session.get("token_type"),
+        }
+        if session
+        else None,
+        "user": _user_from_supabase_auth_payload(payload),
+    }
+
+
+ACCESS_TOKEN_COOKIE_MAX_AGE = 60 * 60
+REFRESH_TOKEN_COOKIE_MAX_AGE = 60 * 60 * 24 * 30
+
+
+def set_auth_cookies(response: Response, session: dict[str, Any]) -> None:
+    access_token = clean_optional(session.get("access_token"))
+    if not access_token:
+        return
+    response.set_cookie(
+        "access_token",
+        access_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+        path="/",
+        max_age=ACCESS_TOKEN_COOKIE_MAX_AGE,
+    )
+    refresh_token = clean_optional(session.get("refresh_token"))
+    if refresh_token:
+        response.set_cookie(
+            "refresh_token",
+            refresh_token,
+            httponly=True,
+            secure=COOKIE_SECURE,
+            samesite="lax",
+            path="/",
+            max_age=REFRESH_TOKEN_COOKIE_MAX_AGE,
+        )
+
+
+def clear_auth_cookies(response: Response) -> None:
+    cookie_kwargs = {
+        "httponly": True,
+        "secure": COOKIE_SECURE,
+        "samesite": "lax",
+        "path": "/",
+    }
+    response.delete_cookie("access_token", **cookie_kwargs)
+    response.delete_cookie("refresh_token", **cookie_kwargs)
+
+
+async def refresh_supabase_session(refresh_token: str) -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=SUPABASE_AUTH_VERIFY_TIMEOUT) as client:
+            response = await client.post(
+                f"{get_supabase_auth_url()}/token?grant_type=refresh_token",
+                headers=get_auth_headers(),
+                json={"refresh_token": refresh_token},
+            )
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="We could not refresh your session because the authentication service timed out. Please try again.",
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach the authentication service. Please try again.",
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if response.is_error:
+        raise HTTPException(status_code=401, detail="Session expired. Please sign in again.")
+    return _supabase_auth_json_response(response.json())
+
+
 async def complete_auth_for_verified_email(
     response: Response,
     request: Request,
@@ -3237,15 +3472,7 @@ async def complete_auth_for_verified_email(
     session = auth_data.get("session") or {}
     if not session.get("access_token"):
         raise HTTPException(status_code=422, detail="Invalid or expired OTP")
-    response.set_cookie(
-        "access_token",
-        session["access_token"],
-        httponly=True,
-        secure=COOKIE_SECURE,
-        samesite="lax",
-        path="/",
-        max_age=60 * 60,
-    )
+    set_auth_cookies(response, session)
     db = get_admin_db()
     customer = await find_customer_by_email(db, email)
     share_payload = decode_share_token(body.get("share_token"))
@@ -3740,6 +3967,74 @@ async def add_customer_context_wishlist(body: dict[str, Any] = Body(default={}))
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.post("/api/customer-context/wishlist/notes")
+async def save_customer_context_wishlist_notes(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        site_id = clean_required(body.get("site_id"), "Site")
+        notes = str(body.get("notes") or "")
+        db = get_admin_db()
+        customer = await find_customer_by_email(db, email)
+        if not customer:
+            raise HTTPException(status_code=422, detail="Customer not found")
+        rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_customer_context",
+            params={
+                "select": CUSTOMER_CONTEXT_SELECT,
+                "customer_id": f"eq.{customer['customer_id']}",
+                "site_id": f"eq.{site_id}",
+                "event_type": f"eq.{EVENT_TYPE_WISH_LIST}",
+                "limit": 1,
+            },
+        )
+        row = rows[0] if rows else None
+        if not row:
+            raise HTTPException(status_code=422, detail="Wishlist item not found")
+        await db.request(
+            "PATCH",
+            "/rest/v1/automatisor_customer_context",
+            params={"customer_context_id": f"eq.{row['customer_context_id']}"},
+            json_body={
+                "notes": notes,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            headers={"Prefer": "return=minimal"},
+        )
+        site_rows = await db.request(
+            "GET",
+            "/rest/v1/account_sites",
+            params={
+                "select": "site_id,account_id,full_address,company_name,metadata",
+                "site_id": f"eq.{site_id}",
+                "is_archived": "eq.false",
+                "limit": 1,
+            },
+        )
+        site = site_rows[0] if site_rows else None
+        if not site:
+            raise HTTPException(status_code=422, detail="Selected wishlist site was not found")
+        account_rows = await db.request(
+            "GET",
+            "/rest/v1/accounts",
+            params={
+                "select": "account_id,company_name,account_domain",
+                "account_id": f"eq.{site.get('account_id')}",
+                "limit": 1,
+            },
+        )
+        account = account_rows[0] if account_rows else {}
+        updated_row = {**row, "notes": notes}
+        return {
+            "status": "saved",
+            "site_id": site_id,
+            "notes": notes,
+            "wishlist_item": _hydrate_wishlist_item_row(updated_row, site, account),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @app.post("/api/companies")
 async def save_company(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     try:
@@ -3853,6 +4148,65 @@ async def save_customer_company_notes(body: dict[str, Any] = Body(default={})) -
             "status": "saved",
             "customer_context_id": customer_context_id,
             "notes": notes,
+            "company": updated,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/companies/site-note")
+async def save_company_site_note(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    try:
+        email = assert_work_email(body.get("email") or body.get("work_email"))
+        customer_context_id = clean_required(body.get("customer_context_id"), "Company")
+        site_id = clean_required(body.get("site_id"), "Site")
+        note = str(body.get("note") or "")
+        db = get_admin_db()
+        customer = await find_customer_by_email(db, email)
+        if not customer:
+            raise HTTPException(status_code=422, detail="Customer not found")
+        rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_customer_context",
+            params={
+                "select": "customer_context_id,customer_id,metadata",
+                "customer_context_id": f"eq.{customer_context_id}",
+                "customer_id": f"eq.{customer['customer_id']}",
+                "limit": 1,
+            },
+        )
+        row = rows[0] if rows else None
+        if not row:
+            raise HTTPException(status_code=422, detail="Company not found")
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        discovery = metadata.get("discovery") if isinstance(metadata.get("discovery"), dict) else {}
+        company_sites = discovery.get("company_sites") if isinstance(discovery.get("company_sites"), list) else []
+        found = False
+        for item in company_sites:
+            if isinstance(item, dict) and clean_optional(item.get("site_id")) == site_id:
+                item["note"] = note
+                found = True
+                break
+        if not found:
+            raise HTTPException(status_code=422, detail="Site not found in discovery results")
+        discovery["company_sites"] = company_sites
+        metadata["discovery"] = discovery
+        await db.request(
+            "PATCH",
+            "/rest/v1/automatisor_customer_context",
+            params={"customer_context_id": f"eq.{customer_context_id}"},
+            json_body={
+                "metadata": metadata,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            headers={"Prefer": "return=minimal"},
+        )
+        updated = await find_customer_company_by_id(db, customer["customer_id"], customer_context_id)
+        return {
+            "status": "saved",
+            "customer_context_id": customer_context_id,
+            "site_id": site_id,
+            "note": note,
             "company": updated,
         }
     except ValueError as exc:
@@ -4122,9 +4476,22 @@ async def share_report(request: Request, body: dict[str, Any] = Body(default={})
     }
 
 
+@app.post("/api/auth/refresh")
+async def refresh_session(response: Response, request: Request) -> dict[str, Any]:
+    token = clean_optional(request.cookies.get("refresh_token"))
+    if not token:
+        raise HTTPException(status_code=401, detail="No active session.")
+    auth_data = await refresh_supabase_session(token)
+    session = auth_data.get("session") or {}
+    if not session.get("access_token"):
+        raise HTTPException(status_code=401, detail="Session expired. Please sign in again.")
+    set_auth_cookies(response, session)
+    return {"status": "refreshed"}
+
+
 @app.post("/api/auth/logout")
 async def auth_logout(response: Response) -> dict[str, str]:
-    response.delete_cookie("access_token", httponly=True, secure=COOKIE_SECURE, samesite="lax", path="/")
+    clear_auth_cookies(response)
     return {"status": "logged_out"}
 
 
