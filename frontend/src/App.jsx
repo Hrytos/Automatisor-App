@@ -3224,7 +3224,7 @@ function WishlistRow({
               notes: recommendationText(item.notes),
             }}
           >
-            {hasNote ? "Notes \u2022" : "Notes"}
+            Notes
           </Link>
           <Link
             className="site-bar-link site-bar-link-primary"
@@ -6519,10 +6519,6 @@ function PreAssessmentPage() {
                 <div>
                   <p className="workspace-eyebrow">Workspace</p>
                   <h1 className="workspace-page-title">Request a pre-assessment</h1>
-                  <p className="workspace-page-copy">
-                    Review the selected site, understand the deliverable, and confirm the monthly
-                    billed usage before the job starts.
-                  </p>
                 </div>
               </div>
             </header>
@@ -6532,23 +6528,25 @@ function PreAssessmentPage() {
               {paymentRedirectSeconds ? ` Redirecting in ${paymentRedirectSeconds}...` : ""}
             </p>
 
-            <section className="workspace-card workspace-card-modern workspace-card-wide pre-assessment-selection-card">
-              {isResolvingSelectedSite ? (
-                <div className="workspace-loading-state pre-assessment-loading-state">
-                  <p>Loading selected site...</p>
-                </div>
-              ) : (
-                <>
-                  <h2 className="workspace-card-title pre-assessment-site-title">
-                    {selectedSite?.company_name || "Choose a site from the workspace"}
-                  </h2>
-                  <p className="workspace-page-copy workspace-page-copy-tight">
-                    {selectedSite?.full_address ||
-                      "Open this page from a site row in the workspace so the request is tied to the correct account and address."}
-                  </p>
-                </>
-              )}
-            </section>
+            {(isResolvingSelectedSite || !selectedSite) ? (
+              <section className="workspace-card workspace-card-modern workspace-card-wide pre-assessment-selection-card">
+                {isResolvingSelectedSite ? (
+                  <div className="workspace-loading-state pre-assessment-loading-state">
+                    <p>Loading selected site...</p>
+                  </div>
+                ) : (
+                  <>
+                    <h2 className="workspace-card-title pre-assessment-site-title">
+                      Choose a site from the workspace
+                    </h2>
+                    <p className="workspace-page-copy workspace-page-copy-tight">
+                      Open this page from a site row in the workspace so the request is tied to the
+                      correct account and address.
+                    </p>
+                  </>
+                )}
+              </section>
+            ) : null}
 
             <section className="workspace-card workspace-card-modern workspace-card-wide pre-assessment-card">
               <div className="tab-panel pre-assessment-meaning-panel">

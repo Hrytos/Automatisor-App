@@ -303,6 +303,8 @@ def get_supabase_auth_url() -> str:
 
 RESEND_API_URL = "https://api.resend.com/emails"
 _resend_sync_client: httpx.Client | None = None
+SUPABASE_AUTH_SEND_TIMEOUT = httpx.Timeout(45.0, connect=10.0, read=45.0, write=10.0, pool=10.0)
+SUPABASE_AUTH_VERIFY_TIMEOUT = httpx.Timeout(20.0, connect=10.0, read=20.0, write=10.0, pool=10.0)
 
 
 def _get_resend_sync_client() -> httpx.Client:
@@ -565,6 +567,8 @@ def is_dry_run_request(request: Request, body: dict[str, Any] | None) -> bool:
 
 
 def infer_error_status(detail: str) -> int:
+    if re.search(r"rate limit|too many|security purposes", detail or "", re.I):
+        return 429
     if re.search(r"required|Invalid|expired|work email|company domain|OTP|address", detail or "", re.I):
         return 422
     return 500
@@ -1293,6 +1297,7 @@ async def list_customer_sites(db: SupabaseAdmin, customer_id: str | None) -> lis
                 "customer_site_id": assignment.get("customer_site_id"),
                 "assigned_via": assignment.get("assigned_via") or "user_added_site",
                 "shared_by": assignment.get("shared_by"),
+                "added_at": assignment.get("created_at"),
                 "customer_site_metadata": assignment.get("metadata") or {},
                 "recommendations": hydrated_recommendations.get(assignment.get("customer_site_id")) or {},
                 "notes": assignment.get("notes") or "",
@@ -1311,7 +1316,7 @@ async def list_customer_wishlist(db: SupabaseAdmin, customer_id: str | None) -> 
         "GET",
         "/rest/v1/automatisor_customer_context",
         params={
-            "select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at",
+            "select": CUSTOMER_CONTEXT_SELECT,
             "customer_id": f"eq.{customer_id}",
             "event_type": "eq.wish_list",
             "order": "created_at.desc",
@@ -1359,12 +1364,14 @@ async def list_customer_wishlist(db: SupabaseAdmin, customer_id: str | None) -> 
         wishlist.append(
             {
                 **row,
+                "notes": row.get("notes") or "",
                 "site_id": site.get("site_id"),
                 "account_id": site.get("account_id") or row.get("account_id"),
                 "company_name": site.get("company_name") or account.get("company_name") or "",
                 "company_domain": account.get("account_domain") or "",
                 "full_address": site.get("full_address") or "",
                 "site_metadata": site.get("metadata") or {},
+                "added_at": row.get("created_at"),
             }
         )
     requested_site_ids = await site_ids_with_pre_assessment_requested(db, customer_id, site_ids)
@@ -1539,6 +1546,7 @@ async def add_customer_wishlist_item(
     account_id: str,
     site_id: str,
     metadata: dict[str, Any] | None = None,
+    notes: str | None = None,
 ) -> dict[str, Any]:
     site_rows = await db.request(
         "GET",
@@ -1568,7 +1576,7 @@ async def add_customer_wishlist_item(
         "GET",
         "/rest/v1/automatisor_customer_context",
         params={
-            "select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at",
+            "select": CUSTOMER_CONTEXT_SELECT,
             "customer_id": f"eq.{customer_id}",
             "site_id": f"eq.{site_id}",
             "event_type": "eq.wish_list",
@@ -1577,37 +1585,40 @@ async def add_customer_wishlist_item(
     )
     now = datetime.now(timezone.utc).isoformat()
     row = existing_rows[0] if existing_rows else None
+    resolved_notes = str(notes or "").strip()
     if row:
-        return {
-            **row,
-            "company_name": site.get("company_name") or account.get("company_name") or "",
-            "company_domain": account.get("account_domain") or "",
-            "full_address": site.get("full_address") or "",
-            "site_metadata": site.get("metadata") or {},
-        }
+        existing_notes = str(row.get("notes") or "").strip()
+        if resolved_notes and not existing_notes:
+            await db.request(
+                "PATCH",
+                "/rest/v1/automatisor_customer_context",
+                params={"customer_context_id": f"eq.{row['customer_context_id']}"},
+                json_body={
+                    "notes": resolved_notes,
+                    "updated_at": now,
+                },
+                headers={"Prefer": "return=minimal"},
+            )
+            row = {**row, "notes": resolved_notes}
+        return _hydrate_wishlist_item_row(row, site, account)
     created = await db.request(
         "POST",
         "/rest/v1/automatisor_customer_context",
-        params={"select": "customer_context_id,customer_id,site_id,account_id,event_type,metadata,created_at,updated_at"},
+        params={"select": CUSTOMER_CONTEXT_SELECT},
         json_body={
             "customer_id": customer_id,
             "site_id": site_id,
             "account_id": account_id,
             "event_type": "wish_list",
             "metadata": metadata or {},
+            "notes": resolved_notes,
             "created_at": now,
             "updated_at": now,
         },
         headers={"Prefer": "return=representation"},
     )
     result = created[0]
-    return {
-        **result,
-        "company_name": site.get("company_name") or account.get("company_name") or "",
-        "company_domain": account.get("account_domain") or "",
-        "full_address": site.get("full_address") or "",
-        "site_metadata": site.get("metadata") or {},
-    }
+    return _hydrate_wishlist_item_row(result, site, account)
 
 
 async def remove_customer_wishlist_item(
@@ -2208,7 +2219,7 @@ async def find_customer_site_assignment(
         "GET",
         "/rest/v1/automatisor_customer_sites",
         params={
-            "select": "customer_site_id,customer_id,site_id,account_id,assigned_via,metadata,recommendations,notes,report_metadata,rating_metadata,is_report_ready,created_at",
+            "select": "customer_site_id,customer_id,site_id,account_id,assigned_via,metadata,recommendations,notes,report_metadata,report_context_high,report_context_all,rating_metadata,is_report_ready,created_at",
             "customer_id": f"eq.{customer_id}",
             "customer_site_id": f"eq.{customer_site_id}",
             "limit": 1,
@@ -2288,7 +2299,8 @@ async def ensure_customer_site_assignment(
 
 
 _SHARE_SOURCE_SELECT = (
-    "customer_site_id,site_id,account_id,metadata,recommendations,report_metadata,is_report_ready,assigned_via"
+    "customer_site_id,site_id,account_id,metadata,recommendations,"
+    "report_metadata,report_context_high,report_context_all,is_report_ready,assigned_via"
 )
 
 
@@ -2400,6 +2412,8 @@ async def ensure_shared_site_assignment(
             "metadata": shared_metadata,
             "recommendations": source.get("recommendations") or {},
             "report_metadata": source.get("report_metadata") or {},
+            "report_context_high": source.get("report_context_high") or {},
+            "report_context_all": source.get("report_context_all") or {},
             "is_report_ready": bool(source.get("is_report_ready")),
         }
 
@@ -2409,7 +2423,7 @@ async def ensure_shared_site_assignment(
             "GET",
             "/rest/v1/automatisor_customer_sites",
             params={
-                "select": "customer_site_id,site_id,account_id,assigned_via,shared_by,is_report_ready,report_metadata",
+                "select": "customer_site_id,site_id,account_id,assigned_via,shared_by,is_report_ready,report_metadata,report_context_high,report_context_all",
                 "customer_id": f"eq.{customer_id}",
                 "site_id": f"eq.{site_id}",
                 "assigned_via": "eq.shared_site",
@@ -2420,10 +2434,7 @@ async def ensure_shared_site_assignment(
         if existing:
             existing_row = existing[0]
             source = await load_share_source()
-            if source and (
-                not existing_row.get("is_report_ready")
-                or not (existing_row.get("report_metadata") or {})
-            ):
+            if source and _shared_snapshot_needs_backfill(existing_row):
                 await db.request(
                     "PATCH",
                     "/rest/v1/automatisor_customer_sites",
@@ -2858,6 +2869,8 @@ async def ensure_chat_shared_site_assignment(
             "metadata": shared_metadata,
             "recommendations": source.get("recommendations") or {},
             "report_metadata": source.get("report_metadata") or {},
+            "report_context_high": source.get("report_context_high") or {},
+            "report_context_all": source.get("report_context_all") or {},
             "is_report_ready": bool(source.get("is_report_ready")),
         }
 
@@ -2865,7 +2878,7 @@ async def ensure_chat_shared_site_assignment(
         "GET",
         "/rest/v1/automatisor_customer_sites",
         params={
-            "select": "customer_site_id,site_id,account_id,assigned_via,shared_by,is_report_ready,report_metadata",
+            "select": "customer_site_id,site_id,account_id,assigned_via,shared_by,is_report_ready,report_metadata,report_context_high,report_context_all",
             "customer_id": f"eq.{customer_id}",
             "site_id": f"eq.{site_id}",
             "assigned_via": "eq.shared_site",
@@ -2876,10 +2889,7 @@ async def ensure_chat_shared_site_assignment(
     if existing:
         existing_row = existing[0]
         source = await load_share_source()
-        if source and (
-            not existing_row.get("is_report_ready")
-            or not (existing_row.get("report_metadata") or {})
-        ):
+        if source and _shared_snapshot_needs_backfill(existing_row):
             await db.request(
                 "PATCH",
                 "/rest/v1/automatisor_customer_sites",
@@ -3229,17 +3239,31 @@ async def send_slack_pre_assessment_notification(
 
 async def send_supabase_otp(email: str) -> None:
     try:
-        auth = get_auth_client()
-        auth.auth.sign_in_with_otp(
-            {
-                "email": email,
-                "options": {
-                    "should_create_user": True,
+        async with httpx.AsyncClient(timeout=SUPABASE_AUTH_SEND_TIMEOUT) as client:
+            response = await client.post(
+                f"{get_supabase_auth_url()}/otp",
+                headers=get_auth_headers(),
+                json={
+                    "email": email,
+                    "create_user": True,
                 },
-            }
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+            )
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="We could not confirm the OTP was sent. Please try again.",
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach the authentication service. Please try again.",
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if response.is_error:
+        detail = _extract_supabase_error(response)
+        raise HTTPException(status_code=infer_error_status(detail), detail=detail)
 
 
 def _supabase_auth_response(session: Any, user: Any) -> dict[str, Any]:
@@ -3258,17 +3282,33 @@ def _supabase_auth_response(session: Any, user: Any) -> dict[str, Any]:
 
 async def verify_supabase_otp(email: str, otp: str) -> dict[str, Any]:
     try:
-        auth = get_auth_client()
-        response = auth.auth.verify_otp(
-            {
-                "email": email,
-                "token": otp,
-                "type": "email",
-            }
-        )
-        return _supabase_auth_response(response.session, response.user)
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=str(exc) or "Invalid or expired OTP") from exc
+        async with httpx.AsyncClient(timeout=SUPABASE_AUTH_VERIFY_TIMEOUT) as client:
+            response = await client.post(
+                f"{get_supabase_auth_url()}/verify",
+                headers=get_auth_headers(),
+                json={
+                    "email": email,
+                    "token": otp,
+                    "type": "email",
+                },
+            )
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="We could not verify the OTP because the authentication service timed out. Please try again.",
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach the authentication service. Please try again.",
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if response.is_error:
+        detail = _extract_supabase_error(response) or "Invalid or expired OTP"
+        raise HTTPException(status_code=infer_error_status(detail), detail=detail)
+    return _supabase_auth_json_response(response.json())
 
 
 async def mint_supabase_session_for_email(email: str) -> dict[str, Any]:
@@ -3952,12 +3992,20 @@ async def add_customer_context_wishlist(body: dict[str, Any] = Body(default={}))
         customer = await find_customer_by_email(db, email)
         if not customer:
             raise HTTPException(status_code=422, detail="Customer not found")
+        notes = await resolve_wishlist_notes_from_discovery(
+            db,
+            customer["customer_id"],
+            site_id,
+            metadata,
+            str(body.get("notes") or ""),
+        )
         item = await add_customer_wishlist_item(
             db,
             customer["customer_id"],
             account_id,
             site_id,
             metadata=metadata,
+            notes=notes,
         )
         return {
             "status": "saved",
@@ -4513,171 +4561,21 @@ async def request_pre_assessment(request: Request, body: dict[str, Any] = Body(d
         active_account = choose_active_account(linked_accounts, requested_account_id)
         if requested_account_id and not active_account:
             raise HTTPException(status_code=422, detail="Selected account is not available for this user")
-        site = await find_account_site_by_id(
+        resolved_account_id = requested_account_id or (active_account["account_id"] if active_account else "")
+        result = await _submit_pre_assessment_request(
             db,
-            requested_account_id or active_account["account_id"] if active_account else requested_account_id,
-            site_id,
-            customer["customer_id"],
-            customer_site_id=requested_customer_site_id,
-        )
-        if not site:
-            raise HTTPException(status_code=422, detail="Selected site was not found for this customer")
-        assignment_metadata = site.get("customer_site_metadata") or {}
-        already_requested = bool(assignment_metadata.get("last_pre_assessment_requested_at"))
-        if not already_requested and not is_dry_run_request(request, body):
-            prior_site_billing = await db.request(
-                "GET",
-                "/rest/v1/automatisor_billing",
-                params={
-                    "select": "billing_id",
-                    "customer_id": f"eq.{customer['customer_id']}",
-                    "site_id": f"eq.{site_id}",
-                    "usage_type": "eq.pre_assessment_request",
-                    "limit": 1,
-                },
-            )
-            already_requested = bool(prior_site_billing)
-        requested_at = datetime.now(timezone.utc).isoformat()
-        if not is_dry_run_request(request, body):
-            if already_requested:
-                print(
-                    f"pre-assessment skip billing: customer={customer['customer_id']} site={site_id} "
-                    f"assigned_via={site.get('assigned_via')} already_requested={already_requested}"
-                )
-                existing_customer_site_id = clean_optional(site.get("customer_site_id"))
-                if existing_customer_site_id:
-                    await maybe_start_site_recommendations(
-                        db,
-                        site,
-                        assignment_customer_site_id=existing_customer_site_id,
-                    )
-                await clear_wishlist_after_pre_assessment(
-                    db,
-                    customer["customer_id"],
-                    site_id,
-                    request=request,
-                    body=body,
-                )
-                usage = await get_customer_usage_state(db, customer["customer_id"])
-                return {
-                    "status": "running",
-                    "email": email,
-                    "account_id": site["account_id"],
-                    "site_id": site["site_id"],
-                    "customer_site_id": site.get("customer_site_id"),
-                    "credits_used_total": usage["creditsUsedTotal"],
-                    "credits_used_this_month": usage["creditsUsedThisMonth"],
-                    "pre_assessment_price_credits": PRE_ASSESSMENT_PRICE,
-                    "message": "Pre-assessment is already running for this site.",
-                }
-            stripe_customer_id = customer.get("stripe_customer_id")
-            # First report is always free — skip payment method gate for it.
-            prior_billing_rows = await db.request(
-                "GET",
-                "/rest/v1/automatisor_billing",
-                params={"select": "billing_id", "customer_id": f"eq.{customer['customer_id']}", "limit": 1},
-            )
-            is_first_report = not bool(prior_billing_rows)
-            if stripe_customer_id and not is_first_report:
-                # Check 1: payment method must exist before allowing billable usage
-                stripe_cust = stripe.Customer.retrieve(
-                    stripe_customer_id,
-                    expand=["invoice_settings.default_payment_method"],
-                )
-                has_default_pm = bool(
-                    getattr(stripe_cust, "invoice_settings", None)
-                    and getattr(stripe_cust.invoice_settings, "default_payment_method", None)
-                )
-                if not has_default_pm:
-                    # Fall back: check for any attached card
-                    attached = stripe.PaymentMethod.list(
-                        customer=stripe_customer_id, type="card", limit=1
-                    )
-                    has_default_pm = bool(attached.data)
-                if not has_default_pm:
-                    raise HTTPException(
-                        status_code=402,
-                        detail="Add a payment method to continue using credits. You won't be charged until usage is billed.",
-                    )
-                # Check 2: block service if customer has any unpaid (open) Stripe invoices
-                open_invoices = stripe.Invoice.list(customer=stripe_customer_id, status="open", limit=1)
-                if open_invoices.data:
-                    raise HTTPException(
-                        status_code=402,
-                        detail="Your account has an unpaid invoice. Please pay your outstanding balance to continue using the service.",
-                    )
-            assignment = await ensure_customer_site_assignment(
-                db,
-                customer["customer_id"],
-                site["account_id"],
-                site["site_id"],
-                requested_at=requested_at,
-            )
-            await maybe_start_site_recommendations(
-                db,
-                site,
-                assignment_customer_site_id=assignment.get("customerSiteId"),
-            )
-            print(
-                f"pre-assessment billing insert: customer={customer['customer_id']} site={site_id} "
-                f"customer_site_id={site.get('customer_site_id')}"
-            )
-            await insert_billing_usage(
-                db,
-                customer_id=customer["customer_id"],
-                account_id=site["account_id"],
-                site_id=site["site_id"],
-                usage_type="pre_assessment_request",
-                credits_used=PRE_ASSESSMENT_PRICE,
-                metadata={"requested_at": requested_at},
-            )
-            try:
-                await send_pre_assessment_approval_email(
-                    email,
-                    site.get("company_name") or customer.get("company_name") or "",
-                    site.get("full_address") or "",
-                )
-            except Exception as email_exc:
-                print(f"Pre-assessment approval email failed: {email_exc}")
-            try:
-                contact_name = " ".join(
-                    part
-                    for part in [
-                        customer.get("first_name") or "",
-                        customer.get("last_name") or "",
-                    ]
-                    if part
-                ).strip()
-                await send_slack_pre_assessment_notification(
-                    company_name=site.get("company_name") or customer.get("company_name") or "",
-                    site_address=site.get("full_address") or "",
-                    contact_name=contact_name,
-                    email=email,
-                    designation=customer.get("designation") or "",
-                    account_id=site.get("account_id"),
-                    site_id=site.get("site_id"),
-                    customer_site_id=site.get("customer_site_id"),
-                )
-            except Exception as slack_exc:
-                print(f"Slack notification failed: {slack_exc}")
-        await clear_wishlist_after_pre_assessment(
-            db,
-            customer["customer_id"],
-            site_id,
             request=request,
             body=body,
+            customer=customer,
+            email=email,
+            account_id=resolved_account_id,
+            site_id=site_id,
+            customer_site_id=requested_customer_site_id,
         )
-        usage = await get_customer_usage_state(db, customer["customer_id"])
         return {
-            "status": "running",
+            **result,
             "email": email,
-            "account_id": site["account_id"],
-            "site_id": site["site_id"],
-            "customer_site_id": site.get("customer_site_id"),
-            "credits_used_total": usage["creditsUsedTotal"],
-            "credits_used_this_month": usage["creditsUsedThisMonth"],
-            "pre_assessment_price_credits": PRE_ASSESSMENT_PRICE,
-            "message": "Pre-assessment request approved. The job is running and the user will receive an email on completion.",
+            "pre_assessment_price_credits": result.get("pre_assessment_price_credits", PRE_ASSESSMENT_PRICE),
         }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -4703,6 +4601,7 @@ async def _submit_pre_assessment_request(
     )
     if not site:
         raise HTTPException(status_code=422, detail="Selected site was not found for this customer")
+    wishlist_notes = await get_wishlist_notes_for_site(db, customer["customer_id"], site_id)
     assignment_metadata = site.get("customer_site_metadata") or {}
     already_requested = bool(assignment_metadata.get("last_pre_assessment_requested_at"))
     if not already_requested and not is_dry_run_request(request, body):
@@ -4728,6 +4627,7 @@ async def _submit_pre_assessment_request(
                     site,
                     assignment_customer_site_id=existing_customer_site_id,
                 )
+                await apply_wishlist_notes_to_customer_site(db, existing_customer_site_id, wishlist_notes)
             await clear_wishlist_after_pre_assessment(
                 db,
                 customer["customer_id"],
@@ -4782,6 +4682,7 @@ async def _submit_pre_assessment_request(
             site["site_id"],
             requested_at=requested_at,
         )
+        await apply_wishlist_notes_to_customer_site(db, assignment.get("customerSiteId"), wishlist_notes)
         await maybe_start_site_recommendations(
             db,
             site,
