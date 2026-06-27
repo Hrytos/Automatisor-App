@@ -136,11 +136,10 @@ function inlineMarkdown(text) {
  *   siteId (string) - the site UUID for the active report view
  *   senderEmail (string) - authenticated user email for sharing
  *   companyName (string) - site company name for share emails
- *   sample (boolean) - stateless BR Williams sample mode (no DB, no history)
  */
 const EXPLAIN_WITH_EVIDENCE_QUERY = "explain with evidence";
 
-export default function ChatWidget({ siteId, senderEmail = "", companyName = "", sample = false }) {
+export default function ChatWidget({ siteId, senderEmail = "", companyName = "" }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -173,7 +172,7 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "",
 
   // Fetch sessions when the panel opens or siteId changes
   useEffect(() => {
-    if (sample || !isOpen || !siteId) return;
+    if (!isOpen || !siteId) return;
     let cancelled = false;
     setSessionsLoading(true);
     setError("");
@@ -219,7 +218,7 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "",
 
   // Fetch history when activeSessionId changes
   useEffect(() => {
-    if (sample || !activeSessionId || !siteId) return;
+    if (!activeSessionId || !siteId) return;
     let cancelled = false;
     setHistoryLoading(true);
     setMessages([]);
@@ -283,8 +282,7 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "",
 
   async function sendMessage(text) {
     const trimmed = String(text || "").trim();
-    if (!trimmed || loading) return;
-    if (!sample && !activeSessionId) return;
+    if (!trimmed || !activeSessionId || loading) return;
 
     const isFirst = messages.length === 0;
     const optimisticUser = { role: "user", content: trimmed, ts: new Date().toISOString() };
@@ -294,18 +292,11 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "",
     setError("");
 
     try {
-      const res = await fetch(sample ? "/api/chat/sample/message" : "/api/chat/message", {
+      const res = await fetch("/api/chat/message", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          sample
-            ? {
-                message: trimmed,
-                messages: messages.map((m) => ({ role: m.role, content: m.content })),
-              }
-            : { site_id: siteId, session_id: activeSessionId, message: trimmed },
-        ),
+        body: JSON.stringify({ site_id: siteId, session_id: activeSessionId, message: trimmed }),
       });
       const data = await res.json();
       if (data.detail) {
@@ -319,19 +310,17 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "",
         ...prev,
         { id: assistantMessageId, role: "assistant", content: data.reply, ts: new Date().toISOString(), metadata: {} },
       ]);
-      if (!sample) {
-        setSessions((prev) =>
-          prev.map((s) =>
-            s.session_id === activeSessionId
-              ? {
-                  ...s,
-                  updated_at: new Date().toISOString(),
-                  title: isFirst && data.title ? data.title : s.title,
-                }
-              : s,
-          ),
-        );
-      }
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.session_id === activeSessionId
+            ? {
+                ...s,
+                updated_at: new Date().toISOString(),
+                title: isFirst && data.title ? data.title : s.title,
+              }
+            : s,
+        ),
+      );
     } catch {
       setError("Failed to send message.");
       setMessages((prev) => prev.filter((m) => m !== optimisticUser));
@@ -398,11 +387,10 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "",
 
   // Title shown in the header for the active session
   const activeSession = sessions.find((s) => s.session_id === activeSessionId);
-  const headerTitle = sample ? "BR Williams Sample" : (activeSession ? formatSessionTitle(activeSession) : "Report Assistant");
-  const canShareConversation = !sample && Boolean(activeSessionId && messages.length > 0);
-  const canSendMessage = sample || Boolean(activeSessionId);
+  const headerTitle = activeSession ? formatSessionTitle(activeSession) : "Report Assistant";
+  const canShareConversation = Boolean(activeSessionId && messages.length > 0);
 
-  if (!siteId && !sample) return null;
+  if (!siteId) return null;
 
   return (
     <div className={`chat-widget${isOpen ? " chat-widget-open" : ""}`}>
@@ -444,80 +432,79 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "",
           {/* Header */}
           <div className="chat-widget-header">
             <div className="chat-widget-header-left">
-              {!sample ? (
-                <div className="chat-widget-history-wrap" ref={historyRef}>
-                  <button
-                    className="chat-widget-history-btn"
-                    type="button"
-                    aria-label="Chat history"
-                    aria-expanded={historyOpen}
-                    onClick={() => setHistoryOpen((v) => !v)}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <circle cx="12" cy="12" r="9" strokeWidth="2" />
-                      <path d="M12 7v5l3 3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
+              {/* Clock / history button */}
+              <div className="chat-widget-history-wrap" ref={historyRef}>
+                <button
+                  className="chat-widget-history-btn"
+                  type="button"
+                  aria-label="Chat history"
+                  aria-expanded={historyOpen}
+                  onClick={() => setHistoryOpen((v) => !v)}
+                >
+                  {/* Clock icon */}
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" strokeWidth="2" />
+                    <path d="M12 7v5l3 3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
 
-                  {historyOpen && (
-                    <div className="chat-widget-history-dropdown">
-                      <div className="chat-widget-history-header">
-                        <span>History</span>
-                        <button
-                          className="chat-widget-history-new"
-                          type="button"
-                          onClick={handleNewChat}
-                          disabled={loading}
-                        >
-                          + New chat
-                        </button>
-                      </div>
-                      {sessionsLoading ? (
-                        <p className="chat-widget-history-empty">Loading...</p>
-                      ) : sessions.length === 0 ? (
-                        <p className="chat-widget-history-empty">No previous chats.</p>
-                      ) : (
-                        <ul className="chat-widget-history-list">
-                          {sessions.map((session) => (
-                            <li key={session.session_id}>
-                              <button
-                                type="button"
-                                className={`chat-widget-history-item${session.session_id === activeSessionId ? " active" : ""}`}
-                                onClick={() => switchSession(session.session_id)}
-                              >
-                                <span className="chat-widget-history-item-title">
-                                  {formatSessionTitle(session)}
-                                </span>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
+                {/* History dropdown */}
+                {historyOpen && (
+                  <div className="chat-widget-history-dropdown">
+                    <div className="chat-widget-history-header">
+                      <span>History</span>
+                      <button
+                        className="chat-widget-history-new"
+                        type="button"
+                        onClick={handleNewChat}
+                        disabled={loading}
+                      >
+                        + New chat
+                      </button>
                     </div>
-                  )}
-                </div>
-              ) : null}
+                    {sessionsLoading ? (
+                      <p className="chat-widget-history-empty">Loading...</p>
+                    ) : sessions.length === 0 ? (
+                      <p className="chat-widget-history-empty">No previous chats.</p>
+                    ) : (
+                      <ul className="chat-widget-history-list">
+                        {sessions.map((session) => (
+                          <li key={session.session_id}>
+                            <button
+                              type="button"
+                              className={`chat-widget-history-item${session.session_id === activeSessionId ? " active" : ""}`}
+                              onClick={() => switchSession(session.session_id)}
+                            >
+                              <span className="chat-widget-history-item-title">
+                                {formatSessionTitle(session)}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
 
               <span className="chat-widget-title" title={headerTitle}>{headerTitle}</span>
             </div>
 
             <div className="chat-widget-header-actions">
-              {!sample ? (
-                <button
-                  className="chat-widget-icon-btn"
-                  type="button"
-                  aria-label="Share conversation"
-                  title={canShareConversation ? "Share conversation" : "Start a conversation to share"}
-                  onClick={() => setShowShareDialog(true)}
-                  disabled={!canShareConversation || loading}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M16 6l-4-4-4 4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    <path d="M12 2v14" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                </button>
-              ) : null}
+              <button
+                className="chat-widget-icon-btn"
+                type="button"
+                aria-label="Share conversation"
+                title={canShareConversation ? "Share conversation" : "Start a conversation to share"}
+                onClick={() => setShowShareDialog(true)}
+                disabled={!canShareConversation || loading}
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" strokeWidth="2" strokeLinecap="round" />
+                  <path d="M16 6l-4-4-4 4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M12 2v14" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
               <button
                 className="chat-widget-icon-btn"
                 type="button"
@@ -542,7 +529,6 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "",
                 )}
               </button>
 
-              {!sample ? (
               <button
                 className="chat-widget-new-btn"
                 type="button"
@@ -551,7 +537,6 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "",
               >
                 + New
               </button>
-              ) : null}
             </div>
           </div>
 
@@ -572,41 +557,37 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "",
                       <>
                         <div className="chat-widget-message-content chat-md">{renderMarkdown(msg.content)}</div>
                         <div className="chat-widget-feedback-row" aria-label="Feedback controls">
-                          {!sample ? (
-                            <>
-                              <button
-                                type="button"
-                                className={`chat-widget-feedback-btn${getMessageFeedback(msg) === "up" ? " active" : ""}`}
-                                aria-label="Helpful response"
-                                title="Helpful"
-                                onClick={() => handleFeedback(msg.id, "up")}
-                                disabled={!msg.id}
-                              >
-                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                  <path d="M7 11v9H4v-9h3zm4 9h6.6a2 2 0 0 0 2-1.6l1.2-7a2 2 0 0 0-2-2.4H13l1-4.8a2 2 0 0 0-2-2.4L7 11v9h4z" strokeWidth="2" strokeLinejoin="round" />
-                                </svg>
-                              </button>
-                              <button
-                                type="button"
-                                className={`chat-widget-feedback-btn${getMessageFeedback(msg) === "down" ? " active" : ""}`}
-                                aria-label="Unhelpful response"
-                                title="Not helpful"
-                                onClick={() => handleFeedback(msg.id, "down")}
-                                disabled={!msg.id}
-                              >
-                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                  <path d="M7 13V4H4v9h3zm4-9h6.6a2 2 0 0 1 2 1.6l1.2 7a2 2 0 0 1-2 2.4H13l1 4.8a2 2 0 0 1-2 2.4L7 13V4h4z" strokeWidth="2" strokeLinejoin="round" />
-                                </svg>
-                              </button>
-                            </>
-                          ) : null}
+                          <button
+                            type="button"
+                            className={`chat-widget-feedback-btn${getMessageFeedback(msg) === "up" ? " active" : ""}`}
+                            aria-label="Helpful response"
+                            title="Helpful"
+                            onClick={() => handleFeedback(msg.id, "up")}
+                            disabled={!msg.id}
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <path d="M7 11v9H4v-9h3zm4 9h6.6a2 2 0 0 0 2-1.6l1.2-7a2 2 0 0 0-2-2.4H13l1-4.8a2 2 0 0 0-2-2.4L7 11v9h4z" strokeWidth="2" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            className={`chat-widget-feedback-btn${getMessageFeedback(msg) === "down" ? " active" : ""}`}
+                            aria-label="Unhelpful response"
+                            title="Not helpful"
+                            onClick={() => handleFeedback(msg.id, "down")}
+                            disabled={!msg.id}
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <path d="M7 13V4H4v9h3zm4-9h6.6a2 2 0 0 1 2 1.6l1.2 7a2 2 0 0 1-2 2.4H13l1 4.8a2 2 0 0 1-2 2.4L7 13V4h4z" strokeWidth="2" strokeLinejoin="round" />
+                            </svg>
+                          </button>
                           <button
                             type="button"
                             className="chat-widget-feedback-btn chat-widget-evidence-btn"
                             aria-label="Explain with evidence"
                             data-tooltip={EXPLAIN_WITH_EVIDENCE_QUERY}
                             onClick={handleExplainWithEvidence}
-                            disabled={loading || !canSendMessage}
+                            disabled={loading || !activeSessionId}
                           >
                             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                               <circle cx="12" cy="12" r="9" strokeWidth="2" />
@@ -645,13 +626,13 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "",
               placeholder="Type a question..."
               rows={2}
               maxLength={2000}
-              disabled={loading || !canSendMessage}
+              disabled={loading || !activeSessionId}
               aria-label="Message input"
             />
             <button
               className="chat-widget-send-btn"
               type="submit"
-              disabled={loading || !input.trim() || !canSendMessage}
+              disabled={loading || !input.trim() || !activeSessionId}
               aria-label="Send message"
             >
               Send
