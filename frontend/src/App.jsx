@@ -3092,6 +3092,8 @@ function WorkspaceMobileActions({ creditsUsed, onLogout }) {
 function WishlistRow({ item, selected = false, onToggle = () => {}, tag = "", selectable = true }) {
   const address = wishlistItemAddress(item);
   const mapsUrl = wishlistItemMapsUrl(item);
+  const siteId = recommendationText(item.site_id);
+  const hasNote = Boolean(recommendationText(item.notes).trim());
   const editDraft = {
     ...item,
     ...recommendationAddFacilityDraft(item),
@@ -3121,6 +3123,18 @@ function WishlistRow({ item, selected = false, onToggle = () => {}, tag = "", se
       </div>
       <div className="site-bar-actions wishlist-bar-actions">
         <div className="site-bar-action-row">
+          <Link
+            className={`site-bar-link site-bar-link-secondary ${hasNote ? "facility-notes-button-filled" : ""}`.trim()}
+            to={buildWishlistNotesPath(siteId)}
+            state={{
+              siteId,
+              title: wishlistItemTitle(item),
+              address,
+              notes: recommendationText(item.notes),
+            }}
+          >
+            {hasNote ? "Notes \u2022" : "Notes"}
+          </Link>
           <Link
             className="site-bar-link site-bar-link-primary"
             to="/workspace/sites/new"
@@ -3488,6 +3502,10 @@ function buildCompanyFacilitiesPath(customerContextId) {
 
 function buildCompanyNotesPath(customerContextId) {
   return `/workspace/companies/${customerContextId}/notes`;
+}
+
+function buildWishlistNotesPath(siteId) {
+  return `/workspace/wishlist-notes?site_id=${encodeURIComponent(siteId || "")}`;
 }
 
 function buildPendingSiteFromInput(form, sitePayload) {
@@ -6294,10 +6312,6 @@ function PreAssessmentPage() {
                 <div>
                   <p className="workspace-eyebrow">Workspace</p>
                   <h1 className="workspace-page-title">Request a pre-assessment</h1>
-                  <p className="workspace-page-copy">
-                    Review the selected site, understand the deliverable, and confirm the monthly
-                    billed usage before the job starts.
-                  </p>
                 </div>
               </div>
             </header>
@@ -6316,23 +6330,25 @@ function PreAssessmentPage() {
               </div>
             </section>
 
-            <section className="workspace-card workspace-card-modern workspace-card-wide pre-assessment-selection-card">
-              {isResolvingSelectedSite ? (
-                <div className="workspace-loading-state pre-assessment-loading-state">
-                  <p>Loading selected site...</p>
-                </div>
-              ) : (
-                <>
-                  <h2 className="workspace-card-title pre-assessment-site-title">
-                    {selectedSite?.company_name || "Choose a site from the workspace"}
-                  </h2>
-                  <p className="workspace-page-copy workspace-page-copy-tight">
-                    {selectedSite?.full_address ||
-                      "Open this page from a site row in the workspace so the request is tied to the correct company and address."}
-                  </p>
-                </>
-              )}
-            </section>
+            {(isResolvingSelectedSite || !selectedSite) ? (
+              <section className="workspace-card workspace-card-modern workspace-card-wide pre-assessment-selection-card">
+                {isResolvingSelectedSite ? (
+                  <div className="workspace-loading-state pre-assessment-loading-state">
+                    <p>Loading selected site...</p>
+                  </div>
+                ) : (
+                  <>
+                    <h2 className="workspace-card-title pre-assessment-site-title">
+                      Choose a site from the workspace
+                    </h2>
+                    <p className="workspace-page-copy workspace-page-copy-tight">
+                      Open this page from a site row in the workspace so the request is tied to the
+                      correct account and address.
+                    </p>
+                  </>
+                )}
+              </section>
+            ) : null}
 
             <section className="workspace-card workspace-card-modern workspace-card-wide pre-assessment-card">
               <div className="tab-panel pre-assessment-meaning-panel">
