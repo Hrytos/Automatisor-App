@@ -57,6 +57,46 @@ def test_store_feedback_on_messages_attaches_metadata():
     assert "ts" in feedback
 
 
+def test_has_report_context_detects_nonempty_payload():
+    assert chat._has_report_context({"report_context_high": {"a": 1}}) is True
+    assert chat._has_report_context({"report_context_high": {}, "report_context_all": {}}) is False
+    assert chat._has_report_context(None) is False
+
+
+def test_collect_ready_facility_reports_only_includes_ready_with_context():
+    sites_by_id = {
+        "site-1": {
+            "site_id": "site-1",
+            "company_name": "Alpha",
+            "full_address": "1 Main St",
+        },
+        "site-2": {
+            "site_id": "site-2",
+            "company_name": "Beta",
+            "full_address": "2 Main St",
+        },
+    }
+    assignments = [
+        {
+            "site_id": "site-1",
+            "assigned_via": "user_added_site",
+            "is_report_ready": True,
+            "report_context_high": {"headline": "ready"},
+            "report_context_all": {},
+        },
+        {
+            "site_id": "site-2",
+            "assigned_via": "shared_site",
+            "is_report_ready": True,
+            "report_context_high": {},
+            "report_context_all": {},
+        },
+    ]
+    reports = chat._collect_ready_facility_reports(sites_by_id, assignments)
+    assert len(reports) == 1
+    assert reports[0]["site_id"] == "site-1"
+
+
 @pytest.mark.asyncio
 async def test_send_message_uses_llm_for_disallowed_request(monkeypatch):
     monkeypatch.setattr(chat, "_resolve_main_deps", _fake_deps)

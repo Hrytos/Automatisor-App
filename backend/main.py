@@ -2941,6 +2941,7 @@ async def create_chat_mirror_for_share(
     now = datetime.now(timezone.utc).isoformat()
     json_body: dict[str, Any] = {
         "site_id": site_id,
+        "chat_type": "site",
         "title": title,
         "messages": snapshot_chat_messages(messages),
         "source_session_id": source_session_id,

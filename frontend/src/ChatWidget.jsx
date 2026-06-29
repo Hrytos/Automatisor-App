@@ -131,15 +131,27 @@ function inlineMarkdown(text) {
 }
 
 /**
- * ChatWidget - per-report AI chatbot panel.
+ * ChatWidget - per-report or multi-facility AI chatbot panel.
  * Props:
- *   siteId (string) - the site UUID for the active report view
+ *   siteId (string) - the site UUID for single-report mode
+ *   scope ("site" | "facilities") - chat mode; default "site"
  *   senderEmail (string) - authenticated user email for sharing
  *   companyName (string) - site company name for share emails
  */
 const EXPLAIN_WITH_EVIDENCE_QUERY = "explain with evidence";
 
-export default function ChatWidget({ siteId, senderEmail = "", companyName = "" }) {
+function chatApiBase(scope) {
+  return scope === "facilities" ? "/api/chat/facilities" : "/api/chat";
+}
+
+export default function ChatWidget({
+  siteId,
+  scope = "site",
+  senderEmail = "",
+  companyName = "",
+}) {
+  const isFacilitiesScope = scope === "facilities";
+  const apiBase = chatApiBase(scope);
   const [isOpen, setIsOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -170,13 +182,17 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [historyOpen]);
 
-  // Fetch sessions when the panel opens or siteId changes
+  // Fetch sessions when the panel opens or scope/site changes
   useEffect(() => {
-    if (!isOpen || !siteId) return;
+    if (!isOpen) return;
+    if (!isFacilitiesScope && !siteId) return;
     let cancelled = false;
     setSessionsLoading(true);
     setError("");
-    fetch(`/api/chat/sessions?site_id=${encodeURIComponent(siteId)}`, {
+    const sessionsUrl = isFacilitiesScope
+      ? `${apiBase}/sessions`
+      : `${apiBase}/sessions?site_id=${encodeURIComponent(siteId)}`;
+    fetch(sessionsUrl, {
       credentials: "include",
     })
       .then((res) => res.json())
@@ -188,12 +204,12 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
         if (list.length > 0 && !activeSessionId) {
           setActiveSessionId(list[0].session_id);
         } else if (list.length === 0) {
-          // No sessions yet — auto-create one so the input is ready immediately
-          fetch("/api/chat/session", {
+          const createBody = isFacilitiesScope ? {} : { site_id: siteId };
+          fetch(`${apiBase}/session`, {
             method: "POST",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ site_id: siteId }),
+            body: JSON.stringify(createBody),
           })
             .then((r) => r.json())
             .then((d) => {
@@ -214,19 +230,20 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
       .finally(() => { if (!cancelled) setSessionsLoading(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, siteId]);
+  }, [isOpen, siteId, isFacilitiesScope, apiBase]);
 
   // Fetch history when activeSessionId changes
   useEffect(() => {
-    if (!activeSessionId || !siteId) return;
+    if (!activeSessionId) return;
+    if (!isFacilitiesScope && !siteId) return;
     let cancelled = false;
     setHistoryLoading(true);
     setMessages([]);
     setError("");
-    fetch(
-      `/api/chat/history?site_id=${encodeURIComponent(siteId)}&session_id=${encodeURIComponent(activeSessionId)}`,
-      { credentials: "include" },
-    )
+    const historyUrl = isFacilitiesScope
+      ? `${apiBase}/history?session_id=${encodeURIComponent(activeSessionId)}`
+      : `${apiBase}/history?site_id=${encodeURIComponent(siteId)}&session_id=${encodeURIComponent(activeSessionId)}`;
+    fetch(historyUrl, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
@@ -236,7 +253,7 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
       .catch(() => { if (!cancelled) setError("Could not load conversation history."); })
       .finally(() => { if (!cancelled) setHistoryLoading(false); });
     return () => { cancelled = true; };
-  }, [activeSessionId, siteId]);
+  }, [activeSessionId, siteId, isFacilitiesScope, apiBase]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -249,15 +266,16 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
   }, [isOpen]);
 
   async function handleNewChat() {
-    if (!siteId) return;
+    if (!isFacilitiesScope && !siteId) return;
     setError("");
     setHistoryOpen(false);
     try {
-      const res = await fetch("/api/chat/session", {
+      const createBody = isFacilitiesScope ? {} : { site_id: siteId };
+      const res = await fetch(`${apiBase}/session`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site_id: siteId }),
+        body: JSON.stringify(createBody),
       });
       const data = await res.json();
       if (data.detail) { setError(data.detail); return; }
@@ -292,11 +310,14 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
     setError("");
 
     try {
-      const res = await fetch("/api/chat/message", {
+      const messageBody = isFacilitiesScope
+        ? { session_id: activeSessionId, message: trimmed }
+        : { site_id: siteId, session_id: activeSessionId, message: trimmed };
+      const res = await fetch(`${apiBase}/message`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site_id: siteId, session_id: activeSessionId, message: trimmed }),
+        body: JSON.stringify(messageBody),
       });
       const data = await res.json();
       if (data.detail) {
@@ -340,19 +361,18 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
   }
 
   async function handleFeedback(messageId, feedback) {
-    if (!siteId || !activeSessionId || !messageId) return;
+    if (!activeSessionId || !messageId) return;
+    if (!isFacilitiesScope && !siteId) return;
     setFeedbackState((prev) => ({ ...prev, [messageId]: feedback }));
     try {
-      const res = await fetch("/api/chat/feedback", {
+      const feedbackBody = isFacilitiesScope
+        ? { session_id: activeSessionId, message_id: messageId, feedback }
+        : { site_id: siteId, session_id: activeSessionId, message_id: messageId, feedback };
+      const res = await fetch(`${apiBase}/feedback`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          site_id: siteId,
-          session_id: activeSessionId,
-          message_id: messageId,
-          feedback,
-        }),
+        body: JSON.stringify(feedbackBody),
       });
       const data = await res.json();
       if (data.detail) {
@@ -387,10 +407,11 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
 
   // Title shown in the header for the active session
   const activeSession = sessions.find((s) => s.session_id === activeSessionId);
-  const headerTitle = activeSession ? formatSessionTitle(activeSession) : "Report Assistant";
-  const canShareConversation = Boolean(activeSessionId && messages.length > 0);
+  const headerTitle = activeSession ? formatSessionTitle(activeSession) : (isFacilitiesScope ? "Facilities Assistant" : "Report Assistant");
+  const canShareConversation = !isFacilitiesScope && Boolean(activeSessionId && messages.length > 0);
+  const emptyStateMessage = "Hi, How are you?";
 
-  if (!siteId) return null;
+  if (!isFacilitiesScope && !siteId) return null;
 
   return (
     <div className={`chat-widget${isOpen ? " chat-widget-open" : ""}`}>
@@ -398,7 +419,7 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
       <button
         className="chat-widget-toggle"
         type="button"
-        aria-label={isOpen ? "Close report assistant" : "Open report assistant"}
+          aria-label={isOpen ? "Close assistant" : "Ask Automatisor"}
         onClick={() => {
           setIsOpen((v) => {
             if (v) setIsMaximized(false);
@@ -426,7 +447,7 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
         <div
           className={`chat-widget-panel${isMaximized ? " chat-widget-panel-maximized" : ""}`}
           role="dialog"
-          aria-label="Report assistant"
+          aria-label={isFacilitiesScope ? "Facilities assistant" : "Report assistant"}
           aria-expanded={isMaximized}
         >
           {/* Header */}
@@ -491,20 +512,22 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
             </div>
 
             <div className="chat-widget-header-actions">
-              <button
-                className="chat-widget-icon-btn"
-                type="button"
-                aria-label="Share conversation"
-                title={canShareConversation ? "Share conversation" : "Start a conversation to share"}
-                onClick={() => setShowShareDialog(true)}
-                disabled={!canShareConversation || loading}
-              >
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" strokeWidth="2" strokeLinecap="round" />
-                  <path d="M16 6l-4-4-4 4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M12 2v14" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
+              {!isFacilitiesScope ? (
+                <button
+                  className="chat-widget-icon-btn"
+                  type="button"
+                  aria-label="Share conversation"
+                  title={canShareConversation ? "Share conversation" : "Start a conversation to share"}
+                  onClick={() => setShowShareDialog(true)}
+                  disabled={!canShareConversation || loading}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" strokeWidth="2" strokeLinecap="round" />
+                    <path d="M16 6l-4-4-4 4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M12 2v14" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </button>
+              ) : null}
               <button
                 className="chat-widget-icon-btn"
                 type="button"
@@ -545,7 +568,7 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
             {historyLoading ? (
               <p className="chat-widget-status">Loading conversation...</p>
             ) : messages.length === 0 && !error ? (
-              <p className="chat-widget-status">Ask anything about this report.</p>
+              <p className="chat-widget-status">{emptyStateMessage}</p>
             ) : (
               messages.map((msg, i) => (
                 <div key={msg.id || i} className={`chat-widget-message chat-widget-message-${msg.role}`}>
@@ -623,7 +646,7 @@ export default function ChatWidget({ siteId, senderEmail = "", companyName = "" 
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type a question..."
+              placeholder={isFacilitiesScope ? "Ask about your facilities..." : "Type a question..."}
               rows={2}
               maxLength={2000}
               disabled={loading || !activeSessionId}

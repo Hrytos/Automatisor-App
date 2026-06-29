@@ -12,9 +12,9 @@ from fastapi.responses import JSONResponse
 from openai import AsyncOpenAI
 
 try:
-    from .chat_prompt import SYSTEM_PROMPT_TEMPLATE
+    from .chat_prompt import FACILITIES_SYSTEM_PROMPT_TEMPLATE, SYSTEM_PROMPT_TEMPLATE
 except ImportError:
-    from chat_prompt import SYSTEM_PROMPT_TEMPLATE
+    from chat_prompt import FACILITIES_SYSTEM_PROMPT_TEMPLATE, SYSTEM_PROMPT_TEMPLATE
 
 # Ensure .env is loaded even when this module is imported before main.py runs load_dotenv
 _BACKEND_DIR = Path(__file__).resolve().parent
@@ -71,6 +71,9 @@ def _resolve_share_deps():
     )
 
 router = APIRouter()
+
+CHAT_TYPE_SITE = "site"
+CHAT_TYPE_FACILITY = "facility"
 
 
 def _get_openai_key() -> str:
@@ -135,6 +138,137 @@ def _store_feedback_on_messages(messages: list[dict[str, object]], message_id: s
     return next_messages
 
 
+def _resolve_facilities_deps():
+    try:
+        from .main import list_customer_sites
+    except ImportError:
+        from main import list_customer_sites
+    return list_customer_sites
+
+
+async def _fetch_ready_assignments_with_context(db, customer_id: str) -> list[dict]:
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_customer_sites",
+        params={
+            "select": "site_id,assigned_via,is_report_ready,report_context_high,report_context_all",
+            "customer_id": f"eq.{customer_id}",
+            "assigned_via": "neq.sample_site",
+            "is_report_ready": "eq.true",
+        },
+    )
+    return rows or []
+
+
+def _has_report_context(row: dict | None) -> bool:
+    if not isinstance(row, dict):
+        return False
+    for key in ("report_context_high", "report_context_all"):
+        value = row.get(key)
+        if value is None:
+            continue
+        if isinstance(value, dict) and value:
+            return True
+        if isinstance(value, list) and value:
+            return True
+        if isinstance(value, str) and value.strip() not in ("", "{}", "[]"):
+            return True
+    return False
+
+
+def _collect_ready_facility_reports(
+    sites_by_id: dict[str, dict],
+    assignments: list[dict],
+) -> list[dict]:
+    """Return report-backed entries for facilities with is_report_ready=true and context."""
+    reports: list[dict] = []
+    seen_site_ids: set[str] = set()
+
+    for assignment in assignments:
+        if not _has_report_context(assignment):
+            continue
+        site_id = str(assignment.get("site_id") or "").strip()
+        if not site_id or site_id in seen_site_ids:
+            continue
+        seen_site_ids.add(site_id)
+        site = sites_by_id.get(site_id, {})
+        report_context = _build_report_context_payload(assignment)
+        tag = "Shared with me" if assignment.get("assigned_via") == "shared_site" else "Added by me"
+        reports.append(
+            {
+                "site_id": site_id,
+                "company_name": str(site.get("company_name") or "").strip(),
+                "full_address": str(site.get("full_address") or "").strip(),
+                "tag": tag,
+                "report_context_high": report_context["report_context_high"],
+                "report_context_all": report_context["report_context_all"],
+            }
+        )
+
+    return reports
+
+
+def _build_facilities_context_payload(reports: list[dict]) -> dict[str, str]:
+    return {
+        "facility_reports": json.dumps(reports, ensure_ascii=False, indent=2),
+    }
+
+
+async def _load_facilities_chat_context(db, customer_id: str) -> dict[str, str]:
+    list_customer_sites = _resolve_facilities_deps()
+    sites = await list_customer_sites(db, customer_id)
+    sites_by_id = {
+        str(site.get("site_id")): site for site in sites if site.get("site_id")
+    }
+    assignments = await _fetch_ready_assignments_with_context(db, customer_id)
+    reports = _collect_ready_facility_reports(sites_by_id, assignments)
+    return _build_facilities_context_payload(reports)
+
+
+async def _get_facilities_session_messages(db, customer_id: str, session_id: str) -> list[dict] | None:
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_chatbot",
+        params={
+            "session_id": f"eq.{session_id}",
+            "customer_id": f"eq.{customer_id}",
+            "chat_type": f"eq.{CHAT_TYPE_FACILITY}",
+            "site_id": "is.null",
+            "select": "messages",
+            "limit": "1",
+        },
+    )
+    if not rows:
+        return None
+    return _ensure_message_list_schema(list(rows[0].get("messages", []) or []))
+
+
+async def _save_facilities_session_messages(
+    db,
+    customer_id: str,
+    session_id: str,
+    messages: list[dict],
+    *,
+    title: str | None = None,
+) -> None:
+    patch_body: dict = {
+        "messages": messages,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if title:
+        patch_body["title"] = title
+    await db.request(
+        "PATCH",
+        "/rest/v1/automatisor_chatbot",
+        params={
+            "session_id": f"eq.{session_id}",
+            "customer_id": f"eq.{customer_id}",
+            "chat_type": f"eq.{CHAT_TYPE_FACILITY}",
+            "site_id": "is.null",
+        },
+        json_body=patch_body,
+    )
+
 
 # ---------------------------------------------------------------------------
 # GET /api/chat/sessions?site_id=...
@@ -183,6 +317,7 @@ async def list_sessions(request: Request, site_id: str = ""):
             params={
                 "customer_id": f"eq.{customer_id}",
                 "site_id": f"eq.{site_id}",
+                "chat_type": f"eq.{CHAT_TYPE_SITE}",
                 "is_archived": "eq.false",
                 "select": "session_id,title,created_at,updated_at",
                 "order": "updated_at.desc",
@@ -227,6 +362,7 @@ async def get_history(request: Request, site_id: str = "", session_id: str = "")
                 "session_id": f"eq.{session_id}",
                 "customer_id": f"eq.{customer_id}",
                 "site_id": f"eq.{site_id}",
+                "chat_type": f"eq.{CHAT_TYPE_SITE}",
                 "select": "messages",
                 "limit": "1",
             },
@@ -295,6 +431,7 @@ async def create_session(request: Request):
             json_body={
                 "customer_id": customer_id,
                 "site_id": site_id,
+                "chat_type": CHAT_TYPE_SITE,
                 "title": title,
                 "messages": [],
             },
@@ -401,6 +538,7 @@ async def send_message(request: Request):
                 "session_id": f"eq.{session_id}",
                 "customer_id": f"eq.{customer_id}",
                 "site_id": f"eq.{site_id}",
+                "chat_type": f"eq.{CHAT_TYPE_SITE}",
                 "select": "messages",
                 "limit": "1",
             },
@@ -471,6 +609,7 @@ async def send_message(request: Request):
                 "session_id": f"eq.{session_id}",
                 "customer_id": f"eq.{customer_id}",
                 "site_id": f"eq.{site_id}",
+                "chat_type": f"eq.{CHAT_TYPE_SITE}",
             },
             json_body=patch_body,
         )
@@ -521,6 +660,7 @@ async def chat_feedback(request: Request):
                 "session_id": f"eq.{session_id}",
                 "customer_id": f"eq.{customer_id}",
                 "site_id": f"eq.{site_id}",
+                "chat_type": f"eq.{CHAT_TYPE_SITE}",
                 "select": "messages",
                 "limit": "1",
             },
@@ -542,12 +682,270 @@ async def chat_feedback(request: Request):
                 "session_id": f"eq.{session_id}",
                 "customer_id": f"eq.{customer_id}",
                 "site_id": f"eq.{site_id}",
+                "chat_type": f"eq.{CHAT_TYPE_SITE}",
             },
             json_body={
                 "messages": updated_messages,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
         )
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Facilities workspace chat — multi-facility context scoped by UI filter
+# ---------------------------------------------------------------------------
+@router.get("/api/chat/facilities/sessions")
+async def list_facilities_sessions(request: Request):
+    SupabaseAdmin, get_authenticated_customer, infer_error_status = _resolve_main_deps()
+    db = SupabaseAdmin()
+
+    try:
+        customer = await get_authenticated_customer(db, request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        detail = str(exc)
+        return JSONResponse(status_code=infer_error_status(detail), content={"detail": detail})
+
+    customer_id = customer["customer_id"]
+
+    try:
+        rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_chatbot",
+            params={
+                "customer_id": f"eq.{customer_id}",
+                "chat_type": f"eq.{CHAT_TYPE_FACILITY}",
+                "site_id": "is.null",
+                "is_archived": "eq.false",
+                "select": "session_id,title,created_at,updated_at",
+                "order": "updated_at.desc",
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    return {"sessions": rows or []}
+
+
+@router.get("/api/chat/facilities/history")
+async def get_facilities_history(request: Request, session_id: str = ""):
+    SupabaseAdmin, get_authenticated_customer, infer_error_status = _resolve_main_deps()
+    if not session_id:
+        return JSONResponse(status_code=400, content={"detail": "session_id is required"})
+
+    db = SupabaseAdmin()
+
+    try:
+        customer = await get_authenticated_customer(db, request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        detail = str(exc)
+        return JSONResponse(status_code=infer_error_status(detail), content={"detail": detail})
+
+    customer_id = customer["customer_id"]
+    messages = await _get_facilities_session_messages(db, customer_id, session_id)
+    if messages is None:
+        return JSONResponse(status_code=404, content={"detail": "Session not found"})
+
+    return {"messages": messages}
+
+
+@router.post("/api/chat/facilities/session")
+async def create_facilities_session(request: Request):
+    SupabaseAdmin, get_authenticated_customer, infer_error_status = _resolve_main_deps()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"detail": "Invalid JSON body"})
+
+    title = str(body.get("title") or "").strip() or None
+    db = SupabaseAdmin()
+
+    try:
+        customer = await get_authenticated_customer(db, request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        detail = str(exc)
+        return JSONResponse(status_code=infer_error_status(detail), content={"detail": detail})
+
+    customer_id = customer["customer_id"]
+
+    try:
+        insert_resp = await db.request(
+            "POST",
+            "/rest/v1/automatisor_chatbot",
+            json_body={
+                "customer_id": customer_id,
+                "chat_type": CHAT_TYPE_FACILITY,
+                "title": title,
+                "messages": [],
+            },
+            headers={"Prefer": "return=representation"},
+        )
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    if not insert_resp:
+        return JSONResponse(status_code=500, content={"detail": "Failed to create session"})
+
+    row = insert_resp[0] if isinstance(insert_resp, list) else insert_resp
+    return {"session_id": row["session_id"]}
+
+
+@router.post("/api/chat/facilities/message")
+async def send_facilities_message(request: Request):
+    SupabaseAdmin, get_authenticated_customer, infer_error_status = _resolve_main_deps()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"detail": "Invalid JSON body"})
+
+    session_id = str(body.get("session_id") or "").strip()
+    message = str(body.get("message") or "").strip()
+
+    if not session_id:
+        return JSONResponse(status_code=400, content={"detail": "session_id is required"})
+    if not message:
+        return JSONResponse(status_code=400, content={"detail": "message cannot be empty"})
+    if len(message) > 2000:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "message must be 2000 characters or fewer"},
+        )
+
+    if not _get_openai_key():
+        return JSONResponse(status_code=500, content={"detail": "OpenAI API key is not configured"})
+
+    db = SupabaseAdmin()
+
+    try:
+        customer = await get_authenticated_customer(db, request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        detail = str(exc)
+        return JSONResponse(status_code=infer_error_status(detail), content={"detail": detail})
+
+    customer_id = customer["customer_id"]
+    stored_messages = await _get_facilities_session_messages(db, customer_id, session_id)
+    if stored_messages is None:
+        return JSONResponse(status_code=404, content={"detail": "Session not found"})
+
+    facilities_context = await _load_facilities_chat_context(db, customer_id)
+
+    try:
+        user_context_rows = await db.request(
+            "GET",
+            "/rest/v1/automatisor_customer_context",
+            params={
+                "customer_id": f"eq.{customer_id}",
+                "event_type": "eq.user_context",
+                "select": "metadata,updated_at",
+                "order": "updated_at.desc",
+                "limit": "1",
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+    user_context = _build_user_context_payload(user_context_rows[0] if user_context_rows else None)
+
+    is_first_message = len(stored_messages) == 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    user_entry = {"id": uuid4().hex, "role": "user", "content": message, "ts": now_iso}
+    stored_messages.append(user_entry)
+
+    llm_window = stored_messages[-20:]
+    llm_messages = [
+        {
+            "role": "system",
+            "content": FACILITIES_SYSTEM_PROMPT_TEMPLATE.format(
+                facility_reports=facilities_context["facility_reports"],
+                user_context=user_context,
+            ),
+        },
+        *[{"role": m["role"], "content": m["content"]} for m in llm_window],
+    ]
+
+    try:
+        client = AsyncOpenAI(api_key=_get_openai_key())
+        completion = await client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=llm_messages,
+        )
+        reply_text = _normalize_reply_text(completion.choices[0].message.content or "")
+    except Exception as exc:
+        return JSONResponse(status_code=502, content={"detail": f"LLM error: {exc}"})
+
+    assistant_message_id = uuid4().hex
+    assistant_entry = {
+        "id": assistant_message_id,
+        "role": "assistant",
+        "content": reply_text,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "metadata": {},
+    }
+    stored_messages.append(assistant_entry)
+
+    auto_title = (message[:60] + "…") if is_first_message and len(message) > 60 else (message if is_first_message else None)
+    try:
+        await _save_facilities_session_messages(
+            db,
+            customer_id,
+            session_id,
+            stored_messages,
+            title=auto_title,
+        )
+    except Exception:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Failed to save chat history. Please retry."},
+        )
+
+    return {"reply": reply_text, "title": auto_title, "assistant_message_id": assistant_message_id}
+
+
+@router.post("/api/chat/facilities/feedback")
+async def facilities_chat_feedback(request: Request):
+    SupabaseAdmin, get_authenticated_customer, infer_error_status = _resolve_main_deps()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"detail": "Invalid JSON body"})
+
+    session_id = str(body.get("session_id") or "").strip()
+    message_id = str(body.get("message_id") or "").strip()
+    feedback = str(body.get("feedback") or "").strip().lower()
+
+    if not session_id or not message_id:
+        return JSONResponse(status_code=400, content={"detail": "session_id and message_id are required"})
+    if feedback not in {"up", "down"}:
+        return JSONResponse(status_code=400, content={"detail": "feedback must be 'up' or 'down'"})
+
+    db = SupabaseAdmin()
+
+    try:
+        customer = await get_authenticated_customer(db, request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        detail = str(exc)
+        return JSONResponse(status_code=infer_error_status(detail), content={"detail": detail})
+
+    customer_id = customer["customer_id"]
+    messages = await _get_facilities_session_messages(db, customer_id, session_id)
+    if messages is None:
+        return JSONResponse(status_code=404, content={"detail": "Session not found"})
+
+    updated_messages = _store_feedback_on_messages(messages, message_id, feedback)
+    try:
+        await _save_facilities_session_messages(db, customer_id, session_id, updated_messages)
     except Exception as exc:
         return JSONResponse(status_code=500, content={"detail": str(exc)})
 
@@ -603,7 +1001,8 @@ async def share_chat(request: Request):
                 "session_id": f"eq.{session_id}",
                 "customer_id": f"eq.{sender_id}",
                 "site_id": f"eq.{site_id}",
-                "select": "session_id,title,messages",
+                "chat_type": f"eq.{CHAT_TYPE_SITE}",
+                "select": "session_id,title,messages,chat_type",
                 "limit": "1",
             },
         )
@@ -614,6 +1013,11 @@ async def share_chat(request: Request):
         return JSONResponse(status_code=404, content={"detail": "Chat session not found"})
 
     source_session = session_rows[0]
+    if source_session.get("chat_type") == CHAT_TYPE_FACILITY:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "Facilities workspace chats cannot be shared."},
+        )
     messages = _ensure_message_list_schema(list(source_session.get("messages", []) or []))
     if not messages:
         return JSONResponse(status_code=422, content={"detail": "Cannot share an empty conversation"})

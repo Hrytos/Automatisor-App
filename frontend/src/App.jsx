@@ -5243,6 +5243,10 @@ function WorkspacePage() {
           />
         ) : null}
       </section>
+      <ChatWidget
+        scope="facilities"
+        senderEmail={session?.email || ""}
+      />
     </main>
   );
 }
