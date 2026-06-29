@@ -353,6 +353,10 @@ function recommendationAddFacilityDraft(recommendation, fallbackCompanyName = ""
   };
 }
 
+function wishlistItemTitle(item) {
+  return recommendationText(item?.company_name) || recommendationText(item?.site_name) || "Wishlisted site";
+}
+
 function facilitySiteIdSet(sites) {
   return new Set(
     (sites || [])
@@ -367,10 +371,6 @@ function addedAtTime(item) {
   if (!raw) return 0;
   const time = new Date(raw).getTime();
   return Number.isNaN(time) ? 0 : time;
-}
-
-function wishlistItemTitle(item) {
-  return recommendationText(item?.company_name) || recommendationText(item?.site_name) || "Wishlisted site";
 }
 
 function wishlistItemAddress(item) {
@@ -1482,7 +1482,7 @@ function AuthExplainerPanel() {
         "You can:",
       ],
       bullets: [
-        "Find other facilities operated by the same company",
+        "Find other facilities operated by the same account",
         "Discover nearby warehouses in the area",
         "Build targeted prospecting lists faster",
         "Uncover new automation opportunities",
@@ -1548,6 +1548,20 @@ function normalizeAuthFeedback(rawMessage) {
       tone: "success",
       title: "New code sent",
       message: "A fresh OTP has been sent to your work email.",
+    };
+  }
+  if (/could not confirm the otp was sent/i.test(message)) {
+    return {
+      tone: "error",
+      title: "Couldn’t send code",
+      message: "We could not confirm the OTP was sent. Please try again.",
+    };
+  }
+  if (/authentication service/i.test(message) && /(timed out|could not reach)/i.test(message)) {
+    return {
+      tone: "error",
+      title: "Authentication is taking too long",
+      message: "Please try again in a moment.",
     };
   }
   return {
@@ -1911,7 +1925,7 @@ function useAutomaticAddressValidation({
         .catch((error) => {
           if (!active) return;
           setValidation(null);
-          setValidationError(error.message || "Could not validate this company and address.");
+          setValidationError(error.message || "Could not validate this account and address.");
         })
         .finally(() => {
           if (active) setChecking(false);
@@ -1969,7 +1983,7 @@ function AddressValidationPanel({
     if (selectedCandidate) {
       return (
         <div className="address-validation-panel address-validation-panel-warning">
-          Enter the company domain before requesting the pre-assessment.
+          Enter the account domain before requesting the pre-assessment.
         </div>
       );
     }
@@ -1979,7 +1993,7 @@ function AddressValidationPanel({
   if (checking) {
     return (
       <div className="address-validation-panel address-validation-panel-checking">
-        Checking whether this company exists at the selected address...
+        Checking whether this account exists at the selected address...
       </div>
     );
   }
@@ -2011,7 +2025,7 @@ function AddressValidationPanel({
   return (
     <section className="address-validation-panel address-validation-panel-warning">
       <div className="address-validation-head">
-        <h3>We could not find this company at that address.</h3>
+        <h3>We could not find this account at that address.</h3>
         <p>Here are a few things you could do.</p>
       </div>
       <div className="address-validation-options-table">
@@ -2027,10 +2041,10 @@ function AddressValidationPanel({
         <div className="address-validation-option-row">
           <div className="address-validation-option-label">Option 2</div>
           <div className="address-validation-option-content">
-            <h4>Identified companies at this address</h4>
+            <h4>Identified accounts at this address</h4>
             <p>
-              We have found the below companies at the address you specified, if you want to do a
-              pre-assessment for one of these companies instead then click the{" "}
+              We have found the below accounts at the address you specified, if you want to do a
+              pre-assessment for one of these accounts instead then click the{" "}
               <strong>Use this</strong> button.
             </p>
             {candidates.length ? (
@@ -2083,7 +2097,7 @@ function AddressValidationPanel({
           <div className="address-validation-option-content">
             <h4>Justification</h4>
             <p>
-              If you're sure of the company name and the address it is located at, please
+              If you're sure of the account name and the address it is located at, please
               give us more information regarding it in the text area below.
             </p>
             <label className="workspace-field address-justification-field">
@@ -2091,7 +2105,7 @@ function AddressValidationPanel({
               <textarea
                 value={justification}
                 onChange={(event) => onJustificationChange(event.target.value)}
-                placeholder="Example: This company ships from this address through PartnerCo's warehouse. Mention the partner company name if there is one, and explain the relationship so the report has better context."
+                placeholder="Example: This account ships from this address through PartnerCo's warehouse. Mention the partner account name if there is one, and explain the relationship so the report has better context."
               />
             </label>
           </div>
@@ -2099,7 +2113,7 @@ function AddressValidationPanel({
       </div>
       {selectedCandidate && !String(domain || "").trim() ? (
         <p className="address-validation-domain-hint">
-          Enter the company domain before requesting the pre-assessment.
+          Enter the account domain before requesting the pre-assessment.
         </p>
       ) : null}
     </section>
@@ -2130,12 +2144,12 @@ function CandidateConfirmationModal({
           </h2>
         </div>
         <p className="workspace-copy">
-          Confirming will update the company name, domain, {addressLabel.toLowerCase()}, and map pin for this
+          Confirming will update the account name, domain, {addressLabel.toLowerCase()}, and map pin for this
           request.
         </p>
         <div className="pre-assessment-summary-grid review-summary-grid">
           <div className="workspace-summary-chip">
-            <span className="workspace-summary-label">Company Name</span>
+            <span className="workspace-summary-label">Account Name</span>
             <span className="workspace-summary-value">{candidate.name || "-"}</span>
           </div>
           <div className="workspace-summary-chip">
@@ -3063,13 +3077,6 @@ function WorkspaceMobileActions({ creditsUsed, onLogout }) {
         </svg>
         <span>Billing</span>
       </Link>
-      <Link to="/workspace/wishlist" className="workspace-mobile-action">
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
-          <path d="M5.5 4.5h5.5a2 2 0 0 1 2 2v13a2.8 2.8 0 0 0-2-.85H5.5z" />
-          <path d="M18.5 4.5H13a2 2 0 0 0-2 2v13a2.8 2.8 0 0 1 2-.85h5.5z" />
-        </svg>
-        <span>Wishlist</span>
-      </Link>
       <div className="workspace-mobile-action workspace-mobile-credits" aria-label="Credits used">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
           <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h10A2.5 2.5 0 0 1 19 7.5V9h-2.75A3.25 3.25 0 0 0 13 12.25v.5A3.25 3.25 0 0 0 16.25 16H19v.5A2.5 2.5 0 0 1 16.5 19h-10A2.5 2.5 0 0 1 4 16.5v-9Z" />
@@ -3089,7 +3096,105 @@ function WorkspaceMobileActions({ creditsUsed, onLogout }) {
   );
 }
 
-function WishlistRow({ item, selected = false, onToggle = () => {}, tag = "", selectable = true }) {
+function FacilityTag({ tag }) {
+  if (!tag) return null;
+  const tagClass =
+    tag === "Added by me"
+      ? "facility-tag-mine"
+      : tag === "Shared with me"
+      ? "facility-tag-shared"
+      : tag === "Wishlist"
+      ? "facility-tag-wishlisted"
+      : "";
+  return <span className={`facility-tag ${tagClass}`.trim()}>{tag}</span>;
+}
+
+function FacilityNotesInline({ noteValue = "", onSaveNote }) {
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(noteValue);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteError, setNoteError] = useState("");
+  const hasNote = Boolean(noteValue.trim());
+
+  useEffect(() => {
+    if (!editingNote) {
+      setNoteDraft(noteValue);
+    }
+  }, [noteValue, editingNote]);
+
+  function openNoteEditor() {
+    setNoteDraft(noteValue);
+    setNoteError("");
+    setEditingNote(true);
+  }
+
+  async function saveNote() {
+    if (savingNote) return;
+    setSavingNote(true);
+    setNoteError("");
+    try {
+      await onSaveNote(noteDraft);
+      setEditingNote(false);
+    } catch (error) {
+      setNoteError(error?.message || "Could not save note.");
+    } finally {
+      setSavingNote(false);
+    }
+  }
+
+  function cancelNote() {
+    if (savingNote) return;
+    setNoteDraft(noteValue);
+    setNoteError("");
+    setEditingNote(false);
+  }
+
+  return (
+    <div className="account-facility-notes-cell">
+      <button
+        type="button"
+        className={`account-facility-notes-trigger ${hasNote ? "" : "account-facility-notes-trigger-empty"}`.trim()}
+        onClick={openNoteEditor}
+        aria-haspopup="dialog"
+        aria-expanded={editingNote}
+      >
+        {hasNote ? noteValue : "Add notes"}
+      </button>
+      {editingNote ? (
+        <>
+          <div className="account-facility-notes-backdrop" onClick={cancelNote} />
+          <div className="account-facility-notes-popover" role="dialog" aria-label="Edit notes">
+            <textarea
+              className="account-facility-notes-input"
+              value={noteDraft}
+              onChange={(event) => setNoteDraft(event.target.value)}
+              rows={6}
+              placeholder="Add notes for this facility."
+              autoFocus
+            />
+            {noteError ? <p className="account-facility-notes-error">{noteError}</p> : null}
+            <div className="account-facility-notes-popover-actions">
+              <button type="button" className="btn-secondary" onClick={cancelNote} disabled={savingNote}>
+                Cancel
+              </button>
+              <button type="button" className="btn-primary" onClick={saveNote} disabled={savingNote}>
+                {savingNote ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function WishlistRow({
+  item,
+  selected = false,
+  onToggle = () => {},
+  tag = "",
+  selectable = true,
+}) {
   const address = wishlistItemAddress(item);
   const mapsUrl = wishlistItemMapsUrl(item);
   const siteId = recommendationText(item.site_id);
@@ -3133,7 +3238,7 @@ function WishlistRow({ item, selected = false, onToggle = () => {}, tag = "", se
               notes: recommendationText(item.notes),
             }}
           >
-            {hasNote ? "Notes \u2022" : "Notes"}
+            Notes
           </Link>
           <Link
             className="site-bar-link site-bar-link-primary"
@@ -3148,7 +3253,15 @@ function WishlistRow({ item, selected = false, onToggle = () => {}, tag = "", se
   );
 }
 
-function WorkspaceWishlistPanel({ wishlist, selectedSiteIds, onToggleItem, onToggleAll, bulkLoading, onBulkRequest }) {
+function WorkspaceWishlistPanel({
+  wishlist,
+  selectedSiteIds,
+  onToggleItem,
+  onToggleAll,
+  bulkLoading,
+  onBulkRequest,
+  tag = "Wishlist",
+}) {
   const allSelected = wishlist.length > 0 && wishlist.every((item) => selectedSiteIds.has(item.site_id));
   return (
     <section className="workspace-wishlist-panel" aria-label="Wishlist">
@@ -3162,7 +3275,7 @@ function WorkspaceWishlistPanel({ wishlist, selectedSiteIds, onToggleItem, onTog
             <button
               type="button"
               className="btn-primary"
-              disabled={!selectedSiteIds.size || bulkLoading}
+              disabled={selectedSiteIds.size < 2 || bulkLoading}
               onClick={onBulkRequest}
             >
               {bulkLoading ? "Requesting..." : "Bulk request pre-assessment"}
@@ -3175,6 +3288,8 @@ function WorkspaceWishlistPanel({ wishlist, selectedSiteIds, onToggleItem, onTog
                 item={item}
                 selected={selectedSiteIds.has(item.site_id)}
                 onToggle={onToggleItem}
+                tag={tag}
+                selectable
               />
             ))}
           </div>
@@ -3182,7 +3297,7 @@ function WorkspaceWishlistPanel({ wishlist, selectedSiteIds, onToggleItem, onTog
       ) : (
         <div className="workspace-empty-state workspace-wishlist-empty">
           <h3>No wishlist sites yet</h3>
-          <p>Add recommendations to wishlist from a report or company facilities, then request a pre-assessment from here.</p>
+          <p>Add recommendations to wishlist from a report or account facilities, then request a pre-assessment from the Wishlist filter.</p>
         </div>
       )}
     </section>
@@ -3212,7 +3327,7 @@ function CompanyRow({
         />
       </label>
       <div className="site-bar-copy">
-        <p className="site-bar-title">{company.company_name || "Saved company"}</p>
+        <p className="site-bar-title">{company.company_name || "Saved account"}</p>
         <p className="site-bar-address">{company.company_domain || ""}</p>
         {message ? <p className="company-row-message">{message}</p> : null}
       </div>
@@ -3225,7 +3340,7 @@ function CompanyRow({
               disabled={discovering}
               onClick={() => onDiscover(company)}
             >
-              {discovering ? "Starting..." : "Show More Facilities"}
+              {discovering ? "Starting..." : "Discover Facilities"}
             </button>
           ) : null}
           {showViewFacilities ? (
@@ -3244,13 +3359,100 @@ function CompanyRow({
   );
 }
 
+function AccountFacilityRow({
+  recommendation,
+  fallbackCompanyName,
+  wishlistedSiteIds,
+  facilitySiteIds = new Set(),
+  addingWishlistSiteId,
+  onAddToWishlist,
+  noteValue = "",
+  onSaveNote,
+  selected = false,
+  selectable = false,
+  onToggle = () => {},
+}) {
+  const navigate = useNavigate();
+  const title = recommendationTitle(recommendation);
+  const address = recommendationAddress(recommendation);
+  const mapsUrl = recommendationMapsUrl(recommendation);
+  const siteId = recommendationText(recommendation.site_id);
+  const showTitle = Boolean(title && title !== fallbackCompanyName);
+  const isInFacilities = Boolean(siteId && facilitySiteIds.has(siteId));
+  const isWishlisted = Boolean(siteId && wishlistedSiteIds.has(siteId));
+  const isAddingWishlist = Boolean(siteId && addingWishlistSiteId === siteId);
+
+  function addFacility() {
+    navigate("/workspace/sites/new", {
+      state: {
+        editDraft: recommendationAddFacilityDraft(recommendation, fallbackCompanyName),
+      },
+    });
+  }
+
+  return (
+    <article className="site-bar-item account-facility-row">
+      <div className="account-facility-leading">
+        <label className="company-row-checkbox account-facility-row-checkbox">
+          <input
+            type="checkbox"
+            checked={selected}
+            disabled={!selectable || !siteId}
+            onChange={() => onToggle(recommendation)}
+            aria-label={`Select ${address || title || "facility"}`}
+          />
+        </label>
+        <div className="account-facility-address">
+          {showTitle ? <p className="site-bar-title">{title}</p> : null}
+          {address && mapsUrl ? (
+            <a className="site-bar-address address-link" href={mapsUrl} target="_blank" rel="noopener noreferrer">
+              {address}
+            </a>
+          ) : address ? (
+            <p className="site-bar-address">{address}</p>
+          ) : null}
+        </div>
+      </div>
+      <FacilityNotesInline noteValue={noteValue} onSaveNote={onSaveNote} />
+      <div className="site-bar-actions account-facility-bar-actions">
+        <div className="site-bar-action-row">
+          <button
+            type="button"
+            className="site-bar-link site-bar-link-secondary"
+            onClick={() => onAddToWishlist(recommendation)}
+            disabled={!siteId || isInFacilities || isWishlisted || isAddingWishlist}
+          >
+            {isInFacilities
+              ? "Already in facilities"
+              : isWishlisted
+              ? "Added to wishlist"
+              : isAddingWishlist
+              ? "Adding..."
+              : "Add to wishlist"}
+          </button>
+          <button type="button" className="site-bar-link site-bar-link-primary" onClick={addFacility}>
+            Request pre-assessment
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function CompanyDiscoveryPanel({
   company,
   wishlist,
+  facilitySiteIds = new Set(),
   discovering,
   onDiscover,
   addingWishlistSiteId,
   onAddToWishlist,
+  onSaveNote,
+  selectedSiteIds = new Set(),
+  onToggleItem = () => {},
+  onToggleAll = () => {},
+  bulkLoading = false,
+  onBulkRequest = () => {},
 }) {
   const discovery = normalizeCompanyDiscovery(company?.discovery || {});
   const status = discovery.status || "idle";
@@ -3262,13 +3464,13 @@ function CompanyDiscoveryPanel({
   if (status === "idle") {
     return (
       <div className="report-running-panel">
-        <p className="workspace-eyebrow">Companies</p>
+        <p className="workspace-eyebrow">Accounts</p>
         <h2 className="workspace-page-title">Discovery has not started</h2>
         <p className="workspace-page-copy">
-          Go back to the companies list and click Show More Facilities to start discovering sites for this company.
+          Go back to the accounts list and click Discover Facilities to start discovering sites for this account.
         </p>
         <button type="button" className="btn-primary" disabled={discovering} onClick={onDiscover}>
-          {discovering ? "Starting..." : "Show More Facilities"}
+          {discovering ? "Starting..." : "Discover Facilities"}
         </button>
       </div>
     );
@@ -3281,7 +3483,7 @@ function CompanyDiscoveryPanel({
         <h2 className="workspace-page-title">We couldn&apos;t finish discovering facilities</h2>
         <p className="workspace-page-copy">{discovery.error || "Try running discovery again."}</p>
         <button type="button" className="btn-primary" disabled={discovering} onClick={onDiscover}>
-          {discovering ? "Starting..." : "Show More Facilities"}
+          {discovering ? "Starting..." : "Discover Facilities"}
         </button>
       </div>
     );
@@ -3296,11 +3498,11 @@ function CompanyDiscoveryPanel({
         <p className="workspace-eyebrow">Job running</p>
         <h2 className="workspace-page-title">Facilities are still being discovered</h2>
         <p className="workspace-page-copy">
-          We&apos;re finding facilities for this company. We&apos;ll email you when they&apos;re ready.
+          We&apos;re finding facilities for this account. We&apos;ll email you when they&apos;re ready.
         </p>
         <div className="pre-assessment-summary-grid">
           <div className="workspace-summary-chip">
-            <span className="workspace-summary-label">Company</span>
+            <span className="workspace-summary-label">Account</span>
             <span className="workspace-summary-value">{company?.company_name || "-"}</span>
           </div>
           <div className="workspace-summary-chip">
@@ -3317,38 +3519,68 @@ function CompanyDiscoveryPanel({
       <div className="report-running-panel">
         <p className="workspace-eyebrow">Facilities</p>
         <h2 className="workspace-page-title">No facilities available yet</h2>
-        <p className="workspace-page-copy">There are no discovered facilities for this company yet.</p>
+        <p className="workspace-page-copy">There are no discovered facilities for this account yet.</p>
       </div>
     );
   }
 
+  const fallbackCompanyName = company?.company_name || "";
+  const accountTitle = fallbackCompanyName || "Discovered facilities";
+  const visibleRecommendations = companySites.filter(hasHydratedRecommendationDetails);
+  const selectableRecommendations = visibleRecommendations.filter((recommendation) =>
+    recommendationText(recommendation.site_id),
+  );
+  const allSelected =
+    selectableRecommendations.length > 0 &&
+    selectableRecommendations.every((recommendation) =>
+      selectedSiteIds.has(recommendationText(recommendation.site_id)),
+    );
+
   return (
-    <div className="recommendations-panel">
-      <RecommendationSection
-        title="Discovered facilities"
-        recommendations={companySites}
-        fallbackCompanyName={company?.company_name || ""}
-        wishlistedSiteIds={wishlistedSiteIds}
-        addingWishlistSiteId={addingWishlistSiteId}
-        onAddToWishlist={onAddToWishlist}
-        maxVisible={0}
-        layout="grid"
-      />
+    <div className="account-facilities-panel">
+      <h2 className="workspace-card-title account-facilities-title">{accountTitle}</h2>
+      <div className="companies-bulk-toolbar">
+        <label className="company-row-checkbox">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            disabled={!selectableRecommendations.length}
+            onChange={onToggleAll}
+          />
+          <span>Select all</span>
+        </label>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={selectedSiteIds.size < 2 || bulkLoading}
+          onClick={onBulkRequest}
+        >
+          {bulkLoading ? "Requesting..." : "Bulk request pre-assessment"}
+        </button>
+      </div>
+      <div className="site-bar-list">
+        {visibleRecommendations.map((recommendation, index) => {
+          const siteId = recommendationText(recommendation.site_id);
+          return (
+            <AccountFacilityRow
+              key={recommendation.place_id || `${recommendationAddress(recommendation)}-${index}`}
+              recommendation={recommendation}
+              fallbackCompanyName={fallbackCompanyName}
+              wishlistedSiteIds={wishlistedSiteIds}
+              facilitySiteIds={facilitySiteIds}
+              addingWishlistSiteId={addingWishlistSiteId}
+              onAddToWishlist={onAddToWishlist}
+              noteValue={recommendationText(recommendation.note)}
+              onSaveNote={(value) => onSaveNote(siteId, value)}
+              selectable
+              selected={selectedSiteIds.has(siteId)}
+              onToggle={onToggleItem}
+            />
+          );
+        })}
+      </div>
     </div>
   );
-}
-
-function FacilityTag({ tag }) {
-  if (!tag) return null;
-  const tagClass =
-    tag === "Added by me"
-      ? "facility-tag-mine"
-      : tag === "Shared with me"
-      ? "facility-tag-shared"
-      : tag === "Wishlist"
-      ? "facility-tag-wishlisted"
-      : "";
-  return <span className={`facility-tag ${tagClass}`.trim()}>{tag}</span>;
 }
 
 function SiteRow({ site, tag = "" }) {
@@ -3434,16 +3666,18 @@ function SiteRow({ site, tag = "" }) {
   );
 }
 
-function PinnedSampleReportRow() {
+function PinnedSampleReportRow({ linkState = { returnToWorkspace: true }, onView, showPinIcon = true }) {
   return (
     <article className="site-bar-item sample-report-pinned-item">
       <div className="site-bar-copy">
         <p className="site-bar-title sample-report-pinned-title">
-          <svg className="sample-report-pin-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none">
-            <path d="M15 4.5 19.5 9" />
-            <path d="m14 5.5-5 5-3.5-.5L4 11.5l8.5 8.5 1.5-1.5-.5-3.5 5-5" />
-            <path d="m9 15-5 5" />
-          </svg>
+          {showPinIcon && (
+            <svg className="sample-report-pin-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+              <path d="M15 4.5 19.5 9" />
+              <path d="m14 5.5-5 5-3.5-.5L4 11.5l8.5 8.5 1.5-1.5-.5-3.5 5-5" />
+              <path d="m9 15-5 5" />
+            </svg>
+          )}
           <span>BR Williams Pre-Assessment Sample</span>
         </p>
         <p className="site-bar-address">1535 Hillyer Robinson Parkway, Anniston, Alabama, USA</p>
@@ -3453,7 +3687,8 @@ function PinnedSampleReportRow() {
           <Link
             className="site-bar-link site-bar-link-primary"
             to="/sample-reports/br-williams"
-            state={{ returnToWorkspace: true }}
+            state={linkState}
+            onClick={onView}
           >
             View Report
           </Link>
@@ -4703,7 +4938,7 @@ function FacilitiesFilterMenu({ value, onChange }) {
                 <span className="facilities-filter-dot facilities-filter-dot-empty" aria-hidden="true" />
               )}
               <span className="facilities-filter-option-label">{filter.label}</span>
-              {value === filter.id ? <span className="facilities-filter-check" aria-hidden="true">✔</span> : null}
+              {value === filter.id ? <span className="facilities-filter-check" aria-hidden="true">✓</span> : null}
             </button>
           ))}
         </div>
@@ -4807,12 +5042,18 @@ function WorkspacePage() {
     try {
       const payload = await fetchJson("/api/pre-assessment/request/bulk", {
         method: "POST",
-        body: JSON.stringify({ email: session.email, confirmed: true, items }),
+        body: JSON.stringify({
+          email: session.email,
+          confirmed: true,
+          items,
+        }),
       });
       const results = Array.isArray(payload.results) ? payload.results : [];
       const failed = results.filter((result) => result.status === "failed");
       if (failed.length) {
-        setBulkReviewError(`${failed.length} request(s) could not be submitted. Check billing or try again.`);
+        setBulkReviewError(
+          `${failed.length} request(s) could not be submitted. Check billing or try again.`,
+        );
         return;
       }
       const alreadyRunning = results.filter((result) =>
@@ -4829,9 +5070,13 @@ function WorkspacePage() {
       setBulkReviewOpen(false);
       setSelectedSiteIds(new Set());
       if (alreadyRunning.length && !newlySubmitted) {
-        setMessage(`${alreadyRunning.length} ${alreadyRunning.length === 1 ? "site was" : "sites were"} already in progress and ${alreadyRunning.length === 1 ? "has" : "have"} been removed from your wishlist.`);
+        setMessage(
+          `${alreadyRunning.length} ${alreadyRunning.length === 1 ? "site was" : "sites were"} already in progress and ${alreadyRunning.length === 1 ? "has" : "have"} been removed from your wishlist.`,
+        );
       } else if (alreadyRunning.length && newlySubmitted) {
-        setMessage(`${newlySubmitted} pre-assessment request${newlySubmitted === 1 ? "" : "s"} submitted. ${alreadyRunning.length} ${alreadyRunning.length === 1 ? "site was" : "sites were"} already in progress and removed from your wishlist.`);
+        setMessage(
+          `${newlySubmitted} pre-assessment request${newlySubmitted === 1 ? "" : "s"} submitted. ${alreadyRunning.length} ${alreadyRunning.length === 1 ? "site was" : "sites were"} already in progress and removed from your wishlist.`,
+        );
       } else {
         setMessage("Pre-assessment requests submitted.");
       }
@@ -4854,6 +5099,10 @@ function WorkspacePage() {
     } finally {
       setBulkLoading(false);
     }
+  }
+
+  async function bulkRequestPreAssessment() {
+    openBulkPreAssessmentReview();
   }
 
   if (!session?.email) return null;
@@ -4881,7 +5130,7 @@ function WorkspacePage() {
           onToggleItem={toggleWishlistItem}
           onToggleAll={toggleAllWishlistItems}
           bulkLoading={bulkLoading}
-          onBulkRequest={openBulkPreAssessmentReview}
+          onBulkRequest={bulkRequestPreAssessment}
           tag="Wishlist"
         />
       );
@@ -5037,12 +5286,12 @@ function NewCompanyPage() {
       }))
       .filter((entry) => entry.org_name || entry.org_domain);
     if (!items.length) {
-      setError("Add at least one company with a name and domain.");
+      setError("Add at least one account with a name and domain.");
       return;
     }
     const incomplete = items.find((entry) => !entry.org_name || !entry.org_domain);
     if (incomplete) {
-      setError("Each company needs both a name and a domain.");
+      setError("Each account needs both a name and a domain.");
       return;
     }
     setError("");
@@ -5057,12 +5306,12 @@ function NewCompanyPage() {
       });
       const failed = (payload.results || []).filter((result) => result.status === "failed");
       if (failed.length) {
-        setError(`${failed.length} company/companies could not be saved. Check the details and try again.`);
+        setError(`${failed.length} account(s) could not be saved. Check the details and try again.`);
         return;
       }
       navigate("/workspace/companies");
     } catch (nextError) {
-      setError(nextError.message || "Could not save the companies.");
+      setError(nextError.message || "Could not save the accounts.");
     } finally {
       setLoading(false);
     }
@@ -5076,10 +5325,10 @@ function NewCompanyPage() {
         <header className="workspace-subpage-head">
           <div className="workspace-subpage-bar">
             <div>
-              <p className="workspace-eyebrow">Companies</p>
-              <h1 className="workspace-page-title">Add companies</h1>
+              <p className="workspace-eyebrow">Accounts</p>
+              <h1 className="workspace-page-title">Add accounts</h1>
               <p className="workspace-page-copy">
-                Save companies by name and domain so you can discover additional facilities later.
+                Save accounts by name and domain so you can discover additional facilities later.
               </p>
             </div>
           </div>
@@ -5093,20 +5342,20 @@ function NewCompanyPage() {
               {entries.map((entry, index) => (
                 <div className="company-entry-row" key={entry.id}>
                   <label className="workspace-field">
-                    <span>Company name</span>
+                    <span>Account name</span>
                     <input
                       value={entry.org_name}
                       onChange={(event) => updateEntry(entry.id, "org_name", event.target.value)}
-                      placeholder="Company name"
+                      placeholder="Account name"
                       required={entries.length === 1}
                     />
                   </label>
                   <label className="workspace-field">
-                    <span>Company domain</span>
+                    <span>Account domain</span>
                     <input
                       value={entry.org_domain}
                       onChange={(event) => updateEntry(entry.id, "org_domain", event.target.value)}
-                      placeholder="company.com or https://company.com"
+                      placeholder="acme.com or https://acme.com"
                       required={entries.length === 1}
                     />
                   </label>
@@ -5116,8 +5365,8 @@ function NewCompanyPage() {
                         type="button"
                         className="company-entry-icon-btn"
                         onClick={addEntry}
-                        aria-label="Add another company"
-                        title="Add another company"
+                        aria-label="Add another account"
+                        title="Add another account"
                       >
                         +
                       </button>
@@ -5127,8 +5376,8 @@ function NewCompanyPage() {
                         type="button"
                         className="company-entry-icon-btn company-entry-icon-btn-remove"
                         onClick={() => removeEntry(entry.id)}
-                        aria-label="Remove company"
-                        title="Remove company"
+                        aria-label="Remove account"
+                        title="Remove account"
                       >
                         −
                       </button>
@@ -5139,7 +5388,7 @@ function NewCompanyPage() {
             </div>
             <div className="workspace-form-actions">
               <button type="submit" className="btn-primary" disabled={loading}>
-                {loading ? "Saving..." : entries.length > 1 ? "Save companies" : "Save"}
+                {loading ? "Saving..." : entries.length > 1 ? "Save accounts" : "Save"}
               </button>
             </div>
           </form>
@@ -5170,7 +5419,7 @@ function CompaniesPage() {
       });
       setCompanies(Array.isArray(payload.companies) ? payload.companies : []);
     } catch (nextError) {
-      setError(nextError.message || "Could not load companies.");
+      setError(nextError.message || "Could not load accounts.");
     } finally {
       setLoading(false);
     }
@@ -5230,7 +5479,7 @@ function CompaniesPage() {
   }
 
   async function bulkDiscover() {
-    if (!session?.email || !selectedIds.size) return;
+    if (!session?.email || selectedIds.size < 2) return;
     setBulkLoading(true);
     setError("");
     try {
@@ -5271,11 +5520,11 @@ function CompaniesPage() {
         <header className="workspace-subpage-head">
           <div className="workspace-subpage-bar">
             <div>
-              <p className="workspace-eyebrow">Companies</p>
-              <h1 className="workspace-page-title">Saved companies</h1>
+  
+              <h1 className="workspace-page-title"> Accounts</h1>
             </div>
             <Link to="/workspace/companies/new" className="btn-primary">
-              Add company
+              Add account
             </Link>
           </div>
         </header>
@@ -5286,7 +5535,7 @@ function CompaniesPage() {
         <section className="workspace-sites-panel">
           {loading && !companies.length ? (
             <div className="workspace-loading-state">
-              <p>Loading companies...</p>
+              <p>Loading accounts...</p>
             </div>
           ) : companies.length ? (
             <>
@@ -5294,10 +5543,10 @@ function CompaniesPage() {
                 <button
                   type="button"
                   className="btn-primary"
-                  disabled={!selectedIds.size || bulkLoading}
+                  disabled={selectedIds.size < 2 || bulkLoading}
                   onClick={bulkDiscover}
                 >
-                  {bulkLoading ? "Starting..." : "Bulk Show More Facilities"}
+                  {bulkLoading ? "Starting..." : "Bulk Discover Facilities"}
                 </button>
               </div>
               <div className="site-bar-list">
@@ -5316,10 +5565,10 @@ function CompaniesPage() {
             </>
           ) : (
             <div className="workspace-empty-state">
-              <h3>No companies saved yet</h3>
-              <p>Add a company to discover additional facilities operated by that organization.</p>
+              <h3>No accounts saved yet</h3>
+              <p>Add an account to discover additional facilities operated by that organization.</p>
               <Link to="/workspace/companies/new" className="btn-primary">
-                Add first company
+                Add first account
               </Link>
             </div>
           )}
@@ -5336,6 +5585,7 @@ function CompanyFacilitiesPage() {
   const activeTab = location.pathname.endsWith("/notes") ? "notes" : "facilities";
   const [session, setSession] = useRequireSession();
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [company, setCompany] = useState(null);
   const [wishlist, setWishlist] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -5345,6 +5595,22 @@ function CompanyFacilitiesPage() {
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesMessage, setNotesMessage] = useState("");
   const [notesIsError, setNotesIsError] = useState(false);
+  const [selectedSiteIds, setSelectedSiteIds] = useState(() => new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkReviewOpen, setBulkReviewOpen] = useState(false);
+  const [bulkReviewError, setBulkReviewError] = useState("");
+
+  const preAssessmentPriceCredits =
+    session?.preAssessmentPriceCredits ?? 2;
+
+  const discoveredRecommendations = normalizeCompanyDiscovery(company?.discovery || {})
+    .company_sites.filter(hasHydratedRecommendationDetails);
+  const selectableRecommendations = discoveredRecommendations.filter((recommendation) =>
+    recommendationText(recommendation.site_id),
+  );
+  const selectedRecommendations = selectableRecommendations.filter((recommendation) =>
+    selectedSiteIds.has(recommendationText(recommendation.site_id)),
+  );
 
   function openCompanyTab(tab) {
     if (tab === "notes") {
@@ -5379,7 +5645,7 @@ function CompanyFacilitiesPage() {
         setSession(nextState);
         setWishlist(nextState.wishlist || []);
       })
-      .catch((nextError) => setError(nextError.message || "Could not load company facilities."))
+      .catch((nextError) => setError(nextError.message || "Could not load account facilities."))
       .finally(() => setLoading(false));
   }, [session?.email, customerContextId]);
 
@@ -5388,6 +5654,10 @@ function CompanyFacilitiesPage() {
     setNotesMessage("");
     setNotesIsError(false);
   }, [company?.customer_context_id, company?.notes]);
+
+  useEffect(() => {
+    setSelectedSiteIds(new Set());
+  }, [company?.customer_context_id]);
 
   function updateCompanyInState(nextCompany) {
     setCompany((current) => (current ? { ...current, ...nextCompany } : nextCompany));
@@ -5440,6 +5710,7 @@ function CompanyFacilitiesPage() {
           email: session.email,
           account_id: recommendationAccountId,
           site_id: recommendationSiteId,
+          notes: recommendationText(recommendation.note),
           metadata: {
             source: "company_discovery",
             source_company_context_id: customerContextId,
@@ -5455,6 +5726,135 @@ function CompanyFacilitiesPage() {
       setError(nextError.message || "Could not add this site to wishlist.");
     } finally {
       setAddingWishlistSiteId("");
+    }
+  }
+
+  function toggleFacilityItem(recommendation) {
+    const siteId = recommendationText(recommendation?.site_id);
+    if (!siteId) return;
+    setSelectedSiteIds((current) => {
+      const next = new Set(current);
+      if (next.has(siteId)) next.delete(siteId);
+      else next.add(siteId);
+      return next;
+    });
+  }
+
+  function toggleAllFacilities() {
+    setSelectedSiteIds((current) => {
+      if (
+        selectableRecommendations.length &&
+        selectableRecommendations.every((recommendation) =>
+          current.has(recommendationText(recommendation.site_id)),
+        )
+      ) {
+        return new Set();
+      }
+      return new Set(
+        selectableRecommendations.map((recommendation) => recommendationText(recommendation.site_id)),
+      );
+    });
+  }
+
+  function openBulkPreAssessmentReview() {
+    if (selectedSiteIds.size < 2) return;
+    setBulkReviewError("");
+    setError("");
+    setMessage("");
+    setBulkReviewOpen(true);
+  }
+
+  function closeBulkPreAssessmentReview() {
+    if (bulkLoading) return;
+    setBulkReviewOpen(false);
+    setBulkReviewError("");
+  }
+
+  async function confirmBulkPreAssessment() {
+    if (!session?.email || !selectedRecommendations.length || bulkLoading) return;
+    setBulkLoading(true);
+    setBulkReviewError("");
+    setError("");
+    setMessage("");
+    const items = selectedRecommendations.map((recommendation) => ({
+      account_id: recommendationText(recommendation.account_id),
+      site_id: recommendationText(recommendation.site_id),
+    }));
+    try {
+      const payload = await fetchJson("/api/pre-assessment/request/bulk", {
+        method: "POST",
+        body: JSON.stringify({
+          email: session.email,
+          confirmed: true,
+          items,
+        }),
+      });
+      const results = Array.isArray(payload.results) ? payload.results : [];
+      const failed = results.filter((result) => result.status === "failed");
+      if (failed.length) {
+        setBulkReviewError(
+          `${failed.length} request(s) could not be submitted. Check billing or try again.`,
+        );
+        return;
+      }
+      const alreadyRunning = results.filter((result) =>
+        String(result.message || "").toLowerCase().includes("already running"),
+      );
+      const newlySubmitted = results.length - alreadyRunning.length;
+      setBulkReviewOpen(false);
+      setSelectedSiteIds(new Set());
+      try {
+        const workspacePayload = await fetchJson("/api/workspace/state", {
+          method: "POST",
+          body: JSON.stringify({
+            email: session.email,
+            active_account_id: session.activeAccountId || session.accountId || "",
+          }),
+        });
+        const nextState = buildSessionFromPayload(session, workspacePayload);
+        saveSession(nextState);
+        setSession(nextState);
+        setWishlist(nextState.wishlist || []);
+      } catch (refreshError) {
+        // Non-fatal: requests already submitted; UI will catch up on next load.
+      }
+      if (alreadyRunning.length && !newlySubmitted) {
+        setMessage(
+          `${alreadyRunning.length} ${alreadyRunning.length === 1 ? "site was" : "sites were"} already in progress.`,
+        );
+      } else if (alreadyRunning.length && newlySubmitted) {
+        setMessage(
+          `${newlySubmitted} pre-assessment request${newlySubmitted === 1 ? "" : "s"} submitted. ${alreadyRunning.length} ${alreadyRunning.length === 1 ? "site was" : "sites were"} already in progress.`,
+        );
+      } else {
+        setMessage("Pre-assessment requests submitted.");
+      }
+    } catch (nextError) {
+      const detail = nextError.payload?.detail;
+      const nextMessage =
+        (typeof detail === "object" ? detail?.message : null) ||
+        (typeof detail === "string" ? detail : null) ||
+        nextError.message ||
+        "Could not submit bulk pre-assessment requests.";
+      setBulkReviewError(nextMessage);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function saveDiscoverySiteNote(siteId, note) {
+    if (!session?.email || !customerContextId || !siteId) return;
+    const payload = await fetchJson("/api/companies/site-note", {
+      method: "POST",
+      body: JSON.stringify({
+        email: session.email,
+        customer_context_id: customerContextId,
+        site_id: siteId,
+        note,
+      }),
+    });
+    if (payload.company) {
+      setCompany(payload.company);
     }
   }
 
@@ -5495,11 +5895,12 @@ function CompanyFacilitiesPage() {
     <main className="workspace-page-shell signup-body workspace-body">
       <section className="workspace-page workspace-form-page report-page">
         <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
+        <p className={`form-success ${message ? "" : "hidden"}`}>{message}</p>
 
         {loading && !company ? (
           <section className="workspace-card workspace-card-modern workspace-card-wide thank-you-state">
             <div className="workspace-loading-state">
-              <p>Loading company...</p>
+              <p>Loading account...</p>
             </div>
           </section>
         ) : null}
@@ -5509,13 +5910,13 @@ function CompanyFacilitiesPage() {
             <div className="thank-you-icon thank-you-icon-muted" aria-hidden="true">
               !
             </div>
-            <h1 className="workspace-page-title">Company not found</h1>
+            <h1 className="workspace-page-title">Account not found</h1>
             <p className="workspace-page-copy">
-              Open this screen from a saved company in the companies list.
+              Open this screen from a saved account in the accounts list.
             </p>
             <div className="auth-primary-action">
               <Link to="/workspace/companies" className="btn-primary">
-                Back to companies
+                Back to accounts
               </Link>
             </div>
           </section>
@@ -5524,7 +5925,7 @@ function CompanyFacilitiesPage() {
         {company ? (
           <>
             <section className="workspace-card workspace-card-modern workspace-card-wide report-view-card">
-              <div className="tab-row report-tab-row" role="tablist" aria-label="Company sections">
+              <div className="tab-row report-tab-row" role="tablist" aria-label="Account sections">
                 <div className="report-tab-group">
                   <button
                     type="button"
@@ -5552,10 +5953,17 @@ function CompanyFacilitiesPage() {
                   <CompanyDiscoveryPanel
                     company={company}
                     wishlist={wishlist}
+                    facilitySiteIds={facilitySiteIdSet(session?.sites)}
                     discovering={discovering}
                     onDiscover={discoverCompany}
                     addingWishlistSiteId={addingWishlistSiteId}
                     onAddToWishlist={addRecommendationToWishlist}
+                    onSaveNote={saveDiscoverySiteNote}
+                    selectedSiteIds={selectedSiteIds}
+                    onToggleItem={toggleFacilityItem}
+                    onToggleAll={toggleAllFacilities}
+                    bulkLoading={bulkLoading}
+                    onBulkRequest={openBulkPreAssessmentReview}
                   />
                 </div>
               ) : null}
@@ -5585,7 +5993,7 @@ function CompanyFacilitiesPage() {
                 </form>
               ) : null}
             </section>
-            <nav className="report-mobile-actions report-mobile-actions-compact" aria-label="Company actions">
+            <nav className="report-mobile-actions report-mobile-actions-compact" aria-label="Account actions">
               <button
                 type="button"
                 className={`report-mobile-action ${activeTab === "facilities" ? "active" : ""}`}
@@ -5616,197 +6024,10 @@ function CompanyFacilitiesPage() {
             </nav>
           </>
         ) : null}
-      </section>
-    </main>
-  );
-}
-
-function WishlistPage() {
-  const [session, setSession] = useRequireSession();
-  const { onLogout = () => {} } = useOutletContext() || {};
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  const [workspace, setWorkspace] = useState(() => session || loadSession());
-  const [loadingWorkspace, setLoadingWorkspace] = useState(false);
-  const [selectedSiteIds, setSelectedSiteIds] = useState(() => new Set());
-  const [bulkLoading, setBulkLoading] = useState(false);
-  const [bulkReviewOpen, setBulkReviewOpen] = useState(false);
-  const [bulkReviewError, setBulkReviewError] = useState("");
-
-  const preAssessmentPriceCredits =
-    workspace?.preAssessmentPriceCredits ?? session?.preAssessmentPriceCredits ?? 2;
-
-  const selectedWishlistItems = (workspace?.wishlist || []).filter((item) =>
-    selectedSiteIds.has(item.site_id),
-  );
-
-  useEffect(() => {
-    if (!session?.email) return;
-    setLoadingWorkspace(true);
-    fetchJson("/api/workspace/state", {
-      method: "POST",
-      body: JSON.stringify({
-        email: session.email,
-        active_account_id: session.activeAccountId || session.accountId || "",
-      }),
-    })
-      .then((payload) => {
-        const nextState = buildSessionFromPayload(session, payload);
-        saveSession(nextState);
-        setSession(nextState);
-        setWorkspace(nextState);
-      })
-      .catch((nextError) => setError(nextError.message || "Could not load the wishlist."))
-      .finally(() => setLoadingWorkspace(false));
-  }, [session?.email]);
-
-  function toggleWishlistItem(item) {
-    if (!item?.site_id) return;
-    setSelectedSiteIds((current) => {
-      const next = new Set(current);
-      if (next.has(item.site_id)) next.delete(item.site_id);
-      else next.add(item.site_id);
-      return next;
-    });
-  }
-
-  function toggleAllWishlistItems() {
-    const wishlist = workspace?.wishlist || [];
-    setSelectedSiteIds((current) => {
-      if (wishlist.length && wishlist.every((item) => current.has(item.site_id))) {
-        return new Set();
-      }
-      return new Set(wishlist.map((item) => item.site_id).filter(Boolean));
-    });
-  }
-
-  function openBulkPreAssessmentReview() {
-    if (!selectedSiteIds.size) return;
-    setBulkReviewError("");
-    setError("");
-    setMessage("");
-    setBulkReviewOpen(true);
-  }
-
-  function closeBulkPreAssessmentReview() {
-    if (bulkLoading) return;
-    setBulkReviewOpen(false);
-    setBulkReviewError("");
-  }
-
-  async function confirmBulkPreAssessment() {
-    if (!session?.email || !selectedSiteIds.size || bulkLoading) return;
-    setBulkLoading(true);
-    setBulkReviewError("");
-    setError("");
-    setMessage("");
-    const items = selectedWishlistItems.map((item) => ({
-      account_id: item.account_id,
-      site_id: item.site_id,
-      customer_site_id: item.customer_site_id || "",
-    }));
-    try {
-      const payload = await fetchJson("/api/pre-assessment/request/bulk", {
-        method: "POST",
-        body: JSON.stringify({
-          email: session.email,
-          confirmed: true,
-          items,
-        }),
-      });
-      const results = Array.isArray(payload.results) ? payload.results : [];
-      const failed = results.filter((result) => result.status === "failed");
-      if (failed.length) {
-        setBulkReviewError(
-          `${failed.length} request(s) could not be submitted. Check billing or try again.`,
-        );
-        return;
-      }
-      const alreadyRunning = results.filter((result) =>
-        String(result.message || "").toLowerCase().includes("already running"),
-      );
-      const newlySubmitted = results.length - alreadyRunning.length;
-      const workspacePayload = await fetchJson("/api/workspace/state", {
-        method: "POST",
-        body: JSON.stringify({
-          email: session.email,
-          active_account_id: session.activeAccountId || session.accountId || "",
-        }),
-      });
-      setBulkReviewOpen(false);
-      setSelectedSiteIds(new Set());
-      if (alreadyRunning.length && !newlySubmitted) {
-        setMessage(
-          `${alreadyRunning.length} ${alreadyRunning.length === 1 ? "site was" : "sites were"} already in progress and ${alreadyRunning.length === 1 ? "has" : "have"} been removed from your wishlist.`,
-        );
-      } else if (alreadyRunning.length && newlySubmitted) {
-        setMessage(
-          `${newlySubmitted} pre-assessment request${newlySubmitted === 1 ? "" : "s"} submitted. ${alreadyRunning.length} ${alreadyRunning.length === 1 ? "site was" : "sites were"} already in progress and removed from your wishlist.`,
-        );
-      } else {
-        setMessage("Pre-assessment requests submitted.");
-      }
-      const nextState = buildSessionFromPayload(session, {
-        ...workspacePayload,
-        credits_used_total: payload.credits_used_total ?? workspacePayload.credits_used_total,
-        credits_used_this_month: payload.credits_used_this_month ?? workspacePayload.credits_used_this_month,
-      });
-      saveSession(nextState);
-      setSession(nextState);
-      setWorkspace(nextState);
-    } catch (nextError) {
-      const detail = nextError.payload?.detail;
-      const message =
-        (typeof detail === "object" ? detail?.message : null) ||
-        (typeof detail === "string" ? detail : null) ||
-        nextError.message ||
-        "Could not submit bulk pre-assessment requests.";
-      setBulkReviewError(message);
-    } finally {
-      setBulkLoading(false);
-    }
-  }
-
-  async function bulkRequestPreAssessment() {
-    openBulkPreAssessmentReview();
-  }
-
-  if (!session?.email) return null;
-
-  const wishlist = workspace?.wishlist || [];
-  return (
-    <main className="workspace-page-shell signup-body workspace-body">
-      <section className="workspace-page">
-        <header className="workspace-topbar workspace-topbar-titleonly">
-          <div className="workspace-topbar-copy">
-            <h1 className="workspace-page-title">Wishlist</h1>
-          </div>
-        </header>
-        <WorkspaceMobileActions creditsUsed={workspace?.creditsUsedTotal || 0} onLogout={onLogout} />
-
-        <p className={`form-error ${error ? "" : "hidden"}`}>{error}</p>
-        <p className={`form-success ${message ? "" : "hidden"}`}>{message}</p>
-
-        <section className="workspace-sites-panel">
-          {loadingWorkspace && !wishlist.length ? (
-            <div className="workspace-loading-state">
-              <p>Loading wishlist...</p>
-            </div>
-          ) : (
-            <WorkspaceWishlistPanel
-              wishlist={wishlist}
-              selectedSiteIds={selectedSiteIds}
-              onToggleItem={toggleWishlistItem}
-              onToggleAll={toggleAllWishlistItems}
-              bulkLoading={bulkLoading}
-              onBulkRequest={bulkRequestPreAssessment}
-            />
-          )}
-        </section>
 
         {bulkReviewOpen ? (
           <BulkPreAssessmentReviewModal
-            items={selectedWishlistItems}
+            items={selectedRecommendations}
             preAssessmentPriceCredits={preAssessmentPriceCredits}
             loading={bulkLoading}
             reviewError={bulkReviewError}
@@ -5950,18 +6171,18 @@ function NewSitePage() {
         <section className="workspace-card workspace-card-modern workspace-card-form workspace-card-wide">
           <div className="workspace-form-grid">
             <label className="workspace-field">
-              <span>Company name</span>
+              <span>Account name</span>
               <input
                 value={form.org_name}
                 onChange={(event) => {
                   resetSiteValidationOverrides();
                   setForm((current) => ({ ...current, org_name: event.target.value }));
                 }}
-                placeholder="Company name"
+                placeholder="Account name"
               />
             </label>
             <label className="workspace-field">
-              <span>Company domain</span>
+              <span>Account domain</span>
               <input
                 value={form.org_domain}
                 onChange={(event) => {
@@ -5974,7 +6195,7 @@ function NewSitePage() {
                   }
                   setForm((current) => ({ ...current, org_domain: event.target.value }));
                 }}
-                placeholder="company.com or https://company.com"
+                placeholder="acme.com or https://acme.com"
               />
             </label>
             <GoogleAddressPicker
@@ -6321,15 +6542,6 @@ function PreAssessmentPage() {
               {paymentRedirectSeconds ? ` Redirecting in ${paymentRedirectSeconds}...` : ""}
             </p>
 
-            <section className="workspace-topbar-actions workspace-inline-stats">
-              <div className="wallet-chip wallet-chip-muted">
-                <p className="wallet-chip-inline">
-                  <span className="wallet-chip-inline-label">Price:</span>{" "}
-                  <span className="wallet-chip-inline-value">{costLabel}</span>
-                </p>
-              </div>
-            </section>
-
             {(isResolvingSelectedSite || !selectedSite) ? (
               <section className="workspace-card workspace-card-modern workspace-card-wide pre-assessment-selection-card">
                 {isResolvingSelectedSite ? (
@@ -6407,15 +6619,12 @@ function PreAssessmentPage() {
                 <p className="workspace-copy">
                   Here is a sample of BR Williams, a 3PL at 1535 Hillyer Robinson Parkway, Anniston, Alabama
                 </p>
-                <div className="sample-report-link-row">
-                  <Link
-                    className="btn-secondary sample-report-link"
-                    to="/sample-reports/br-williams"
-                    state={{ returnToPreAssessment: routeState }}
-                    onClick={() => savePreAssessmentContext(routeState)}
-                  >
-                    View Sample Report
-                  </Link>
+                <div className="site-bar-list sample-report-link-row">
+                  <PinnedSampleReportRow
+                    linkState={{ returnToPreAssessment: routeState }}
+                    onView={() => savePreAssessmentContext(routeState)}
+                    showPinIcon={false}
+                  />
                 </div>
               </div>
 
@@ -6498,7 +6707,7 @@ function PreAssessmentPage() {
               we’ll email you as soon as the report is ready.
             </p>
             <div className="pre-assessment-summary-grid">
-              <div className="review-site-summary">
+              <div className="review-site-summary review-site-summary-centered">
                 <p className="bulk-pre-assessment-review-title">{selectedSite?.company_name || "-"}</p>
                 {selectedSite?.full_address ? (
                   <p className="bulk-pre-assessment-review-address">{selectedSite.full_address}</p>
@@ -6599,7 +6808,7 @@ function ReportRatingPanel({
   );
 }
 
-function RecommendationCard({ recommendation, fallbackCompanyName, wishlistedSiteIds, addingWishlistSiteId, onAddToWishlist }) {
+function RecommendationCard({ recommendation, fallbackCompanyName, wishlistedSiteIds, facilitySiteIds = new Set(), addingWishlistSiteId, onAddToWishlist }) {
   const navigate = useNavigate();
   const title = recommendationTitle(recommendation);
   const address = recommendationAddress(recommendation);
@@ -6608,6 +6817,7 @@ function RecommendationCard({ recommendation, fallbackCompanyName, wishlistedSit
   const reason = recommendationText(recommendation.reason);
   const mapsUrl = recommendationMapsUrl(recommendation);
   const siteId = recommendationText(recommendation.site_id);
+  const isInFacilities = Boolean(siteId && facilitySiteIds.has(siteId));
   const isWishlisted = Boolean(siteId && wishlistedSiteIds.has(siteId));
   const isAddingWishlist = Boolean(siteId && addingWishlistSiteId === siteId);
 
@@ -6646,9 +6856,15 @@ function RecommendationCard({ recommendation, fallbackCompanyName, wishlistedSit
           type="button"
           className="site-bar-link site-bar-link-secondary"
           onClick={() => onAddToWishlist(recommendation)}
-          disabled={!siteId || isWishlisted || isAddingWishlist}
+          disabled={!siteId || isInFacilities || isWishlisted || isAddingWishlist}
         >
-          {isWishlisted ? "Added to wishlist" : isAddingWishlist ? "Adding..." : "Add to wishlist"}
+          {isInFacilities
+            ? "Already in facilities"
+            : isWishlisted
+            ? "Added to wishlist"
+            : isAddingWishlist
+            ? "Adding..."
+            : "Add to wishlist"}
         </button>
       </div>
     </article>
@@ -6660,6 +6876,7 @@ function RecommendationSection({
   recommendations,
   fallbackCompanyName,
   wishlistedSiteIds,
+  facilitySiteIds = new Set(),
   addingWishlistSiteId,
   onAddToWishlist,
   maxVisible = 3,
@@ -6683,6 +6900,7 @@ function RecommendationSection({
             recommendation={recommendation}
             fallbackCompanyName={fallbackCompanyName}
             wishlistedSiteIds={wishlistedSiteIds}
+            facilitySiteIds={facilitySiteIds}
             addingWishlistSiteId={addingWishlistSiteId}
             onAddToWishlist={onAddToWishlist}
           />
@@ -6692,7 +6910,7 @@ function RecommendationSection({
   );
 }
 
-function RecommendationsPanel({ selectedSite, wishlist, addingWishlistSiteId, onAddToWishlist }) {
+function RecommendationsPanel({ selectedSite, wishlist, facilitySiteIds = new Set(), addingWishlistSiteId, onAddToWishlist }) {
   const recommendations = normalizeRecommendations(selectedSite?.recommendations);
   const status = recommendations.status;
   const ready = status === "ready";
@@ -6738,6 +6956,7 @@ function RecommendationsPanel({ selectedSite, wishlist, addingWishlistSiteId, on
         recommendations={companySites}
         fallbackCompanyName={selectedSite?.company_name || ""}
         wishlistedSiteIds={wishlistedSiteIds}
+        facilitySiteIds={facilitySiteIds}
         addingWishlistSiteId={addingWishlistSiteId}
         onAddToWishlist={onAddToWishlist}
       />
@@ -6746,6 +6965,7 @@ function RecommendationsPanel({ selectedSite, wishlist, addingWishlistSiteId, on
         recommendations={nearbySites}
         fallbackCompanyName=""
         wishlistedSiteIds={wishlistedSiteIds}
+        facilitySiteIds={facilitySiteIds}
         addingWishlistSiteId={addingWishlistSiteId}
         onAddToWishlist={onAddToWishlist}
       />
@@ -7195,6 +7415,7 @@ function ReportPage() {
                 <RecommendationsPanel
                   selectedSite={selectedSite}
                   wishlist={workspace?.wishlist || []}
+                  facilitySiteIds={facilitySiteIdSet(workspace?.sites)}
                   addingWishlistSiteId={addingWishlistSiteId}
                   onAddToWishlist={addRecommendationToWishlist}
                 />
@@ -7332,7 +7553,11 @@ function WishlistNotesPage() {
     try {
       const payload = await fetchJson("/api/customer-context/wishlist/notes", {
         method: "POST",
-        body: JSON.stringify({ email: session.email, site_id: siteId, notes: notesDraft }),
+        body: JSON.stringify({
+          email: session.email,
+          site_id: siteId,
+          notes: notesDraft,
+        }),
       });
       const savedNotes = payload.notes || "";
       setNotesDraft(savedNotes);
@@ -7428,7 +7653,7 @@ function App() {
       <Route path="/new-user" element={<Navigate to="/auth" replace />} />
       <Route element={<WorkspaceLayout />}>
         <Route path="/workspace" element={<WorkspacePage />} />
-        <Route path="/workspace/wishlist" element={<WishlistPage />} />
+        <Route path="/workspace/wishlist" element={<Navigate to="/workspace" replace />} />
         <Route path="/workspace/wishlist-notes" element={<WishlistNotesPage />} />
         <Route path="/workspace/companies" element={<CompaniesPage />} />
         <Route path="/workspace/companies/new" element={<NewCompanyPage />} />
