@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import ShareChatDialog from "./ShareChatDialog.jsx";
 
 /**
@@ -60,7 +61,6 @@ function renderMarkdown(text) {
     }
 
     if (listBlock) {
-      // Treat non-marker lines after a marker as wrapped list content.
       listBlock.currentItem = `${listBlock.currentItem} ${trimmed}`.trim();
       return;
     }
@@ -104,7 +104,6 @@ function renderMarkdown(text) {
 }
 
 function inlineMarkdown(text) {
-  // Guard against a dangling final bold marker like "...value**".
   let safeText = text;
   const doubleAsteriskCount = (safeText.match(/\*\*/g) || []).length;
   if (doubleAsteriskCount % 2 === 1) {
@@ -114,7 +113,6 @@ function inlineMarkdown(text) {
     }
   }
 
-  // Tokenise **bold**, *italic*, `code`
   const parts = [];
   const re = /\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`/g;
   let last = 0;
@@ -130,33 +128,84 @@ function inlineMarkdown(text) {
   return parts.length ? parts : [text];
 }
 
+const EXPLAIN_WITH_EVIDENCE_QUERY = "explain with evidence";
+
+function chatApiBase(chatType) {
+  return chatType === "facility" ? "/api/chat/facilities" : "/api/chat";
+}
+
+function sessionMatchesPage(session, scope, siteId) {
+  if (!session) return false;
+  if (session.chat_type === "facility") return scope === "facilities";
+  if (session.chat_type === "site") return scope === "site" && session.site_id === siteId;
+  return false;
+}
+
+function pickDefaultSession(sessions, scope, siteId, preferredSessionId) {
+  if (preferredSessionId) {
+    const match = sessions.find((session) => session.session_id === preferredSessionId);
+    if (match) return match.session_id;
+  }
+  const scoped = sessions.filter((session) => {
+    if (scope === "facilities") return session.chat_type === "facility";
+    return session.chat_type === "site" && session.site_id === siteId;
+  });
+  return scoped[0]?.session_id || null;
+}
+
+
+function formatSessionTitle(session) {
+  if (session?.title) return session.title;
+  const date = new Date(session?.created_at || Date.now());
+  return `Chat - ${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function formatHistoryLabel(session) {
+  if (session?.display_label) return session.display_label;
+  return formatSessionTitle(session);
+}
+
+function formatHistoryTypeCol(session) {
+  if (session?.chat_type === "facility") return "Facility";
+  if (session?.display_label) {
+    const idx = session.display_label.lastIndexOf(" - ");
+    if (idx !== -1) {
+      const suffix = session.display_label.slice(idx + 3);
+      const parenIdx = suffix.indexOf("(");
+      const name = parenIdx !== -1 ? suffix.slice(0, parenIdx).trim() : suffix.trim();
+      if (name) return name;
+    }
+  }
+  return "Site";
+}
+
 /**
  * ChatWidget - per-report or multi-facility AI chatbot panel.
  * Props:
  *   siteId (string) - the site UUID for single-report mode
- *   scope ("site" | "facilities") - chat mode; default "site"
+ *   scope ("site" | "facilities") - page context; default "site"
  *   senderEmail (string) - authenticated user email for sharing
  *   companyName (string) - site company name for share emails
  */
-const EXPLAIN_WITH_EVIDENCE_QUERY = "explain with evidence";
-
-function chatApiBase(scope) {
-  return scope === "facilities" ? "/api/chat/facilities" : "/api/chat";
-}
-
 export default function ChatWidget({
   siteId,
   scope = "site",
   senderEmail = "",
   companyName = "",
+  hideHistory = false,
 }) {
   const isFacilitiesScope = scope === "facilities";
-  const apiBase = chatApiBase(scope);
-  const [isOpen, setIsOpen] = useState(false);
-  const [isMaximized, setIsMaximized] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Capture once on mount — location.state is cleared after refresh, which is intentional.
+  const stateSessionIdRef = useRef(location.state?.chatSessionId || null);
+  const stateSessionId = stateSessionIdRef.current;
+
+  const [isOpen, setIsOpen] = useState(() => Boolean(stateSessionId));
+  const [isMaximized, setIsMaximized] = useState(() => Boolean(stateSessionId));
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessions, setSessions] = useState([]);
-  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [activeSessionId, setActiveSessionId] = useState(stateSessionId);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -170,7 +219,13 @@ export default function ChatWidget({
   const inputRef = useRef(null);
   const historyRef = useRef(null);
 
-  // Close history dropdown when clicking outside
+  const activeSession = sessions.find((session) => session.session_id === activeSessionId) || null;
+  const activeChatType = activeSession?.chat_type || (isFacilitiesScope ? "facility" : "site");
+  const messageApiBase = chatApiBase(activeChatType);
+  const canInteractWithSession = Boolean(
+    activeSessionId && activeSession && sessionMatchesPage(activeSession, scope, siteId),
+  );
+
   useEffect(() => {
     if (!historyOpen) return;
     function onClickOutside(e) {
@@ -182,85 +237,139 @@ export default function ChatWidget({
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [historyOpen]);
 
-  // Fetch sessions when the panel opens or scope/site changes
+  async function createSessionForScope() {
+    const createUrl = isFacilitiesScope ? "/api/chat/facilities/session" : "/api/chat/session";
+    const createBody = isFacilitiesScope ? {} : { site_id: siteId };
+    const res = await fetch(createUrl, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(createBody),
+    });
+    const data = await res.json();
+    if (data.detail) throw new Error(data.detail);
+    const newSession = {
+      session_id: data.session_id,
+      title: null,
+      chat_type: isFacilitiesScope ? "facility" : "site",
+      site_id: isFacilitiesScope ? null : siteId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    return newSession;
+  }
+
   useEffect(() => {
     if (!isOpen) return;
     if (!isFacilitiesScope && !siteId) return;
+
     let cancelled = false;
     setSessionsLoading(true);
     setError("");
-    const sessionsUrl = isFacilitiesScope
-      ? `${apiBase}/sessions`
-      : `${apiBase}/sessions?site_id=${encodeURIComponent(siteId)}`;
-    fetch(sessionsUrl, {
+
+    if (hideHistory) {
+      // Ephemeral mode — always start fresh, skip history fetch entirely.
+      createSessionForScope()
+        .then((newSession) => {
+          if (cancelled) return;
+          setSessions([newSession]);
+          setActiveSessionId(newSession.session_id);
+          setMessages([]);
+        })
+        .catch(() => {
+          if (!cancelled) setError("Could not start a new chat.");
+        })
+        .finally(() => {
+          if (!cancelled) setSessionsLoading(false);
+        });
+    } else {
+      fetch("/api/chat/sessions", { credentials: "include" })
+        .then((res) => res.json())
+        .then(async (data) => {
+          if (cancelled) return;
+          if (data.detail) {
+            setError(data.detail);
+            return;
+          }
+
+          const list = data.sessions || [];
+          setSessions(list);
+
+          const preferredId = pickDefaultSession(list, scope, siteId, stateSessionId);
+          if (preferredId) {
+            setActiveSessionId(preferredId);
+            return;
+          }
+
+          try {
+            const newSession = await createSessionForScope();
+            if (cancelled) return;
+            setSessions((prev) => [newSession, ...prev.filter((session) => session.session_id !== newSession.session_id)]);
+            setActiveSessionId(newSession.session_id);
+          } catch {
+            if (!cancelled) setError("Could not start a new chat.");
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setError("Could not load chat sessions.");
+        })
+        .finally(() => {
+          if (!cancelled) setSessionsLoading(false);
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, siteId, isFacilitiesScope, stateSessionId, scope, hideHistory]);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    setMessages([]);
+    setError("");
+
+    fetch(`/api/chat/history?session_id=${encodeURIComponent(activeSessionId)}`, {
       credentials: "include",
     })
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
-        if (data.detail) { setError(data.detail); return; }
-        const list = data.sessions || [];
-        setSessions(list);
-        if (list.length > 0 && !activeSessionId) {
-          setActiveSessionId(list[0].session_id);
-        } else if (list.length === 0) {
-          const createBody = isFacilitiesScope ? {} : { site_id: siteId };
-          fetch(`${apiBase}/session`, {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(createBody),
-          })
-            .then((r) => r.json())
-            .then((d) => {
-              if (cancelled || d.detail) return;
-              const newSession = {
-                session_id: d.session_id,
-                title: null,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              };
-              setSessions([newSession]);
-              setActiveSessionId(d.session_id);
-            })
-            .catch(() => {});
+        if (data.detail) {
+          setError(data.detail);
+          return;
+        }
+        setMessages(data.messages || []);
+        if (data.session) {
+          setSessions((prev) => {
+            const exists = prev.some((session) => session.session_id === data.session.session_id);
+            if (exists) {
+              return prev.map((session) =>
+                session.session_id === data.session.session_id ? { ...session, ...data.session } : session,
+              );
+            }
+            return [data.session, ...prev];
+          });
         }
       })
-      .catch(() => { if (!cancelled) setError("Could not load chat sessions."); })
-      .finally(() => { if (!cancelled) setSessionsLoading(false); });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, siteId, isFacilitiesScope, apiBase]);
-
-  // Fetch history when activeSessionId changes
-  useEffect(() => {
-    if (!activeSessionId) return;
-    if (!isFacilitiesScope && !siteId) return;
-    let cancelled = false;
-    setHistoryLoading(true);
-    setMessages([]);
-    setError("");
-    const historyUrl = isFacilitiesScope
-      ? `${apiBase}/history?session_id=${encodeURIComponent(activeSessionId)}`
-      : `${apiBase}/history?site_id=${encodeURIComponent(siteId)}&session_id=${encodeURIComponent(activeSessionId)}`;
-    fetch(historyUrl, { credentials: "include" })
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled) return;
-        if (data.detail) { setError(data.detail); return; }
-        setMessages(data.messages || []);
+      .catch(() => {
+        if (!cancelled) setError("Could not load conversation history.");
       })
-      .catch(() => { if (!cancelled) setError("Could not load conversation history."); })
-      .finally(() => { if (!cancelled) setHistoryLoading(false); });
-    return () => { cancelled = true; };
-  }, [activeSessionId, siteId, isFacilitiesScope, apiBase]);
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
 
-  // Auto-scroll to bottom when messages change
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Focus input when panel opens
   useEffect(() => {
     if (isOpen) window.setTimeout(() => inputRef.current?.focus(), 50);
   }, [isOpen]);
@@ -270,37 +379,36 @@ export default function ChatWidget({
     setError("");
     setHistoryOpen(false);
     try {
-      const createBody = isFacilitiesScope ? {} : { site_id: siteId };
-      const res = await fetch(`${apiBase}/session`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(createBody),
-      });
-      const data = await res.json();
-      if (data.detail) { setError(data.detail); return; }
-      const newSession = {
-        session_id: data.session_id,
-        title: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
+      const newSession = await createSessionForScope();
       setSessions((prev) => [newSession, ...prev]);
-      setActiveSessionId(data.session_id);
+      setActiveSessionId(newSession.session_id);
       setMessages([]);
     } catch {
       setError("Could not start a new chat.");
     }
   }
 
-  function switchSession(sessionId) {
-    setActiveSessionId(sessionId);
+  function handleHistorySelect(session) {
+    if (!session?.session_id) return;
     setHistoryOpen(false);
+
+    if (!sessionMatchesPage(session, scope, siteId)) {
+      if (session.chat_type === "facility") {
+        navigate("/workspace", { state: { chatSessionId: session.session_id } });
+      } else if (session.chat_type === "site" && session.site_id) {
+        navigate("/workspace/report", {
+          state: { siteId: session.site_id, chatSessionId: session.session_id },
+        });
+      }
+      return;
+    }
+
+    setActiveSessionId(session.session_id);
   }
 
   async function sendMessage(text) {
     const trimmed = String(text || "").trim();
-    if (!trimmed || !activeSessionId || loading) return;
+    if (!trimmed || !activeSessionId || loading || !canInteractWithSession) return;
 
     const isFirst = messages.length === 0;
     const optimisticUser = { role: "user", content: trimmed, ts: new Date().toISOString() };
@@ -310,10 +418,11 @@ export default function ChatWidget({
     setError("");
 
     try {
-      const messageBody = isFacilitiesScope
-        ? { session_id: activeSessionId, message: trimmed }
-        : { site_id: siteId, session_id: activeSessionId, message: trimmed };
-      const res = await fetch(`${apiBase}/message`, {
+      const messageBody =
+        activeChatType === "facility"
+          ? { session_id: activeSessionId, message: trimmed }
+          : { site_id: activeSession?.site_id || siteId, session_id: activeSessionId, message: trimmed };
+      const res = await fetch(`${messageApiBase}/message`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -322,29 +431,39 @@ export default function ChatWidget({
       const data = await res.json();
       if (data.detail) {
         setError(data.detail);
-        setMessages((prev) => prev.filter((m) => m !== optimisticUser));
+        setMessages((prev) => prev.filter((message) => message !== optimisticUser));
         setInput(trimmed);
         return;
       }
       const assistantMessageId = data.assistant_message_id || `assistant-${Date.now()}`;
       setMessages((prev) => [
         ...prev,
-        { id: assistantMessageId, role: "assistant", content: data.reply, ts: new Date().toISOString(), metadata: {} },
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          content: data.reply,
+          ts: new Date().toISOString(),
+          metadata: {},
+        },
       ]);
       setSessions((prev) =>
-        prev.map((s) =>
-          s.session_id === activeSessionId
+        prev.map((session) =>
+          session.session_id === activeSessionId
             ? {
-                ...s,
+                ...session,
                 updated_at: new Date().toISOString(),
-                title: isFirst && data.title ? data.title : s.title,
+                title: isFirst && data.title ? data.title : session.title,
+                display_label:
+                  isFirst && data.title
+                    ? formatHistoryLabel({ ...session, title: data.title })
+                    : session.display_label,
               }
-            : s,
+            : session,
         ),
       );
     } catch {
       setError("Failed to send message.");
-      setMessages((prev) => prev.filter((m) => m !== optimisticUser));
+      setMessages((prev) => prev.filter((message) => message !== optimisticUser));
       setInput(trimmed);
     } finally {
       setLoading(false);
@@ -361,23 +480,26 @@ export default function ChatWidget({
   }
 
   async function handleFeedback(messageId, feedback) {
-    if (!activeSessionId || !messageId) return;
-    if (!isFacilitiesScope && !siteId) return;
+    if (!activeSessionId || !messageId || !canInteractWithSession) return;
     setFeedbackState((prev) => ({ ...prev, [messageId]: feedback }));
     try {
-      const feedbackBody = isFacilitiesScope
-        ? { session_id: activeSessionId, message_id: messageId, feedback }
-        : { site_id: siteId, session_id: activeSessionId, message_id: messageId, feedback };
-      const res = await fetch(`${apiBase}/feedback`, {
+      const feedbackBody =
+        activeChatType === "facility"
+          ? { session_id: activeSessionId, message_id: messageId, feedback }
+          : {
+              site_id: activeSession?.site_id || siteId,
+              session_id: activeSessionId,
+              message_id: messageId,
+              feedback,
+            };
+      const res = await fetch(`${messageApiBase}/feedback`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(feedbackBody),
       });
       const data = await res.json();
-      if (data.detail) {
-        throw new Error(data.detail);
-      }
+      if (data.detail) throw new Error(data.detail);
     } catch {
       setError("Could not save feedback.");
       setFeedbackState((prev) => {
@@ -395,35 +517,38 @@ export default function ChatWidget({
     }
   }
 
-  function formatSessionTitle(session) {
-    if (session.title) return session.title;
-    const date = new Date(session.created_at);
-    return `Chat - ${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-  }
-
   function getMessageFeedback(message) {
     return feedbackState[message.id] || message?.metadata?.feedback?.value || "";
   }
 
-  // Title shown in the header for the active session
-  const activeSession = sessions.find((s) => s.session_id === activeSessionId);
-  const headerTitle = activeSession ? formatSessionTitle(activeSession) : (isFacilitiesScope ? "Facilities Assistant" : "Report Assistant");
-  const canShareConversation = !isFacilitiesScope && Boolean(activeSessionId && messages.length > 0);
-  const emptyStateMessage = "Hi, How are you?";
+  const headerTitle = activeSession
+    ? formatSessionTitle(activeSession)
+    : isFacilitiesScope
+      ? "Facilities Assistant"
+      : "Report Assistant";
+  const canShareConversation =
+    activeChatType === "site" &&
+    scope === "site" &&
+    activeSession?.site_id === siteId &&
+    Boolean(activeSessionId && messages.length > 0);
+  const emptyStateMessage = "Hi, how can I help today?";
 
   if (!isFacilitiesScope && !siteId) return null;
 
   return (
     <div className={`chat-widget${isOpen ? " chat-widget-open" : ""}`}>
-      {/* Toggle button */}
       <button
         className="chat-widget-toggle"
         type="button"
-          aria-label={isOpen ? "Close assistant" : "Ask Automatisor"}
+        aria-label={isOpen ? "Close assistant" : "Ask Automatisor"}
         onClick={() => {
-          setIsOpen((v) => {
-            if (v) setIsMaximized(false);
-            return !v;
+          setIsOpen((open) => {
+            if (open) {
+              setIsMaximized(false);
+              return false;
+            }
+            setIsMaximized(true);
+            return true;
           });
         }}
       >
@@ -435,14 +560,15 @@ export default function ChatWidget({
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
               d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             />
           </svg>
         )}
         <span className="chat-widget-toggle-label">{isOpen ? "Close" : "Ask Automatisor"}</span>
       </button>
 
-      {/* Panel */}
       {isOpen && (
         <div
           className={`chat-widget-panel${isMaximized ? " chat-widget-panel-maximized" : ""}`}
@@ -450,76 +576,82 @@ export default function ChatWidget({
           aria-label={isFacilitiesScope ? "Facilities assistant" : "Report assistant"}
           aria-expanded={isMaximized}
         >
-          {/* Header */}
           <div className="chat-widget-header">
             <div className="chat-widget-header-left">
-              {/* Clock / history button */}
-              <div className="chat-widget-history-wrap" ref={historyRef}>
-                <button
-                  className="chat-widget-history-btn"
-                  type="button"
-                  aria-label="Chat history"
-                  aria-expanded={historyOpen}
-                  onClick={() => setHistoryOpen((v) => !v)}
-                >
-                  {/* Clock icon */}
-                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <circle cx="12" cy="12" r="9" strokeWidth="2" />
-                    <path d="M12 7v5l3 3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
+              {!hideHistory && (
+                <div className="chat-widget-history-wrap" ref={historyRef}>
+                  <button
+                    className="chat-widget-history-btn"
+                    type="button"
+                    aria-label="Chat history"
+                    aria-expanded={historyOpen}
+                    onClick={() => setHistoryOpen((open) => !open)}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9" strokeWidth="2" />
+                      <path d="M12 7v5l3 3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
 
-                {/* History dropdown */}
-                {historyOpen && (
-                  <div className="chat-widget-history-dropdown">
-                    <div className="chat-widget-history-header">
-                      <span>History</span>
-                      <button
-                        className="chat-widget-history-new"
-                        type="button"
-                        onClick={handleNewChat}
-                        disabled={loading}
-                      >
-                        + New chat
-                      </button>
+                  {historyOpen && (
+                    <div className="chat-widget-history-dropdown">
+                      <div className="chat-widget-history-header">
+                        <span>History</span>
+                        <button
+                          className="chat-widget-history-new"
+                          type="button"
+                          onClick={handleNewChat}
+                          disabled={loading}
+                        >
+                          + New chat
+                        </button>
+                      </div>
+                      {sessionsLoading ? (
+                        <p className="chat-widget-history-empty">Loading...</p>
+                      ) : sessions.length === 0 ? (
+                        <p className="chat-widget-history-empty">No previous chats.</p>
+                      ) : (
+                        <div className="chat-widget-history-table">
+                          <div className="chat-widget-history-table-head">
+                            <span>Title</span>
+                            <span>Source</span>
+                          </div>
+                          <div className="chat-widget-history-table-body">
+                            {sessions.map((session) => (
+                              <button
+                                key={session.session_id}
+                                type="button"
+                                className={`chat-widget-history-row${session.session_id === activeSessionId ? " active" : ""}`}
+                                onClick={() => handleHistorySelect(session)}
+                              >
+                                <span className="chat-widget-history-col-title">
+                                  {formatSessionTitle(session)}
+                                </span>
+                                <span className="chat-widget-history-col-type">
+                                  {formatHistoryTypeCol(session)}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    {sessionsLoading ? (
-                      <p className="chat-widget-history-empty">Loading...</p>
-                    ) : sessions.length === 0 ? (
-                      <p className="chat-widget-history-empty">No previous chats.</p>
-                    ) : (
-                      <ul className="chat-widget-history-list">
-                        {sessions.map((session) => (
-                          <li key={session.session_id}>
-                            <button
-                              type="button"
-                              className={`chat-widget-history-item${session.session_id === activeSessionId ? " active" : ""}`}
-                              onClick={() => switchSession(session.session_id)}
-                            >
-                              <span className="chat-widget-history-item-title">
-                                {formatSessionTitle(session)}
-                              </span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
 
               <span className="chat-widget-title" title={headerTitle}>{headerTitle}</span>
             </div>
 
             <div className="chat-widget-header-actions">
-              {!isFacilitiesScope ? (
+              {canShareConversation ? (
                 <button
                   className="chat-widget-icon-btn"
                   type="button"
                   aria-label="Share conversation"
-                  title={canShareConversation ? "Share conversation" : "Start a conversation to share"}
+                  title="Share conversation"
                   onClick={() => setShowShareDialog(true)}
-                  disabled={!canShareConversation || loading}
+                  disabled={loading}
                 >
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" strokeWidth="2" strokeLinecap="round" />
@@ -533,7 +665,7 @@ export default function ChatWidget({
                 type="button"
                 aria-label={isMaximized ? "Restore chat size" : "Maximize chat"}
                 title={isMaximized ? "Restore" : "Maximize"}
-                onClick={() => setIsMaximized((v) => !v)}
+                onClick={() => setIsMaximized((maximized) => !maximized)}
               >
                 {isMaximized ? (
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -563,7 +695,6 @@ export default function ChatWidget({
             </div>
           </div>
 
-          {/* Messages */}
           <div className="chat-widget-messages" aria-live="polite" aria-atomic="false">
             {historyLoading ? (
               <p className="chat-widget-status">Loading conversation...</p>
@@ -575,61 +706,59 @@ export default function ChatWidget({
                   <span className="chat-widget-message-role">
                     {msg.role === "user" ? "You" : "Automatisor"}
                   </span>
-                  {msg.role === "assistant"
-                    ? (
-                      <>
-                        <div className="chat-widget-message-content chat-md">{renderMarkdown(msg.content)}</div>
-                        <div className="chat-widget-feedback-row" aria-label="Feedback controls">
-                          <button
-                            type="button"
-                            className={`chat-widget-feedback-btn${getMessageFeedback(msg) === "up" ? " active" : ""}`}
-                            aria-label="Helpful response"
-                            title="Helpful"
-                            onClick={() => handleFeedback(msg.id, "up")}
-                            disabled={!msg.id}
-                          >
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                              <path d="M7 11v9H4v-9h3zm4 9h6.6a2 2 0 0 0 2-1.6l1.2-7a2 2 0 0 0-2-2.4H13l1-4.8a2 2 0 0 0-2-2.4L7 11v9h4z" strokeWidth="2" strokeLinejoin="round" />
-                            </svg>
-                          </button>
-                          <button
-                            type="button"
-                            className={`chat-widget-feedback-btn${getMessageFeedback(msg) === "down" ? " active" : ""}`}
-                            aria-label="Unhelpful response"
-                            title="Not helpful"
-                            onClick={() => handleFeedback(msg.id, "down")}
-                            disabled={!msg.id}
-                          >
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                              <path d="M7 13V4H4v9h3zm4-9h6.6a2 2 0 0 1 2 1.6l1.2 7a2 2 0 0 1-2 2.4H13l1 4.8a2 2 0 0 1-2 2.4L7 13V4h4z" strokeWidth="2" strokeLinejoin="round" />
-                            </svg>
-                          </button>
-                          <button
-                            type="button"
-                            className="chat-widget-feedback-btn chat-widget-evidence-btn"
-                            aria-label="Explain with evidence"
-                            data-tooltip={EXPLAIN_WITH_EVIDENCE_QUERY}
-                            onClick={handleExplainWithEvidence}
-                            disabled={loading || !activeSessionId}
-                          >
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                              <circle cx="12" cy="12" r="9" strokeWidth="2" />
-                              <path d="M12 10v6" strokeWidth="2" strokeLinecap="round" />
-                              <circle cx="12" cy="7.25" r="1.1" fill="currentColor" stroke="none" />
-                            </svg>
-                          </button>
-                        </div>
-                      </>
-                    )
-                    : <p className="chat-widget-message-content">{msg.content}</p>
-                  }
+                  {msg.role === "assistant" ? (
+                    <>
+                      <div className="chat-widget-message-content chat-md">{renderMarkdown(msg.content)}</div>
+                      <div className="chat-widget-feedback-row" aria-label="Feedback controls">
+                        <button
+                          type="button"
+                          className={`chat-widget-feedback-btn${getMessageFeedback(msg) === "up" ? " active" : ""}`}
+                          aria-label="Helpful response"
+                          title="Helpful"
+                          onClick={() => handleFeedback(msg.id, "up")}
+                          disabled={!msg.id || !canInteractWithSession}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M7 11v9H4v-9h3zm4 9h6.6a2 2 0 0 0 2-1.6l1.2-7a2 2 0 0 0-2-2.4H13l1-4.8a2 2 0 0 0-2-2.4L7 11v9h4z" strokeWidth="2" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className={`chat-widget-feedback-btn${getMessageFeedback(msg) === "down" ? " active" : ""}`}
+                          aria-label="Unhelpful response"
+                          title="Not helpful"
+                          onClick={() => handleFeedback(msg.id, "down")}
+                          disabled={!msg.id || !canInteractWithSession}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M7 13V4H4v9h3zm4-9h6.6a2 2 0 0 1 2 1.6l1.2 7a2 2 0 0 1-2 2.4H13l1 4.8a2 2 0 0 1-2 2.4L7 13V4h4z" strokeWidth="2" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat-widget-feedback-btn chat-widget-evidence-btn"
+                          aria-label="Explain with evidence"
+                          data-tooltip={EXPLAIN_WITH_EVIDENCE_QUERY}
+                          onClick={handleExplainWithEvidence}
+                          disabled={loading || !activeSessionId || !canInteractWithSession}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9" strokeWidth="2" />
+                            <path d="M12 10v6" strokeWidth="2" strokeLinecap="round" />
+                            <circle cx="12" cy="7.25" r="1.1" fill="currentColor" stroke="none" />
+                          </svg>
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="chat-widget-message-content">{msg.content}</p>
+                  )}
                 </div>
               ))
             )}
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Error */}
           {error && <p className="chat-widget-error">{error}</p>}
 
           {loading && (
@@ -638,7 +767,6 @@ export default function ChatWidget({
             </div>
           )}
 
-          {/* Input */}
           <form className="chat-widget-form" onSubmit={handleSend}>
             <textarea
               ref={inputRef}
@@ -649,13 +777,13 @@ export default function ChatWidget({
               placeholder={isFacilitiesScope ? "Ask about your facilities..." : "Type a question..."}
               rows={2}
               maxLength={2000}
-              disabled={loading || !activeSessionId}
+              disabled={loading || !activeSessionId || !canInteractWithSession}
               aria-label="Message input"
             />
             <button
               className="chat-widget-send-btn"
               type="submit"
-              disabled={loading || !input.trim() || !activeSessionId}
+              disabled={loading || !input.trim() || !activeSessionId || !canInteractWithSession}
               aria-label="Send message"
             >
               Send

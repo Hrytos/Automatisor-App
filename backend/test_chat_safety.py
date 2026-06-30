@@ -63,6 +63,26 @@ def test_has_report_context_detects_nonempty_payload():
     assert chat._has_report_context(None) is False
 
 
+def test_street_city_from_full_address_uses_first_two_parts():
+    assert chat._street_city_from_full_address("123 Main St, Dallas, TX 75201") == "123 Main St, Dallas"
+    assert chat._street_city_from_full_address("Warehouse Rd") == "Warehouse Rd"
+    assert chat._street_city_from_full_address("") == ""
+
+
+def test_format_session_display_label_for_facility_and_site():
+    facility_label = chat._format_session_display_label(
+        {"title": "Ops review", "chat_type": chat.CHAT_TYPE_FACILITY},
+        None,
+    )
+    assert facility_label == "Ops review - facility"
+
+    site_label = chat._format_session_display_label(
+        {"title": "Picking lanes", "chat_type": chat.CHAT_TYPE_SITE},
+        {"company_name": "Acme", "full_address": "10 Industrial Blvd, Austin, TX"},
+    )
+    assert site_label == "Picking lanes - Acme(10 Industrial Blvd, Austin)"
+
+
 def test_collect_ready_facility_reports_only_includes_ready_with_context():
     sites_by_id = {
         "site-1": {

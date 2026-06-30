@@ -243,6 +243,96 @@ async def _get_facilities_session_messages(db, customer_id: str, session_id: str
     return _ensure_message_list_schema(list(rows[0].get("messages", []) or []))
 
 
+def _session_title_base(title: str | None, created_at: str | None) -> str:
+    if title and str(title).strip():
+        return str(title).strip()
+    if created_at:
+        try:
+            normalized = str(created_at).replace("Z", "+00:00")
+            dt = datetime.fromisoformat(normalized)
+            return dt.strftime("Chat - %m/%d/%Y %I:%M %p")
+        except ValueError:
+            pass
+    return "Chat"
+
+
+def _street_city_from_full_address(full_address: str) -> str:
+    parts = [part.strip() for part in str(full_address or "").split(",") if part.strip()]
+    if len(parts) >= 2:
+        return f"{parts[0]}, {parts[1]}"
+    return parts[0] if parts else ""
+
+
+def _format_session_display_label(row: dict, site_meta: dict | None) -> str:
+    title_base = _session_title_base(row.get("title"), row.get("created_at"))
+    chat_type = str(row.get("chat_type") or CHAT_TYPE_SITE).strip()
+    if chat_type == CHAT_TYPE_FACILITY:
+        return f"{title_base} - facility"
+    company = str((site_meta or {}).get("company_name") or "").strip()
+    address = _street_city_from_full_address(str((site_meta or {}).get("full_address") or ""))
+    if company and address:
+        location = f"{company}({address})"
+    else:
+        location = company or address or "site"
+    return f"{title_base} - {location}"
+
+
+async def _fetch_site_display_metadata(db, site_ids: list[str]) -> dict[str, dict]:
+    unique_ids = [site_id for site_id in dict.fromkeys(site_ids) if site_id]
+    if not unique_ids:
+        return {}
+    rows = await db.request(
+        "GET",
+        "/rest/v1/account_sites",
+        params={
+            "select": "site_id,company_name,full_address",
+            "site_id": f"in.({','.join(unique_ids)})",
+        },
+    )
+    return {str(row.get("site_id")): row for row in (rows or []) if row.get("site_id")}
+
+
+async def _enrich_session_rows(db, rows: list[dict]) -> list[dict]:
+    site_ids = [str(row.get("site_id")) for row in rows if row.get("site_id")]
+    site_meta_by_id = await _fetch_site_display_metadata(db, site_ids)
+    enriched: list[dict] = []
+    for row in rows:
+        site_id = str(row.get("site_id") or "").strip() or None
+        site_meta = site_meta_by_id.get(site_id or "", None)
+        enriched.append(
+            {
+                **row,
+                "chat_type": row.get("chat_type") or CHAT_TYPE_SITE,
+                "site_id": site_id,
+                "display_label": _format_session_display_label(row, site_meta),
+            }
+        )
+    return enriched
+
+
+async def _get_customer_session_row(
+    db,
+    customer_id: str,
+    session_id: str,
+    *,
+    select: str = "session_id,title,created_at,updated_at,chat_type,site_id,messages",
+) -> dict | None:
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_chatbot",
+        params={
+            "session_id": f"eq.{session_id}",
+            "customer_id": f"eq.{customer_id}",
+            "is_archived": "eq.false",
+            "select": select,
+            "limit": "1",
+        },
+    )
+    if not rows:
+        return None
+    return rows[0]
+
+
 async def _save_facilities_session_messages(
     db,
     customer_id: str,
@@ -271,14 +361,11 @@ async def _save_facilities_session_messages(
 
 
 # ---------------------------------------------------------------------------
-# GET /api/chat/sessions?site_id=...
+# GET /api/chat/sessions — unified history for the authenticated customer
 # ---------------------------------------------------------------------------
 @router.get("/api/chat/sessions")
 async def list_sessions(request: Request, site_id: str = ""):
     SupabaseAdmin, get_authenticated_customer, infer_error_status = _resolve_main_deps()
-    if not site_id:
-        return JSONResponse(status_code=400, content={"detail": "site_id is required"})
-
     db = SupabaseAdmin()
 
     try:
@@ -291,55 +378,34 @@ async def list_sessions(request: Request, site_id: str = ""):
 
     customer_id = customer["customer_id"]
 
-    # Verify ownership
-    try:
-        site_resp = await db.request(
-            "GET",
-            "/rest/v1/automatisor_customer_sites",
-            params={
-                "customer_id": f"eq.{customer_id}",
-                "site_id": f"eq.{site_id}",
-                "select": "site_id",
-                "limit": "1",
-            },
-        )
-    except Exception as exc:
-        return JSONResponse(status_code=500, content={"detail": str(exc)})
-
-    if not site_resp:
-        return JSONResponse(status_code=404, content={"detail": "Site not found"})
-
-    # Fetch sessions
     try:
         rows = await db.request(
             "GET",
             "/rest/v1/automatisor_chatbot",
             params={
                 "customer_id": f"eq.{customer_id}",
-                "site_id": f"eq.{site_id}",
-                "chat_type": f"eq.{CHAT_TYPE_SITE}",
                 "is_archived": "eq.false",
-                "select": "session_id,title,created_at,updated_at",
+                "select": "session_id,title,created_at,updated_at,chat_type,site_id",
                 "order": "updated_at.desc",
             },
         )
     except Exception as exc:
         return JSONResponse(status_code=500, content={"detail": str(exc)})
 
-    return {"sessions": rows or []}
+    sessions = await _enrich_session_rows(db, rows or [])
+    if site_id:
+        sessions = [row for row in sessions if row.get("chat_type") == CHAT_TYPE_SITE and row.get("site_id") == site_id]
+    return {"sessions": sessions}
 
 
 # ---------------------------------------------------------------------------
-# GET /api/chat/history?site_id=...&session_id=...
+# GET /api/chat/history?session_id=...
 # ---------------------------------------------------------------------------
 @router.get("/api/chat/history")
 async def get_history(request: Request, site_id: str = "", session_id: str = ""):
     SupabaseAdmin, get_authenticated_customer, infer_error_status = _resolve_main_deps()
-    if not site_id or not session_id:
-        return JSONResponse(
-            status_code=400,
-            content={"detail": "site_id and session_id are required"},
-        )
+    if not session_id:
+        return JSONResponse(status_code=400, content={"detail": "session_id is required"})
 
     db = SupabaseAdmin()
 
@@ -353,27 +419,30 @@ async def get_history(request: Request, site_id: str = "", session_id: str = "")
 
     customer_id = customer["customer_id"]
 
-    # Verify session ownership
     try:
-        rows = await db.request(
-            "GET",
-            "/rest/v1/automatisor_chatbot",
-            params={
-                "session_id": f"eq.{session_id}",
-                "customer_id": f"eq.{customer_id}",
-                "site_id": f"eq.{site_id}",
-                "chat_type": f"eq.{CHAT_TYPE_SITE}",
-                "select": "messages",
-                "limit": "1",
-            },
-        )
+        row = await _get_customer_session_row(db, customer_id, session_id)
     except Exception as exc:
         return JSONResponse(status_code=500, content={"detail": str(exc)})
 
-    if not rows:
+    if not row:
         return JSONResponse(status_code=404, content={"detail": "Session not found"})
 
-    return {"messages": _ensure_message_list_schema(list(rows[0].get("messages", []) or []))}
+    if site_id and row.get("chat_type") == CHAT_TYPE_SITE and str(row.get("site_id") or "") != site_id:
+        return JSONResponse(status_code=404, content={"detail": "Session not found"})
+
+    enriched = (await _enrich_session_rows(db, [row]))[0]
+    return {
+        "messages": _ensure_message_list_schema(list(row.get("messages", []) or [])),
+        "session": {
+            "session_id": enriched.get("session_id"),
+            "title": enriched.get("title"),
+            "chat_type": enriched.get("chat_type"),
+            "site_id": enriched.get("site_id"),
+            "display_label": enriched.get("display_label"),
+            "created_at": enriched.get("created_at"),
+            "updated_at": enriched.get("updated_at"),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -700,36 +769,13 @@ async def chat_feedback(request: Request):
 # ---------------------------------------------------------------------------
 @router.get("/api/chat/facilities/sessions")
 async def list_facilities_sessions(request: Request):
-    SupabaseAdmin, get_authenticated_customer, infer_error_status = _resolve_main_deps()
-    db = SupabaseAdmin()
-
-    try:
-        customer = await get_authenticated_customer(db, request)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        detail = str(exc)
-        return JSONResponse(status_code=infer_error_status(detail), content={"detail": detail})
-
-    customer_id = customer["customer_id"]
-
-    try:
-        rows = await db.request(
-            "GET",
-            "/rest/v1/automatisor_chatbot",
-            params={
-                "customer_id": f"eq.{customer_id}",
-                "chat_type": f"eq.{CHAT_TYPE_FACILITY}",
-                "site_id": "is.null",
-                "is_archived": "eq.false",
-                "select": "session_id,title,created_at,updated_at",
-                "order": "updated_at.desc",
-            },
-        )
-    except Exception as exc:
-        return JSONResponse(status_code=500, content={"detail": str(exc)})
-
-    return {"sessions": rows or []}
+    response = await list_sessions(request)
+    if isinstance(response, JSONResponse):
+        return response
+    sessions = [
+        row for row in (response.get("sessions") or []) if row.get("chat_type") == CHAT_TYPE_FACILITY
+    ]
+    return {"sessions": sessions}
 
 
 @router.get("/api/chat/facilities/history")

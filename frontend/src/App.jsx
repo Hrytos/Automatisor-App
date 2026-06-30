@@ -1445,6 +1445,7 @@ function SampleReportPage() {
           siteId={sampleSiteId}
           senderEmail={session?.email || ""}
           companyName="BR Williams"
+          hideHistory
         />
       ) : null}
     </main>
@@ -7486,6 +7487,7 @@ function ReportPage() {
       </section>
       {siteId ? (
         <ChatWidget
+          key={`${siteId}:${location.state?.chatSessionId || ""}`}
           siteId={siteId}
           senderEmail={session?.email || ""}
           companyName={selectedSite?.company_name || ""}
