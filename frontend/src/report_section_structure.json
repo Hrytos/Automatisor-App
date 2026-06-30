@@ -84,7 +84,7 @@
             },
             {
               "field": "building_age_year",
-              "label": "Building age / year of construction"
+              "label": "Building Age"
             },
             {
               "field": "clear_height",
@@ -136,12 +136,12 @@
               "label": "Trailer Loading/ Unloading"
             },
             {
-              "field": "inbound_sortation",
-              "label": "Inbound Sortation"
+              "field": "inventory_staging",
+              "label": "Inventory Staging"
             },
             {
-              "field": "staging",
-              "label": "Staging"
+              "field": "trailer_staging",
+              "label": "Trailer Staging"
             },
             {
               "field": "putaway",
@@ -283,10 +283,6 @@
             {
               "field": "recent_wage_increases",
               "label": "Recent wage increases (stated or implied)"
-            },
-            {
-              "field": "estimated_fully_loaded_annual_cost",
-              "label": "Estimated fully-loaded annual cost \u2014 transport/material movement workforce"
             }
           ]
         },
