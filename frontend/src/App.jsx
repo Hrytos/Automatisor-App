@@ -141,7 +141,8 @@ function loadReportContext() {
 
 function saveReportContext(nextState) {
   try {
-    window.sessionStorage.setItem(REPORT_CONTEXT_KEY, JSON.stringify(nextState));
+    const { chatSessionId, ...reportContext } = nextState || {};
+    window.sessionStorage.setItem(REPORT_CONTEXT_KEY, JSON.stringify(reportContext));
   } catch {
     // Ignore.
   }
@@ -7487,7 +7488,7 @@ function ReportPage() {
       </section>
       {siteId ? (
         <ChatWidget
-          key={`${siteId}:${location.state?.chatSessionId || ""}`}
+          key={siteId}
           siteId={siteId}
           senderEmail={session?.email || ""}
           companyName={selectedSite?.company_name || ""}

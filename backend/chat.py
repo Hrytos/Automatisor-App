@@ -75,6 +75,13 @@ router = APIRouter()
 CHAT_TYPE_SITE = "site"
 CHAT_TYPE_FACILITY = "facility"
 
+SITE_CHAT_SOURCE_TYPES = (
+    "OSHA Establishment",
+    "Building Permit",
+    "Image Analysis",
+    "OSHA Accidents",
+)
+
 
 def _get_openai_key() -> str:
     """Read at request time so the value is always current after dotenv load."""
@@ -103,6 +110,73 @@ def _build_user_context_payload(row: dict | None) -> str:
     if not isinstance(metadata, dict):
         return ""
     return str(metadata.get("context") or "").strip()
+
+
+def _metadata_has_content(metadata: Any) -> bool:
+    if metadata is None:
+        return False
+    if isinstance(metadata, dict):
+        if not metadata:
+            return False
+        return any(_metadata_has_content(value) for value in metadata.values())
+    if isinstance(metadata, list):
+        if not metadata:
+            return False
+        return any(_metadata_has_content(value) for value in metadata)
+    if isinstance(metadata, str):
+        return bool(metadata.strip())
+    return True
+
+
+def _build_source_site_context_from_rows(rows: list[dict] | None) -> dict[str, str]:
+    allowed = set(SITE_CHAT_SOURCE_TYPES)
+    payload: dict[str, str] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        source_type = row.get("source_type")
+        if source_type not in allowed or source_type in payload:
+            continue
+        metadata = row.get("metadata")
+        if not _metadata_has_content(metadata):
+            continue
+        payload[str(source_type)] = _serialize_context_payload(metadata)
+    return payload
+
+
+def _format_source_site_context_prompt_section(source_context: dict[str, str]) -> str:
+    if not source_context:
+        return ""
+    sections: list[str] = []
+    for source_type in SITE_CHAT_SOURCE_TYPES:
+        content = source_context.get(source_type)
+        if not content:
+            continue
+        sections.append(f"### {source_type}\n\n{content}")
+    if not sections:
+        return ""
+    body = "\n\n---\n\n".join(sections)
+    return (
+        "---\n\n"
+        "## SUPPORTING SOURCE EVIDENCE (internal reference — do not recite as a separate section)\n\n"
+        "Use only to corroborate or enrich report-based answers, or to answer when the report is silent — "
+        "woven naturally into your response per SUPPORTING SOURCE EVIDENCE RULES above.\n"
+        "When the report's **high-confidence** context conflicts with this evidence, prefer the report.\n\n"
+        f"{body}\n\n"
+        "---"
+    )
+
+
+async def _fetch_site_source_context(db, site_id: str) -> dict[str, str]:
+    rows = await db.request(
+        "GET",
+        "/rest/v1/automatisor_source_sites",
+        params={
+            "site_id": f"eq.{site_id}",
+            "select": "source_type,metadata",
+        },
+    )
+    return _build_source_site_context_from_rows(rows)
 
 
 def _normalize_reply_text(raw_reply: str) -> str:
@@ -598,6 +672,12 @@ async def send_message(request: Request):
         return JSONResponse(status_code=500, content={"detail": str(exc)})
     user_context = _build_user_context_payload(user_context_rows[0] if user_context_rows else None)
 
+    try:
+        source_site_context = await _fetch_site_source_context(db, site_id)
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+    source_site_context_block = _format_source_site_context_prompt_section(source_site_context)
+
     # Verify session ownership and fetch messages
     try:
         session_rows = await db.request(
@@ -634,6 +714,7 @@ async def send_message(request: Request):
             "content": SYSTEM_PROMPT_TEMPLATE.format(
                 report_context_high=report_context["report_context_high"],
                 report_context_all=report_context["report_context_all"],
+                source_site_context=source_site_context_block,
                 user_context=user_context,
             ),
         },

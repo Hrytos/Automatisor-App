@@ -15,6 +15,8 @@ class FakeDb:
     async def request(self, method, path, params=None, json_body=None, headers=None):
         if path == "/rest/v1/automatisor_customer_sites":
             return [{"report_context_high": {}, "report_context_all": {}}]
+        if path == "/rest/v1/automatisor_source_sites":
+            return []
         if path == "/rest/v1/automatisor_customer_context":
             return []
         if path == "/rest/v1/automatisor_chatbot" and method == "GET":
@@ -61,6 +63,40 @@ def test_has_report_context_detects_nonempty_payload():
     assert chat._has_report_context({"report_context_high": {"a": 1}}) is True
     assert chat._has_report_context({"report_context_high": {}, "report_context_all": {}}) is False
     assert chat._has_report_context(None) is False
+
+
+def test_metadata_has_content_skips_empty_values():
+    assert chat._metadata_has_content(None) is False
+    assert chat._metadata_has_content({}) is False
+    assert chat._metadata_has_content([]) is False
+    assert chat._metadata_has_content({"permits": []}) is False
+    assert chat._metadata_has_content({"establishment_id": "123"}) is True
+
+
+def test_build_source_site_context_from_rows_filters_types_and_empty_metadata():
+    rows = [
+        {"source_type": "OSHA Establishment", "metadata": {"establishment_id": "1"}},
+        {"source_type": "Building Permit", "metadata": {}},
+        {"source_type": "Google Reviews", "metadata": {"rating": 4.2}},
+        {"source_type": "Image Analysis", "metadata": {"dock_count": 12}},
+    ]
+    payload = chat._build_source_site_context_from_rows(rows)
+    assert set(payload.keys()) == {"OSHA Establishment", "Image Analysis"}
+    assert '"establishment_id":"1"' in payload["OSHA Establishment"]
+
+
+def test_format_source_site_context_prompt_section_omits_when_empty():
+    assert chat._format_source_site_context_prompt_section({}) == ""
+
+
+def test_format_source_site_context_prompt_section_includes_present_types():
+    section = chat._format_source_site_context_prompt_section(
+        {"OSHA Accidents": '{"incidents":1}'}
+    )
+    assert "## SUPPORTING SOURCE EVIDENCE" in section
+    assert "### OSHA Accidents" in section
+    assert "do not recite as a separate section" in section.lower()
+    assert "prefer the report" in section.lower()
 
 
 def test_street_city_from_full_address_uses_first_two_parts():
@@ -115,6 +151,64 @@ def test_collect_ready_facility_reports_only_includes_ready_with_context():
     reports = chat._collect_ready_facility_reports(sites_by_id, assignments)
     assert len(reports) == 1
     assert reports[0]["site_id"] == "site-1"
+
+
+@pytest.mark.asyncio
+async def test_send_message_includes_source_context_in_system_prompt(monkeypatch):
+    captured: dict = {}
+
+    class SourceDb(FakeDb):
+        async def request(self, method, path, params=None, json_body=None, headers=None):
+            if path == "/rest/v1/automatisor_source_sites":
+                return [
+                    {
+                        "source_type": "Building Permit",
+                        "metadata": {"permit_number": "BP-100"},
+                    }
+                ]
+            return await super().request(method, path, params=params, json_body=json_body, headers=headers)
+
+    async def fake_get_authenticated_customer(db, request):
+        return {"customer_id": "cust-1"}
+
+    def fake_infer_error_status(detail):
+        return 500
+
+    monkeypatch.setattr(
+        chat,
+        "_resolve_main_deps",
+        lambda: (SourceDb, fake_get_authenticated_customer, fake_infer_error_status),
+    )
+    monkeypatch.setattr(chat, "_get_openai_key", lambda: "test-key")
+
+    class FakeCompletion:
+        def __init__(self):
+            self.choices = [type("Choice", (), {"message": type("Message", (), {"content": "ok"})()})]
+
+    class FakeOpenAI:
+        def __init__(self, *args, **kwargs):
+            self.chat = type("ChatApi", (), {})()
+            self.chat.completions = type("Completions", (), {"create": self.create})()
+
+        async def create(self, *args, **kwargs):
+            captured["messages"] = kwargs.get("messages") or args[0]
+            return FakeCompletion()
+
+    monkeypatch.setattr(chat, "AsyncOpenAI", FakeOpenAI)
+
+    await chat.send_message(
+        FakeRequest(
+            {
+                "site_id": "site-1",
+                "session_id": "session-1",
+                "message": "Any recent building permits?",
+            }
+        )
+    )
+
+    system_prompt = captured["messages"][0]["content"]
+    assert "### Building Permit" in system_prompt
+    assert "BP-100" in system_prompt
 
 
 @pytest.mark.asyncio
