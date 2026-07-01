@@ -129,6 +129,34 @@ function inlineMarkdown(text) {
 }
 
 const EXPLAIN_WITH_EVIDENCE_QUERY = "explain with evidence";
+const CHAT_ACTIVE_SESSION_KEY = "automatisor_active_chat_v1";
+
+function chatScopeKey(scope, siteId) {
+  return scope === "facilities" ? "facility" : `site:${siteId}`;
+}
+
+function loadStoredChatSession(scopeKey) {
+  if (!scopeKey) return "";
+  try {
+    const raw = window.sessionStorage.getItem(CHAT_ACTIVE_SESSION_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    return typeof map[scopeKey] === "string" ? map[scopeKey] : "";
+  } catch {
+    return "";
+  }
+}
+
+function saveStoredChatSession(scopeKey, sessionId) {
+  if (!scopeKey || !sessionId) return;
+  try {
+    const raw = window.sessionStorage.getItem(CHAT_ACTIVE_SESSION_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    map[scopeKey] = sessionId;
+    window.sessionStorage.setItem(CHAT_ACTIVE_SESSION_KEY, JSON.stringify(map));
+  } catch {
+    // Ignore.
+  }
+}
 
 function chatApiBase(chatType) {
   return chatType === "facility" ? "/api/chat/facilities" : "/api/chat";
@@ -197,15 +225,18 @@ export default function ChatWidget({
   const isFacilitiesScope = scope === "facilities";
   const navigate = useNavigate();
   const location = useLocation();
-  // Capture once on mount — location.state is cleared after refresh, which is intentional.
-  const stateSessionIdRef = useRef(location.state?.chatSessionId || null);
-  const stateSessionId = stateSessionIdRef.current;
+  const scopeKey = chatScopeKey(scope, siteId);
+  const navSessionId = location.state?.chatSessionId || "";
+  const storedSessionId = navSessionId ? "" : loadStoredChatSession(scopeKey);
 
-  const [isOpen, setIsOpen] = useState(() => Boolean(stateSessionId));
-  const [isMaximized, setIsMaximized] = useState(() => Boolean(stateSessionId));
+  const preferredSessionIdRef = useRef(navSessionId || null);
+  const userLockedSessionIdRef = useRef(storedSessionId || null);
+
+  const [isOpen, setIsOpen] = useState(() => Boolean(navSessionId));
+  const [isMaximized, setIsMaximized] = useState(() => Boolean(navSessionId));
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessions, setSessions] = useState([]);
-  const [activeSessionId, setActiveSessionId] = useState(stateSessionId);
+  const [activeSessionId, setActiveSessionId] = useState(navSessionId || storedSessionId || null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -218,6 +249,30 @@ export default function ChatWidget({
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const historyRef = useRef(null);
+
+  function commitUserSessionChoice(sessionId) {
+    if (!sessionId) return;
+    userLockedSessionIdRef.current = sessionId;
+    preferredSessionIdRef.current = null;
+    if (!hideHistory) saveStoredChatSession(scopeKey, sessionId);
+  }
+
+  useEffect(() => {
+    const nextNavSessionId = location.state?.chatSessionId;
+    if (!nextNavSessionId) return;
+    preferredSessionIdRef.current = nextNavSessionId;
+    userLockedSessionIdRef.current = null;
+    setActiveSessionId(nextNavSessionId);
+    setIsOpen(true);
+    setIsMaximized(true);
+  }, [location.state?.chatSessionId]);
+
+  useEffect(() => {
+    if (!activeSessionId || hideHistory || !scopeKey) return;
+    if (userLockedSessionIdRef.current === activeSessionId) {
+      saveStoredChatSession(scopeKey, activeSessionId);
+    }
+  }, [activeSessionId, hideHistory, scopeKey]);
 
   const activeSession = sessions.find((session) => session.session_id === activeSessionId) || null;
   const activeChatType = activeSession?.chat_type || (isFacilitiesScope ? "facility" : "site");
@@ -269,6 +324,8 @@ export default function ChatWidget({
 
     if (hideHistory) {
       // Ephemeral mode — always start fresh, skip history fetch entirely.
+      userLockedSessionIdRef.current = null;
+      preferredSessionIdRef.current = null;
       createSessionForScope()
         .then((newSession) => {
           if (cancelled) return;
@@ -295,8 +352,20 @@ export default function ChatWidget({
           const list = data.sessions || [];
           setSessions(list);
 
-          const preferredId = pickDefaultSession(list, scope, siteId, stateSessionId);
+          const lockedId = userLockedSessionIdRef.current;
+          if (lockedId) {
+            const lockedSession = list.find((session) => session.session_id === lockedId);
+            if (lockedSession && sessionMatchesPage(lockedSession, scope, siteId)) {
+              setActiveSessionId(lockedId);
+              return;
+            }
+            userLockedSessionIdRef.current = null;
+          }
+
+          const preferredId = pickDefaultSession(list, scope, siteId, preferredSessionIdRef.current);
           if (preferredId) {
+            preferredSessionIdRef.current = null;
+            commitUserSessionChoice(preferredId);
             setActiveSessionId(preferredId);
             return;
           }
@@ -305,6 +374,7 @@ export default function ChatWidget({
             const newSession = await createSessionForScope();
             if (cancelled) return;
             setSessions((prev) => [newSession, ...prev.filter((session) => session.session_id !== newSession.session_id)]);
+            commitUserSessionChoice(newSession.session_id);
             setActiveSessionId(newSession.session_id);
           } catch {
             if (!cancelled) setError("Could not start a new chat.");
@@ -322,7 +392,7 @@ export default function ChatWidget({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, siteId, isFacilitiesScope, stateSessionId, scope, hideHistory]);
+  }, [isOpen, siteId, isFacilitiesScope, scope, hideHistory]);
 
   useEffect(() => {
     if (!activeSessionId) return;
@@ -381,6 +451,7 @@ export default function ChatWidget({
     try {
       const newSession = await createSessionForScope();
       setSessions((prev) => [newSession, ...prev]);
+      commitUserSessionChoice(newSession.session_id);
       setActiveSessionId(newSession.session_id);
       setMessages([]);
     } catch {
@@ -404,6 +475,7 @@ export default function ChatWidget({
     }
 
     setActiveSessionId(session.session_id);
+    commitUserSessionChoice(session.session_id);
   }
 
   async function sendMessage(text) {

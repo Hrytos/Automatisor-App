@@ -355,7 +355,17 @@
           "description": ""
         }
       },
-      "staging": {
+      "inventory_staging": {
+        "nature": {
+          "value": "",
+          "description": ""
+        },
+        "automation": {
+          "value": "",
+          "description": ""
+        }
+      },
+      "trailer_staging": {
         "nature": {
           "value": "",
           "description": ""
@@ -420,16 +430,6 @@
         }
       },
       "returns_handling": {
-        "nature": {
-          "value": "",
-          "description": ""
-        },
-        "automation": {
-          "value": "",
-          "description": ""
-        }
-      },
-      "inbound_sortation": {
         "nature": {
           "value": "",
           "description": ""
@@ -760,10 +760,6 @@
         "high_contradiction_reason": null
       },
       "wage_deviation_from_msa_min_wage": {
-        "value": "",
-        "description": ""
-      },
-      "estimated_fully_loaded_annual_cost": {
         "value": "",
         "description": ""
       }
