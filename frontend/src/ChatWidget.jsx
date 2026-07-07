@@ -7,6 +7,28 @@ import ShareChatDialog from "./ShareChatDialog.jsx";
  * Render a subset of markdown to React elements:
  *   **bold**, *italic*, `code`, bullets, numbered lists, blank-line paragraphs.
  */
+function parseTableCells(line) {
+  const cells = line.trim().split("|").map((c) => c.trim());
+  if (cells[0] === "") cells.shift();
+  if (cells[cells.length - 1] === "") cells.pop();
+  return cells;
+}
+
+function isTableSeparator(trimmed) {
+  // Matches both | --- | --- | and --- | --- formats
+  return /^\|?[\s]*:?-+:?[\s]*(\|[\s]*:?-+:?[\s]*)+\|?$/.test(trimmed);
+}
+
+function looksLikeTableRow(trimmed) {
+  // Must contain at least one | to be a table row
+  if (!trimmed.includes("|")) return false;
+  // Separator rows count as table rows
+  if (isTableSeparator(trimmed)) return true;
+  // Any line with | that isn't a bullet or ordered list item
+  if (/^[-*]\s/.test(trimmed) || /^\d+\.\s/.test(trimmed)) return false;
+  return true;
+}
+
 function renderMarkdown(text) {
   if (!text) return null;
 
@@ -14,6 +36,7 @@ function renderMarkdown(text) {
   const blocks = [];
   let paragraphLines = [];
   let listBlock = null;
+  let tableLines = null;
 
   function flushParagraph() {
     if (!paragraphLines.length) return;
@@ -32,17 +55,45 @@ function renderMarkdown(text) {
     listBlock = null;
   }
 
+  function flushTable() {
+    if (!tableLines) return;
+    // Need at least a header + separator + one data row to be a real table
+    const nonSep = tableLines.filter((l) => !isTableSeparator(l.trim()));
+    if (nonSep.length >= 1) {
+      const rows = nonSep.map(parseTableCells);
+      blocks.push({ type: "table", rows });
+    } else {
+      // Fall back — treat lines as paragraph text
+      tableLines.forEach((l) => paragraphLines.push(l));
+      flushParagraph();
+    }
+    tableLines = null;
+  }
+
   lines.forEach((rawLine) => {
     const line = rawLine.trimEnd();
     const trimmed = line.trim();
-    const unorderedMatch = trimmed.match(/^[-*]\s+(.+)$/);
-    const orderedMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+    const isTableRow = looksLikeTableRow(trimmed);
+    const unorderedMatch = !isTableRow && trimmed.match(/^[-*]\s+(.+)$/);
+    const orderedMatch = !isTableRow && trimmed.match(/^\d+\.\s+(.+)$/);
 
     if (!trimmed) {
       flushList();
+      flushTable();
       flushParagraph();
       return;
     }
+
+    if (isTableRow) {
+      flushList();
+      flushParagraph();
+      if (!tableLines) tableLines = [];
+      tableLines.push(line);
+      return;
+    }
+
+    // Non-table line — flush any pending table first
+    if (tableLines) flushTable();
 
     if (unorderedMatch || orderedMatch) {
       const type = unorderedMatch ? "ul" : "ol";
@@ -69,6 +120,7 @@ function renderMarkdown(text) {
   });
 
   flushList();
+  flushTable();
   flushParagraph();
 
   return blocks.map((block, bi) => {
@@ -89,6 +141,32 @@ function renderMarkdown(text) {
             <li key={ii}>{inlineMarkdown(item)}</li>
           ))}
         </ol>
+      );
+    }
+
+    if (block.type === "table") {
+      const [headerRow, ...dataRows] = block.rows;
+      return (
+        <div key={bi} className="chat-md-table-wrap">
+          <table className="chat-md-table">
+            <thead>
+              <tr>
+                {headerRow.map((cell, ci) => (
+                  <th key={ci}>{inlineMarkdown(cell)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {dataRows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => (
+                    <td key={ci}>{inlineMarkdown(cell)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       );
     }
 
@@ -130,6 +208,17 @@ function inlineMarkdown(text) {
 
 const EXPLAIN_WITH_EVIDENCE_QUERY = "explain with evidence";
 const CHAT_ACTIVE_SESSION_KEY = "automatisor_active_chat_v1";
+
+const SITE_CHAT_STARTER_PROMPTS = [
+  "Is this facility worth pursuing?",
+  "Help me prepare for a discovery call",
+  "How to position my solution to this site",
+];
+
+const FACILITIES_CHAT_STARTER_PROMPTS = [
+  "Recommend top 3 sites I must focus right now",
+  "Which of my sites should I disqualify immediately?",
+];
 
 function chatScopeKey(scope, siteId) {
   return scope === "facilities" ? "facility" : `site:${siteId}`;
@@ -542,6 +631,10 @@ export default function ChatWidget({
     }
   }
 
+  function handleStarterPrompt(prompt) {
+    sendMessage(prompt);
+  }
+
   function handleSend(event) {
     event.preventDefault();
     sendMessage(input);
@@ -604,6 +697,13 @@ export default function ChatWidget({
     activeSession?.site_id === siteId &&
     Boolean(activeSessionId && messages.length > 0);
   const emptyStateMessage = "Hi, how can I help today?";
+  const starterPrompts = isFacilitiesScope ? FACILITIES_CHAT_STARTER_PROMPTS : SITE_CHAT_STARTER_PROMPTS;
+  const showStarterPrompts =
+    !historyLoading &&
+    !sessionsLoading &&
+    messages.length === 0 &&
+    !error &&
+    canInteractWithSession;
 
   if (!isFacilitiesScope && !siteId) return null;
 
@@ -767,9 +867,15 @@ export default function ChatWidget({
             </div>
           </div>
 
-          <div className="chat-widget-messages" aria-live="polite" aria-atomic="false">
+          <div
+            className={`chat-widget-messages${showStarterPrompts ? " chat-widget-messages-empty" : ""}`}
+            aria-live="polite"
+            aria-atomic="false"
+          >
             {historyLoading ? (
               <p className="chat-widget-status">Loading conversation...</p>
+            ) : showStarterPrompts ? (
+              <p className="chat-widget-status chat-widget-greeting">{emptyStateMessage}</p>
             ) : messages.length === 0 && !error ? (
               <p className="chat-widget-status">{emptyStateMessage}</p>
             ) : (
@@ -830,6 +936,22 @@ export default function ChatWidget({
             )}
             <div ref={messagesEndRef} />
           </div>
+
+          {showStarterPrompts && (
+            <div className="chat-widget-starters-bar" role="group" aria-label="Suggested questions">
+              {starterPrompts.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  className="chat-widget-starter-btn"
+                  disabled={loading}
+                  onClick={() => handleStarterPrompt(prompt)}
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          )}
 
           {error && <p className="chat-widget-error">{error}</p>}
 
