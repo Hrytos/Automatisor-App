@@ -58,6 +58,8 @@ const SESSION_KEY = "automatisor_auth_workspace_v2";
 const REPORT_CONTEXT_KEY = "automatisor_selected_report_v1";
 const PRE_ASSESSMENT_CONTEXT_KEY = "automatisor_selected_pre_assessment_v1";
 const REPORT_CONFIDENCE_FILTERS = ["All", "High"];
+const REPORT_SCOPE_FILTERS = ["Site", "Account"];
+const REPORT_SCOPE_KEYS = ["account", "site"];
 const REPORT_RATING_FIELDS = [
   {
     key: "coverage",
@@ -397,18 +399,45 @@ function isWrappedReportField(value) {
     ("fetch_confidence" in value ||
       "confidence_score" in value ||
       "description" in value ||
+      "scopes" in value ||
       isSourceVariantReportValue(value.value) ||
       isSourceVariantReportValue(value.description))
   );
 }
 
-function isSourceVariantReportValue(value) {
+function isFlatSourceVariantReportValue(value) {
   return (
     value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
     ("high" in value || "all" in value)
   );
+}
+
+function isScopedSourceVariantReportValue(value) {
+  return (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    REPORT_SCOPE_KEYS.some((scope) => isFlatSourceVariantReportValue(value[scope]))
+  );
+}
+
+function isSourceVariantReportValue(value) {
+  return isFlatSourceVariantReportValue(value) || isScopedSourceVariantReportValue(value);
+}
+
+function resolveReportScopeKey(variants, activeScope) {
+  if (!variants?.scoped) return null;
+  const preferred = String(activeScope || "").toLowerCase();
+  if (preferred && variants.byScope?.[preferred]) return preferred;
+  return null;
+}
+
+function reportScopeLabel(scopeKey) {
+  if (!scopeKey) return "";
+  const preferred = String(scopeKey).toLowerCase();
+  return REPORT_SCOPE_FILTERS.find((scope) => scope.toLowerCase() === preferred) || reportLabelFromKey(scopeKey);
 }
 
 function reportLabelFromKey(key) {
@@ -483,6 +512,7 @@ function unwrapReportField(data) {
     return {
       value: data.value,
       description: data.description,
+      scopes: Array.isArray(data.scopes) ? data.scopes : null,
       confidence: reportConfidenceLabel(data.fetch_confidence, data.confidence_score),
     };
   }
@@ -490,46 +520,90 @@ function unwrapReportField(data) {
   return {
     value: data,
     description: "",
+    scopes: null,
     confidence: reportConfidenceLabel(),
   };
 }
 
-function sourceReportValueVariants(value, description) {
-  if (isSourceVariantReportValue(value) || isSourceVariantReportValue(description)) {
-    const high = isMissingReportValue(value?.high) ? "" : formatStructuredReportValue(value.high);
-    const all = isMissingReportValue(value?.all) ? "" : formatStructuredReportValue(value.all);
-    const highDescription = isMissingReportValue(description?.high) ? "" : formatStructuredReportValue(description.high);
-    const allDescription = isMissingReportValue(description?.all) ? "" : formatStructuredReportValue(description.all);
-    return {
-      high,
-      all,
-      highDescription,
-      allDescription,
-      highConfidence: high || highDescription ? "High" : "",
-      allConfidence: all || allDescription ? "Medium" : high || highDescription ? "High" : "",
-    };
+function flatSourceReportValueVariants(value, description) {
+  if (!isFlatSourceVariantReportValue(value) && !isFlatSourceVariantReportValue(description)) {
+    return null;
   }
-  return null;
+  const high = isMissingReportValue(value?.high) ? "" : formatStructuredReportValue(value.high);
+  const all = isMissingReportValue(value?.all) ? "" : formatStructuredReportValue(value.all);
+  const highDescription = isMissingReportValue(description?.high)
+    ? ""
+    : formatStructuredReportValue(description.high);
+  const allDescription = isMissingReportValue(description?.all)
+    ? ""
+    : formatStructuredReportValue(description.all);
+  return {
+    high,
+    all,
+    highDescription,
+    allDescription,
+    highConfidence: high || highDescription ? "High" : "",
+    allConfidence: all || allDescription ? "Medium" : high || highDescription ? "High" : "",
+  };
 }
 
-function sourceReportItemForFilter(item, activeFilter) {
+function sourceReportValueVariants(value, description) {
+  if (isScopedSourceVariantReportValue(value) || isScopedSourceVariantReportValue(description)) {
+    const byScope = {};
+    const scopes = [];
+    for (const scope of REPORT_SCOPE_KEYS) {
+      const flat = flatSourceReportValueVariants(value?.[scope], description?.[scope]);
+      if (!flat) continue;
+      byScope[scope] = flat;
+      scopes.push(scope);
+    }
+    if (!scopes.length) return null;
+    return { scoped: true, scopes, byScope };
+  }
+  return flatSourceReportValueVariants(value, description);
+}
+
+function displayFromReportVariants(variants, activeScope = null) {
+  if (!variants) return { value: "", description: "", confidence: "" };
+  const flat = variants.scoped
+    ? variants.byScope[resolveReportScopeKey(variants, activeScope)]
+    : variants;
+  if (!flat) return { value: "", description: "", confidence: "" };
+  return {
+    value: flat.all || flat.high || "",
+    description: flat.allDescription || flat.highDescription || "",
+    confidence: flat.allConfidence || flat.highConfidence || "",
+  };
+}
+
+function sourceReportItemForFilter(item, activeFilter, activeScope = null) {
   if (!item.variants) return item;
+
+  let flatVariants = item.variants;
+  let scope = item.scope || "";
+  if (item.variants.scoped) {
+    const scopeKey = resolveReportScopeKey(item.variants, activeScope);
+    flatVariants = item.variants.byScope?.[scopeKey];
+    if (!flatVariants) return null;
+    scope = reportScopeLabel(scopeKey);
+  }
 
   const variant =
     activeFilter === "High"
       ? "high"
-      : item.variants.all || item.variants.allDescription
+      : flatVariants.all || flatVariants.allDescription
         ? "all"
         : "high";
-  const value = item.variants[variant];
-  const description = item.variants[`${variant}Description`];
+  const value = flatVariants[variant];
+  const description = flatVariants[`${variant}Description`];
   if (isMissingReportValue(value) && isMissingReportValue(description)) return null;
 
   return {
     ...item,
     value,
     description,
-    confidence: variant === "high" ? item.variants.highConfidence : item.variants.allConfidence,
+    confidence: variant === "high" ? flatVariants.highConfidence : flatVariants.allConfidence,
+    scope,
   };
 }
 
@@ -538,18 +612,19 @@ function flattenStructuredReportRows(data, prefix = [], inheritedConfidence = {}
     if (isMissingReportValue(data.value) && isMissingReportValue(data.description)) return [];
     const id = prefix.join(".");
     const variants = sourceReportValueVariants(data.value, data.description);
+    const display = displayFromReportVariants(variants);
     return [
       {
         id,
         field: prefix.map(reportLabelFromKey).join(" / "),
-        value: variants ? variants.all || variants.high : formatStructuredReportValue(data.value),
+        value: variants ? display.value : formatStructuredReportValue(data.value),
         description: variants
-          ? variants.allDescription || variants.highDescription
+          ? display.description
           : isMissingReportValue(data.description)
             ? ""
             : formatStructuredReportValue(data.description),
         confidence: variants
-          ? variants.allConfidence || variants.highConfidence
+          ? display.confidence
           : reportConfidenceLabel(
               data.fetch_confidence ?? inheritedConfidence.fetch_confidence,
               data.confidence_score ?? inheritedConfidence.confidence_score,
@@ -686,28 +761,41 @@ function structuredOperationalSnapshotRowsFromConfig(reportData, table) {
       const automation = unwrapReportField(operationData?.automation);
       const natureVariants = sourceReportValueVariants(nature.value, nature.description);
       const automationVariants = sourceReportValueVariants(automation.value, automation.description);
+      const natureDisplay = displayFromReportVariants(natureVariants);
+      const automationDisplay = displayFromReportVariants(automationVariants);
       const natureValue = natureVariants
-        ? natureVariants.all || natureVariants.high
+        ? natureDisplay.value
         : isMissingReportValue(nature.value)
           ? ""
           : formatStructuredReportValue(nature.value);
       const natureDescription = natureVariants
-        ? natureVariants.allDescription || natureVariants.highDescription
+        ? natureDisplay.description
         : isMissingReportValue(nature.description)
           ? ""
           : formatStructuredReportValue(nature.description);
       const automationValue = automationVariants
-        ? automationVariants.all || automationVariants.high
+        ? automationDisplay.value
         : isMissingReportValue(automation.value)
           ? ""
           : formatStructuredReportValue(automation.value);
       const automationDescription = automationVariants
-        ? automationVariants.allDescription || automationVariants.highDescription
+        ? automationDisplay.description
         : isMissingReportValue(automation.description)
           ? ""
           : formatStructuredReportValue(automation.description);
 
-      if (!natureValue && !natureDescription && !automationValue && !automationDescription) return null;
+      // Keep variant-backed fields even when display is empty pre-filter (scoped
+      // values need activeScope before All/High/Site/Account resolution).
+      if (
+        !natureValue &&
+        !natureDescription &&
+        !automationValue &&
+        !automationDescription &&
+        !natureVariants &&
+        !automationVariants
+      ) {
+        return null;
+      }
 
       return {
         id: `${table.data_path}.${rowConfig.field}`,
@@ -729,7 +817,7 @@ function structuredOperationalSnapshotRowsFromConfig(reportData, table) {
             confidence: hideConfidence ? null : automation.confidence,
             variants: automationVariants,
           },
-        ].filter((field) => field.value || field.description),
+        ].filter((field) => field.value || field.description || field.variants),
         hideConfidence,
       };
     })
@@ -777,10 +865,10 @@ function structuredReportItemFromConfig(reportData, config, id, number, descript
   };
 }
 
-function filterStructuredReportItem(item, activeFilter, keepUnfiltered) {
+function filterStructuredReportItem(item, activeFilter, keepUnfiltered, activeScope = null) {
   if (item.tableType === "group") {
     const children = (item.children || [])
-      .map((child) => filterStructuredReportItem(child, activeFilter, keepUnfiltered))
+      .map((child) => filterStructuredReportItem(child, activeFilter, keepUnfiltered, activeScope))
       .filter((child) => child.rows.length > 0 || (child.children && child.children.length > 0));
     return {
       ...item,
@@ -796,7 +884,7 @@ function filterStructuredReportItem(item, activeFilter, keepUnfiltered) {
         .map((row) => ({
           ...row,
           fields: (row.fields || [])
-            .map((field) => sourceReportItemForFilter(field, activeFilter))
+            .map((field) => sourceReportItemForFilter(field, activeFilter, activeScope))
             .filter(
               (field) =>
                 field &&
@@ -815,10 +903,10 @@ function filterStructuredReportItem(item, activeFilter, keepUnfiltered) {
     rows:
       activeFilter === "All" || keepUnfiltered
         ? item.rows
-            .map((row) => sourceReportItemForFilter(row, activeFilter))
+            .map((row) => sourceReportItemForFilter(row, activeFilter, activeScope))
             .filter((row) => row && (row.variants || row.hideConfidence || row.confidence !== "Low"))
         : item.rows
-            .map((row) => sourceReportItemForFilter(row, activeFilter))
+            .map((row) => sourceReportItemForFilter(row, activeFilter, activeScope))
             .filter(
               (row) =>
                 row &&
@@ -837,6 +925,17 @@ function structuredItemRowCount(item) {
   return item.rows.length;
 }
 
+function bumpConfidenceCountsFromVariants(variants, counts) {
+  if (!variants) return;
+  if (variants.scoped) {
+    Object.values(variants.byScope || {}).forEach((flat) => bumpConfidenceCountsFromVariants(flat, counts));
+    return;
+  }
+  if ((variants.high || variants.highDescription) && counts.High !== undefined) {
+    counts.High += 1;
+  }
+}
+
 function collectStructuredConfidenceCounts(item, counts) {
   if (item.tableType === "group") {
     (item.children || []).forEach((child) => collectStructuredConfidenceCounts(child, counts));
@@ -847,9 +946,7 @@ function collectStructuredConfidenceCounts(item, counts) {
     if (item.tableType === "operational_snapshot") {
       (row.fields || []).forEach((field) => {
         if (field.variants) {
-          if ((field.variants.high || field.variants.highDescription) && counts.High !== undefined) {
-            counts.High += 1;
-          }
+          bumpConfidenceCountsFromVariants(field.variants, counts);
         } else if (
           !row.hideConfidence &&
           field.confidence &&
@@ -860,9 +957,7 @@ function collectStructuredConfidenceCounts(item, counts) {
         }
       });
     } else if (row.variants) {
-      if ((row.variants.high || row.variants.highDescription) && counts.High !== undefined) {
-        counts.High += 1;
-      }
+      bumpConfidenceCountsFromVariants(row.variants, counts);
     } else if (
       !row.hideConfidence &&
       row.confidence &&
@@ -873,6 +968,29 @@ function collectStructuredConfidenceCounts(item, counts) {
     }
   });
   return counts;
+}
+
+function collectStructuredAvailableScopes(item, scopes) {
+  if (item.tableType === "group") {
+    (item.children || []).forEach((child) => collectStructuredAvailableScopes(child, scopes));
+    return scopes;
+  }
+
+  const addFromVariants = (variants) => {
+    if (!variants?.scoped) return;
+    (variants.scopes || Object.keys(variants.byScope || {})).forEach((scope) => {
+      scopes.add(scope);
+    });
+  };
+
+  item.rows.forEach((row) => {
+    if (item.tableType === "operational_snapshot") {
+      (row.fields || []).forEach((field) => addFromVariants(field.variants));
+    } else {
+      addFromVariants(row.variants);
+    }
+  });
+  return scopes;
 }
 
 function makeStructuredReportSections(reportData) {
@@ -941,7 +1059,16 @@ function ReportConfidenceBadge({ label }) {
   );
 }
 
-function StructuredReportKeyValueTable({ rows, hideConfidenceColumn }) {
+function ReportScopeBadge({ label }) {
+  if (!label) return null;
+  return (
+    <span className={`structured-report-scope structured-report-scope-${label}`}>
+      {label}
+    </span>
+  );
+}
+
+function StructuredReportKeyValueTable({ rows, hideConfidenceColumn, showScopeColumn = false }) {
   const showConfidenceColumn = !hideConfidenceColumn && rows.some((row) => !row.hideConfidence);
 
   return (
@@ -952,6 +1079,7 @@ function StructuredReportKeyValueTable({ rows, hideConfidenceColumn }) {
             <th>Field</th>
             <th>Value</th>
             <th>Description</th>
+            {showScopeColumn && <th>Scope</th>}
             {showConfidenceColumn && <th>Confidence</th>}
           </tr>
         </thead>
@@ -961,6 +1089,11 @@ function StructuredReportKeyValueTable({ rows, hideConfidenceColumn }) {
               <td data-label="Field">{row.field}</td>
               <td data-label="Value">{row.value}</td>
               <td data-label="Description">{row.description}</td>
+              {showScopeColumn && (
+                <td data-label="Scope">
+                  <ReportScopeBadge label={row.scope} />
+                </td>
+              )}
               {showConfidenceColumn && (
                 <td data-label="Confidence">
                   {!row.hideConfidence && <ReportConfidenceBadge label={row.confidence} />}
@@ -1012,7 +1145,7 @@ function StructuredReportRecordsTable({ columns, rows, hideConfidenceColumn }) {
   );
 }
 
-function StructuredOperationalSnapshotTable({ rows }) {
+function StructuredOperationalSnapshotTable({ rows, showScopeColumn = false }) {
   return (
     <div className="structured-report-table-wrap">
       <table className="structured-report-table structured-report-records-table structured-report-operational-snapshot-table">
@@ -1021,6 +1154,7 @@ function StructuredOperationalSnapshotTable({ rows }) {
             <th>Operations</th>
             <th>Value</th>
             <th>Description</th>
+            {showScopeColumn && <th>Scope</th>}
             <th>Confidence</th>
           </tr>
         </thead>
@@ -1036,6 +1170,11 @@ function StructuredOperationalSnapshotTable({ rows }) {
                   <span>{field.value}</span>
                 </td>
                 <td data-label="Description">{field.description}</td>
+                {showScopeColumn && (
+                  <td data-label="Scope">
+                    <ReportScopeBadge label={field.scope} />
+                  </td>
+                )}
                 <td data-label="Confidence">
                   {!row.hideConfidence && field.confidence ? (
                     <ReportConfidenceBadge label={field.confidence} />
@@ -1054,7 +1193,7 @@ function toggleIdInList(list, id) {
   return list.includes(id) ? list.filter((itemId) => itemId !== id) : [...list, id];
 }
 
-function StructuredReportItem({ item, open, openChildIds, onToggle, onToggleChild }) {
+function StructuredReportItem({ item, open, openChildIds, onToggle, onToggleChild, showScopeColumn = false }) {
   const itemRowCount = structuredItemRowCount(item);
   const bodyId = `${item.id}-body`;
 
@@ -1109,9 +1248,16 @@ function StructuredReportItem({ item, open, openChildIds, onToggle, onToggleChil
                             hideConfidenceColumn={child.hideConfidence}
                           />
                         ) : child.tableType === "operational_snapshot" ? (
-                          <StructuredOperationalSnapshotTable rows={child.rows} />
+                          <StructuredOperationalSnapshotTable
+                            rows={child.rows}
+                            showScopeColumn={showScopeColumn}
+                          />
                         ) : (
-                          <StructuredReportKeyValueTable rows={child.rows} hideConfidenceColumn={child.hideConfidence} />
+                          <StructuredReportKeyValueTable
+                            rows={child.rows}
+                            hideConfidenceColumn={child.hideConfidence}
+                            showScopeColumn={showScopeColumn}
+                          />
                         )}
                       </div>
                     ) : null}
@@ -1126,9 +1272,13 @@ function StructuredReportItem({ item, open, openChildIds, onToggle, onToggleChil
               hideConfidenceColumn={item.hideConfidence}
             />
           ) : item.tableType === "operational_snapshot" ? (
-            <StructuredOperationalSnapshotTable rows={item.rows} />
+            <StructuredOperationalSnapshotTable rows={item.rows} showScopeColumn={showScopeColumn} />
           ) : (
-            <StructuredReportKeyValueTable rows={item.rows} hideConfidenceColumn={item.hideConfidence} />
+            <StructuredReportKeyValueTable
+              rows={item.rows}
+              hideConfidenceColumn={item.hideConfidence}
+              showScopeColumn={showScopeColumn}
+            />
           )}
         </div>
       )}
@@ -1136,7 +1286,16 @@ function StructuredReportItem({ item, open, openChildIds, onToggle, onToggleChil
   );
 }
 
-function StructuredReportSection({ section, open, openItemIds, openChildIdsByItem, onToggle, onToggleItem, onToggleChild }) {
+function StructuredReportSection({
+  section,
+  open,
+  openItemIds,
+  openChildIdsByItem,
+  onToggle,
+  onToggleItem,
+  onToggleChild,
+  showScopeColumn = false,
+}) {
   const bodyId = `${section.id}-body`;
 
   return (
@@ -1169,6 +1328,7 @@ function StructuredReportSection({ section, open, openItemIds, openChildIdsByIte
                 openChildIds={openChildIdsByItem[item.id] || []}
                 onToggle={() => onToggleItem(item.id)}
                 onToggleChild={(childId) => onToggleChild(item.id, childId)}
+                showScopeColumn={showScopeColumn}
               />
             ))}
           </div>
@@ -1180,6 +1340,7 @@ function StructuredReportSection({ section, open, openItemIds, openChildIdsByIte
 
 function StructuredPreAssessmentReport({ reportData, reportGeneratedDate = "" }) {
   const [activeFilter, setActiveFilter] = useState("All");
+  const [activeScope, setActiveScope] = useState("Site");
   const [menuOpen, setMenuOpen] = useState(false);
   const sections = useMemo(() => makeStructuredReportSections(reportData), [reportData]);
   const [openSectionIds, setOpenSectionIds] = useState(() => sections[0]?.id ? [sections[0].id] : []);
@@ -1192,18 +1353,34 @@ function StructuredPreAssessmentReport({ reportData, reportGeneratedDate = "" })
     });
     return ["All", ...REPORT_CONFIDENCE_FILTERS.filter((filter) => filter !== "All" && counts[filter] > 0)];
   }, [sections]);
+  const availableScopes = useMemo(() => {
+    const scopes = new Set();
+    sections.forEach((section) => {
+      section.items.forEach((item) => collectStructuredAvailableScopes(item, scopes));
+    });
+    // Legacy flat {high,all} reports have no account/site nesting — hide Scope entirely.
+    if (!scopes.size) return [];
+    return REPORT_SCOPE_FILTERS.filter((scope) => scopes.has(scope.toLowerCase()));
+  }, [sections]);
   useEffect(() => {
     if (!availableFilters.includes(activeFilter)) {
       setActiveFilter("All");
     }
   }, [activeFilter, availableFilters]);
+  useEffect(() => {
+    if (availableScopes.length && !availableScopes.includes(activeScope)) {
+      setActiveScope(availableScopes[0]);
+    }
+  }, [activeScope, availableScopes]);
   const filteredSections = useMemo(
     () =>
       sections
         .map((section) => {
           const keepSectionUnfiltered = section.id === "account_snapshot";
           const items = section.items
-            .map((item) => filterStructuredReportItem(item, activeFilter, keepSectionUnfiltered))
+            .map((item) =>
+              filterStructuredReportItem(item, activeFilter, keepSectionUnfiltered, activeScope),
+            )
             .filter((item) => structuredItemRowCount(item) > 0);
           return {
             ...section,
@@ -1212,7 +1389,7 @@ function StructuredPreAssessmentReport({ reportData, reportGeneratedDate = "" })
           };
         })
         .filter((section) => section.items.length > 0),
-    [activeFilter, sections],
+    [activeFilter, activeScope, sections],
   );
   const visibleOpenSectionIds = openSectionIds.filter((sectionId) =>
     filteredSections.some((section) => section.id === sectionId),
@@ -1342,18 +1519,41 @@ function StructuredPreAssessmentReport({ reportData, reportGeneratedDate = "" })
           </nav>
         ) : null}
 
-        <section className="structured-report-filter-bar" aria-label="Confidence filter">
-          {availableFilters.map((filter) => (
-            <button
-              className={activeFilter === filter ? "active" : ""}
-              key={filter}
-              onClick={() => setActiveFilter(filter)}
-              type="button"
-            >
-              {filter}
-            </button>
-          ))}
-        </section>
+        <div className="structured-report-filters">
+          <section className="structured-report-filter-group" aria-label="Accuracy filter">
+            <span className="structured-report-filter-label">Accuracy</span>
+            <div className="structured-report-filter-bar">
+              {availableFilters.map((filter) => (
+                <button
+                  className={activeFilter === filter ? "active" : ""}
+                  key={filter}
+                  onClick={() => setActiveFilter(filter)}
+                  type="button"
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {availableScopes.length > 0 ? (
+            <section className="structured-report-filter-group" aria-label="Scope filter">
+              <span className="structured-report-filter-label">Scope</span>
+              <div className="structured-report-filter-bar">
+                {availableScopes.map((scope) => (
+                  <button
+                    className={activeScope === scope ? "active" : ""}
+                    key={scope}
+                    onClick={() => setActiveScope(scope)}
+                    type="button"
+                  >
+                    {scope}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
 
         <div className="structured-report-panel-stack">
           {filteredSections.map((section) => (
@@ -1368,6 +1568,7 @@ function StructuredPreAssessmentReport({ reportData, reportGeneratedDate = "" })
               }
               onToggleItem={(itemId) => toggleItem(section.id, itemId)}
               onToggleChild={toggleChild}
+              showScopeColumn={availableScopes.length > 0}
             />
           ))}
         </div>
