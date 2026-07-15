@@ -219,6 +219,7 @@ SERVICE_API_PREFIXES = (
     "/customer-sites",
     "/debug",
     "/frontend-config",
+    "/health",
     "/onboarding",
     "/pre-assessment",
     "/signup",
@@ -242,6 +243,19 @@ async def normalize_vercel_service_api_prefix(request: Request, call_next):
     if not path.startswith("/api/") and path.startswith(SERVICE_API_PREFIXES):
         request.scope["path"] = f"/api{path}"
     return await call_next(request)
+
+
+@app.middleware("http")
+async def prevent_api_caching(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.get("/api/health")
+async def health_check() -> dict[str, str]:
+    return {"status": "healthy"}
 
 
 class SupabaseAdmin:

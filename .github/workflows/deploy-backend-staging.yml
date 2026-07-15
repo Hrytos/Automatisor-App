@@ -1,0 +1,83 @@
+# Deploys the FastAPI backend to ECS Express (staging).
+# Frontend stays on Amplify (auto-builds on push to the connected branch).
+#
+# Prerequisites (one-time AWS):
+#   1. GitHub OIDC provider for token.actions.githubusercontent.com
+#   2. IAM role github-actions-automatisor-staging (trust + ECR/ECS perms)
+#   3. Repo variable AWS_ROLE_ARN_STAGING = that role ARN
+#
+# See Docs/AWS_AMPLIFY_ECS_SEPARATED_DEPLOYMENT_PLAN.md §16.
+
+name: Deploy backend (staging)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "Dockerfile.backend"
+      - ".dockerignore"
+      - ".github/workflows/deploy-backend-staging.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: automatisor-backend
+  IMAGE_TAG_STAGING: staging
+  # Express Mode service in the default cluster
+  ECS_SERVICE_ARN: arn:aws:ecs:us-east-1:463470945336:service/default/automatisor-backend-staging
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_STAGING }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image
+        id: build
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}"
+          docker build -f Dockerfile.backend \
+            -t "${IMAGE_URI}:${IMAGE_TAG_STAGING}" \
+            -t "${IMAGE_URI}:${GITHUB_SHA}" \
+            .
+          docker push "${IMAGE_URI}:${IMAGE_TAG_STAGING}"
+          docker push "${IMAGE_URI}:${GITHUB_SHA}"
+          echo "image=${IMAGE_URI}:${IMAGE_TAG_STAGING}" >> "$GITHUB_OUTPUT"
+          echo "image_sha=${IMAGE_URI}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Update ECS Express service (image only)
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: |
+          set -euo pipefail
+          # Pass only image so Express keeps existing env/secrets/port.
+          aws ecs update-express-gateway-service \
+            --service-arn "${ECS_SERVICE_ARN}" \
+            --primary-container "{\"image\": \"${IMAGE}\"}" \
+            --region "${AWS_REGION}"
+
+      - name: Summary
+        run: |
+          echo "Pushed \`${{ steps.build.outputs.image }}\` and \`${{ steps.build.outputs.image_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Updated Express service \`${ECS_SERVICE_ARN}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Smoke-check: https://au-3ec03eef917a499294d63b77779aac97.ecs.us-east-1.on.aws/api/health" >> "$GITHUB_STEP_SUMMARY"
