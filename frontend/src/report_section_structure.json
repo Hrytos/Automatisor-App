@@ -84,7 +84,7 @@
             },
             {
               "field": "building_age_year",
-              "label": "Building Age"
+              "label": "Building Age/Year"
             },
             {
               "field": "clear_height",
