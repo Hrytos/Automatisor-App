@@ -17,3 +17,4 @@ share_feature_implementation_status.md
 to-fix.md
 chatbot_converstaion.json
 expla.md
+infra/billing-cron/*.zip
