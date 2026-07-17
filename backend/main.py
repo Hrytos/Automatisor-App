@@ -80,6 +80,13 @@ STRIPE_PUBLISHABLE_KEY = (
     or ""
 )
 PRICE_PER_CREDIT_USD_CENTS = 5000  # $50.00 per credit
+BILLING_PERIOD_DAYS = 30
+
+
+def next_billing_period_end(from_dt: datetime) -> datetime:
+    """Rolling 30-day billing window (not calendar-month)."""
+    return from_dt + timedelta(days=BILLING_PERIOD_DAYS)
+
 
 stripe.api_key = STRIPE_SECRET_KEY
 
@@ -4979,7 +4986,7 @@ async def confirm_payment_method(request: Request, body: dict[str, Any] = Body(d
     if not customer.get("billing_period_start") or not customer.get("billing_period_end"):
         now = datetime.now(timezone.utc)
         patch["billing_period_start"] = now.isoformat()
-        patch["billing_period_end"] = (now + timedelta(days=30)).isoformat()
+        patch["billing_period_end"] = next_billing_period_end(now).isoformat()
 
     await db.request(
         "PATCH",
@@ -5214,10 +5221,7 @@ async def stripe_webhook(request: Request) -> dict[str, Any]:
             )
             if stale_customers:
                 customer_id = stale_customers[0]["customer_id"]
-                if now_utc.month == 12:
-                    next_period_end = datetime(now_utc.year + 1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-                else:
-                    next_period_end = datetime(now_utc.year, now_utc.month + 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+                next_period_end = next_billing_period_end(now_utc)
                 await db.request(
                     "PATCH",
                     "/rest/v1/automatisor_customer",
@@ -5309,11 +5313,8 @@ async def _process_billing_period(db: SupabaseAdmin, customer: dict[str, Any], n
     total_credits = sum(int(r.get("credits_used") or 0) for r in usage_rows)
     row_ids = [r["billing_id"] for r in usage_rows]
 
-    # Open next billing period
-    if now.month == 12:
-        next_period_end = datetime(now.year + 1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    else:
-        next_period_end = datetime(now.year, now.month + 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    # Open next rolling 30-day billing period
+    next_period_end = next_billing_period_end(now)
 
     await db.request(
         "PATCH",
