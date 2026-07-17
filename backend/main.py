@@ -5189,14 +5189,17 @@ async def stripe_webhook(request: Request) -> dict[str, Any]:
     except Exception:
         raise HTTPException(status_code=400, detail="Malformed webhook payload")
 
-    event_type = event["type"]
+    # StripeObject does not reliably support dict.get(); normalize first.
+    event_data = event.to_dict() if hasattr(event, "to_dict") else dict(event)
+    event_type = event_data["type"]
+    data_object = event_data.get("data", {}).get("object") or {}
 
     if event_type == "invoice.payment_succeeded":
         # Roll the billing window forward if it hasn't been already.
         # The cron does this before creating an invoice, so this handles the case
         # where an invoice was paid manually (e.g. via the billing UI) and the
         # billing period was never advanced.
-        stripe_cust_id = event["data"]["object"].get("customer", "")
+        stripe_cust_id = data_object.get("customer") or ""
         if stripe_cust_id:
             db = get_admin_db()
             now_utc = datetime.now(timezone.utc)
@@ -5235,7 +5238,7 @@ async def stripe_webhook(request: Request) -> dict[str, Any]:
     elif event_type == "payment_method.detached":
         # A card was removed (e.g. via the Customer Portal). Clear it from our DB so the
         # billing cron does not attempt to charge a detached payment method.
-        pm_id = event["data"]["object"].get("id", "")
+        pm_id = data_object.get("id") or ""
         if pm_id:
             db = get_admin_db()
             await db.request(
