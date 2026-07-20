@@ -1,0 +1,12 @@
+[
+  {
+    "source": "/api/<*>",
+    "target": "https://au-d1ca31a510504feaac32edb0a4bfa0da.ecs.us-east-1.on.aws/api/<*>",
+    "status": "200"
+  },
+  {
+    "source": "</^[^.]+$|\\.(?!(css|gif|ico|jpg|jpeg|js|png|txt|svg|woff|woff2|ttf|map|json|webp)$)([^.]+$)/>",
+    "target": "/index.html",
+    "status": "200"
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "Name": "automatisor-billing-cron-production",
+  "ScheduleExpression": "cron(0 1 * * ? *)",
+  "ScheduleExpressionTimezone": "UTC",
+  "FlexibleTimeWindow": { "Mode": "OFF" },
+  "State": "DISABLED",
+  "Target": {
+    "Arn": "arn:aws:lambda:us-east-1:463470945336:function:automatisor-billing-cron-production",
+    "RoleArn": "arn:aws:iam::463470945336:role/automatisor-billing-cron-scheduler-production"
+  }
+}
