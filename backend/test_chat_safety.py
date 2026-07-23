@@ -99,6 +99,34 @@ def test_format_source_site_context_prompt_section_includes_present_types():
     assert "prefer the report" in section.lower()
 
 
+def test_system_prompt_includes_scope_analyser_guidance():
+    prompt = chat.SYSTEM_PROMPT_TEMPLATE.format(
+        report_context_high='{"filter":"High","sections":[]}',
+        report_context_all='{"filter":"All","sections":[]}',
+        source_site_context="",
+        user_context="",
+    )
+    assert "## SCOPE ANALYSER" in prompt
+    assert "`scopes`" in prompt
+    assert "`site`" in prompt
+    assert "`account`" in prompt
+    assert "orthogonal to site/account scope" in prompt
+    assert "scopes[{scope,value,description}]" in prompt
+    assert "{value, description}" in prompt
+
+
+def test_facilities_system_prompt_includes_scope_analyser_guidance():
+    prompt = chat.FACILITIES_SYSTEM_PROMPT_TEMPLATE.format(
+        facility_reports="[]",
+        user_context="",
+    )
+    assert "## SCOPE ANALYSER" in prompt
+    assert "`scopes`" in prompt
+    assert "`site`" in prompt
+    assert "`account`" in prompt
+    assert "Apply the Scope Analyser when reading it." in prompt
+
+
 def test_street_city_from_full_address_uses_first_two_parts():
     assert chat._street_city_from_full_address("123 Main St, Dallas, TX 75201") == "123 Main St, Dallas"
     assert chat._street_city_from_full_address("Warehouse Rd") == "Warehouse Rd"
